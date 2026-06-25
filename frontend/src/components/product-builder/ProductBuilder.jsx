@@ -494,7 +494,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           <div className="overline mb-2">Product sent for approval</div>
           <h1 className="font-display text-5xl uppercase mb-4">Artwork review pending</h1>
           <p className="text-sm text-zinc-400 leading-relaxed mb-5">
-            Your product is saved but not live yet. FandomForge will review the artwork and production cost before publishing.
+            Your product has been submitted for artwork review. Approval usually takes 2–3 working days.
           </p>
           <div className="grid sm:grid-cols-2 gap-3 text-sm mb-6">
             <Info label="Product" value={submittedProduct.title || "New product"} />
@@ -860,7 +860,7 @@ function DetailsStep({ isAdmin, creators, productTypes = [], selectedProductType
 
             <div>
               <div className="flex items-center justify-between gap-3 mb-2">
-                <label className="label mb-0">Product specs</label>
+                <label className="label mb-0">Specs / Features</label>
                 <TextFormatToolbar field="specs" onFormat={applyTextFormat} />
               </div>
               <textarea
@@ -886,7 +886,7 @@ function DetailsStep({ isAdmin, creators, productTypes = [], selectedProductType
                   <input type="checkbox" checked={Boolean(form.publish_on_approval)} onChange={(e) => update("publish_on_approval", e.target.checked)} />
                   <span>
                     <span className="font-bold text-white">Publish automatically after approval</span>
-                    <span className="block text-xs text-zinc-500 mt-1">The product stays unpublished until artwork review is approved.</span>
+                    <span className="block text-xs text-zinc-500 mt-1">If enabled, your product will go live automatically once artwork is approved. If disabled, you can publish it manually after approval.</span>
                   </span>
                 </label>
                 <div className="text-xs text-zinc-500 border border-white/10 rounded-xl p-3">Creator template products stay unpublished until artwork review is approved.</div>
