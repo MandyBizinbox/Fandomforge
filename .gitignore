@@ -48,3 +48,12 @@ fandomforge-build-work-*/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local recovery / agent / diagnostic artifacts
+.emergent/
+.patch-backups/
+.phase-backups/
+memory/
+test_reports/
+compare-current-vs-*.txt
+source-recovery-diff-report-*.txt
