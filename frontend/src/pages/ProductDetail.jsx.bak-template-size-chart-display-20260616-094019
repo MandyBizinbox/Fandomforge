@@ -1,0 +1,227 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { http } from "../lib/api";
+import Navbar from "../components/Navbar";
+import Customizer from "../components/Customizer";
+import { useCart } from "../context/CartContext";
+import { toast } from "sonner";
+import ProductGallery from "../components/product/ProductGallery";
+import VariationSelector from "../components/product/VariationSelector";
+import {
+  buildInitialSelection,
+  findSelectedVariation,
+  getProductGalleryImages,
+  getProductPrimaryImage,
+  getVariationColour,
+  getVariationLabel,
+  getVariationSize,
+  resolveArtworkGroup,
+} from "../components/product/productDisplayUtils";
+
+export default function ProductDetail() {
+  const { id } = useParams();
+  const [product, setProduct] = useState(null);
+  const [selected, setSelected] = useState({});
+  const [qty, setQty] = useState(1);
+  const [showCustomizer, setShowCustomizer] = useState(false);
+  const [customization, setCustomization] = useState(null);
+  const [creator, setBand] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const { addItem } = useCart();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function load() {
+      setLoading(true);
+      try {
+        const productResponse = await http.get(`/products/${id}`);
+        const loadedProduct = productResponse.data;
+        if (!mounted) return;
+
+        setProduct(loadedProduct);
+        setSelected(buildInitialSelection(loadedProduct));
+
+        const bandsResponse = await http.get("/creators").catch(() => ({ data: [] }));
+        if (!mounted) return;
+        setBand((bandsResponse.data || []).find((creator) => creator.id === loadedProduct.band_id) || null);
+      } catch (error) {
+        toast.error(error.response?.data?.detail || "Product could not be loaded");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    load();
+
+    return () => {
+      mounted = false;
+    };
+  }, [id]);
+
+  const variation = useMemo(() => findSelectedVariation(product || {}, selected), [product, selected]);
+  const artworkGroup = useMemo(() => resolveArtworkGroup(product || {}, variation), [product, variation]);
+  const galleryImages = useMemo(() => getProductGalleryImages(product || {}, variation), [product, variation]);
+  const unitPrice = variation?.price_override ?? product?.selling_price ?? 0;
+  const variationLabel = variation ? getVariationLabel(variation) : "";
+
+  if (loading || !product) {
+    return (
+      <div className="min-h-screen page-shell">
+        <Navbar />
+        <div className="pt-32 overline text-center">Loading…</div>
+      </div>
+    );
+  }
+
+  const addToCart = () => {
+    if (!variation) {
+      toast.error("Pick an available variation");
+      return;
+    }
+
+    const mockupUrl = customization?.preview_image || getProductPrimaryImage(product, variation);
+
+    addItem({
+      product_id: product.id,
+      product_title: product.title,
+      band_id: product.band_id,
+      variation_id: variation.id,
+      size: getVariationSize(variation),
+      color: getVariationColour(variation),
+      attribute_values: variation.attribute_values || {},
+      variation_label: variationLabel,
+      artwork_group_id: artworkGroup?.id || null,
+      artwork_group_label: artworkGroup?.label || null,
+      unit_price: Number(unitPrice || 0),
+      quantity: qty,
+      mockup_url: mockupUrl,
+      mockup_images: galleryImages,
+      primary_mockup_image_url: mockupUrl,
+      customization,
+    });
+
+    toast.success("Added to cart", { description: product.title });
+    navigate("/cart");
+  };
+
+  return (
+    <div className="min-h-screen page-shell">
+      <Navbar />
+      <div className="pt-24 pb-16">
+        <div className="max-w-7xl mx-auto px-6 md:px-10">
+          {showCustomizer ? (
+            <>
+              <div className="overline mb-4">Customize — {product.title}</div>
+              <Customizer
+                mockupUrl={getProductPrimaryImage(product, variation)}
+                onCancel={() => setShowCustomizer(false)}
+                onSave={(data) => {
+                  setCustomization(data);
+                  setShowCustomizer(false);
+                  toast.success("Design saved");
+                }}
+              />
+            </>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-12">
+              <div>
+                <ProductGallery product={product} variation={variation} customization={customization} />
+
+                {artworkGroup && (
+                  <div className="card mt-4 text-sm" data-testid="product-artwork-group">
+                    <div className="overline mb-2">Artwork set</div>
+                    <div className="font-bold">{artworkGroup.label}</div>
+                    <div className="text-xs text-[var(--ff-muted-text)] mt-1">
+                      {artworkGroup.scope_type === "all" && "Applies to all selected variations."}
+                      {artworkGroup.scope_type === "attribute" && `${artworkGroup.attribute_key}: ${artworkGroup.attribute_value}`}
+                      {artworkGroup.scope_type === "variation" && "Specific variation artwork."}
+                      {artworkGroup.scope_type === "custom" && "Custom artwork group."}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                {creator && (<div className="overline mb-3" data-testid="product-creator-name">{creator.name}</div>)}
+                <h1 className="font-display text-5xl md:text-6xl uppercase leading-none mb-4" data-testid="product-title">{product.title}</h1>
+                <div className="text-3xl font-bold mb-6" data-testid="product-price">R {Number(unitPrice).toFixed(2)}</div>
+                <p className="text-[var(--ff-muted-text)] leading-relaxed mb-8" data-testid="product-description">{product.description}</p>
+
+                <div className="space-y-6">
+                  <VariationSelector
+                    product={product}
+                    selected={selected}
+                    onSelectedChange={setSelected}
+                    selectedVariation={variation}
+                  />
+
+                  {variation && (
+                    <div className="card text-sm" data-testid="selected-variation-summary">
+                      <div className="overline mb-2">Selected variation</div>
+                      <div className="font-bold">{variationLabel}</div>
+                      {variation.sku && <div className="text-xs text-[var(--ff-muted-text)] mt-1">SKU: {variation.sku}</div>}
+                    </div>
+                  )}
+
+                  {variation && variation.stock_status === "out_of_stock" && (
+                    <div className="text-[var(--ff-primary)] text-sm uppercase tracking-widest" data-testid="variation-oos">Out of stock</div>
+                  )}
+
+                  <div>
+                    <label className="label">Quantity</label>
+                    <div className="inline-flex border border-[var(--ff-card-border)]">
+                      <button type="button" onClick={() => setQty(Math.max(1, qty - 1))} className="px-4 py-2 hover:bg-[var(--ff-button-primary-bg)] hover:text-[var(--ff-button-primary-text)]" data-testid="product-qty-minus">−</button>
+                      <span className="px-6 py-2 min-w-[40px] text-center" data-testid="product-qty">{qty}</span>
+                      <button type="button" onClick={() => setQty(qty + 1)} className="px-4 py-2 hover:bg-[var(--ff-button-primary-bg)] hover:text-[var(--ff-button-primary-text)]" data-testid="product-qty-plus">+</button>
+                    </div>
+                  </div>
+
+                  {product.customization_enabled && (
+                    <button type="button" onClick={() => setShowCustomizer(true)} className="btn-secondary" data-testid="product-customize-btn">
+                      {customization ? "Edit Customization" : "Customize This Product"}
+                    </button>
+                  )}
+
+                  {customization && (
+                    <div className="card text-xs flex items-center gap-3" data-testid="product-customization-summary">
+                      <img src={customization.preview_image} alt="" className="w-16 h-16 object-cover border border-[var(--ff-card-border)]" />
+                      <div>Custom design saved with {customization.text_entries?.length || 0} text and {customization.uploaded_files?.length || 0} image layer(s).</div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={addToCart}
+                    disabled={!variation || variation?.stock_status === "out_of_stock"}
+                    className="btn-primary w-full text-base disabled:opacity-40 disabled:cursor-not-allowed"
+                    data-testid="product-add-to-cart"
+                  >
+                    Add to cart — R {(Number(unitPrice) * qty).toFixed(2)}
+                  </button>
+
+                  {(Object.keys(product.spec_attributes || {}).length > 0) && (
+                    <div className="card mt-8" data-testid="product-specs">
+                      <div className="overline mb-3">Specifications</div>
+                      <table className="w-full text-sm">
+                        <tbody>
+                          {Object.entries(product.spec_attributes || {}).map(([key, values]) => (
+                            <tr key={key} className="border-b border-[var(--ff-card-border)] last:border-b-0">
+                              <td className="py-2 text-[var(--ff-muted-text)] w-1/3">{key}</td>
+                              <td className="py-2">{(values || []).join(", ")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

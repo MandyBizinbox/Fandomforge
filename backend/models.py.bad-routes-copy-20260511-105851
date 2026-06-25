@@ -1,0 +1,2343 @@
+"""Business routes for MerchForge."""
+from __future__ import annotations
+
+from datetime import datetime, timezone, timedelta
+import re
+from typing import Dict, List, Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel
+
+from models import (
+    Attribute,
+    AttributeCreate,
+    AttributeUpdate,
+    ArtworkFile,
+    Band,
+    BandCreate,
+    BandUpdate,
+    CartItem,
+    Category,
+    CategoryCreate,
+    CategoryUpdate,
+    CheckoutRequest,
+    Commission,
+    Order,
+    OrderItem,
+    OrderStatusUpdate,
+    Payment,
+    Payout,
+    PlatformSettings,
+    PrintOption,
+    PrintOptionCreate,
+    PrintOptionUpdate,
+    Printer,
+    PrinterApplication,
+    Product,
+    ProductCreate,
+    ProductTemplate,
+    ProductTemplateCreate,
+    ProductTemplateUpdate,
+    ProductUpdate,
+    ProductVariation,
+    ShippingAddress,
+    Subscription,
+    User,
+    uid,
+    utcnow,
+)
+from payments import get_provider, new_reference
+from storage import ALLOWED_ARTWORK, ALLOWED_IMAGE, save_upload
+
+
+# =============================================================================
+# SHARED HELPERS
+# =============================================================================
+
+def slugify(s: str) -> str:
+    s = re.sub(r"[^a-zA-Z0-9\s-]", "", s.lower()).strip()
+    s = re.sub(r"[\s-]+", "-", s)
+    return s or uid()[:8]
+
+
+def iso_dates(doc: dict) -> dict:
+    out = dict(doc)
+    for k, v in list(out.items()):
+        if isinstance(v, datetime):
+            out[k] = v.isoformat()
+    return out
+
+
+def clean_user_doc(doc: dict) -> dict:
+    out = dict(doc or {})
+    out.pop("_id", None)
+    out.pop("password_hash", None)
+    return out
+
+
+def normalize_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
+def validate_user_role(role: str) -> None:
+    if role not in ("buyer", "band", "printer", "super_admin"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+
+
+def validate_user_status(status: str) -> None:
+    if status not in ("active", "suspended", "pending"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+
+def validate_creator_member_role(role: str) -> None:
+    if role not in ("admin", "manager", "products", "orders", "viewer"):
+        raise HTTPException(status_code=400, detail="Invalid creator member role")
+
+
+def validate_creator_member_permissions(permissions: List[str]) -> None:
+    allowed_permissions = {
+        "manage_members",
+        "manage_products",
+        "view_orders",
+        "manage_orders",
+        "manage_settings",
+        "view_earnings",
+    }
+
+    for permission in permissions:
+        if permission not in allowed_permissions:
+            raise HTTPException(status_code=400, detail=f"Invalid permission: {permission}")
+
+
+async def get_creator_account_for_user(
+    db,
+    user: User,
+    permission: Optional[str] = None,
+) -> dict:
+    """
+    Returns the creator account a user can access.
+
+    Owner:
+      bands.user_id == user.id
+
+    Team member:
+      db.band_members contains an active membership.
+
+    permission examples:
+      manage_members
+      manage_products
+      view_orders
+      manage_orders
+      manage_settings
+      view_earnings
+    """
+    owner_band = await db.bands.find_one({"user_id": user.id}, {"_id": 0})
+    if owner_band:
+        return owner_band
+
+    member = await db.band_members.find_one(
+        {"user_id": user.id, "status": "active"},
+        {"_id": 0},
+    )
+
+    if not member:
+        raise HTTPException(status_code=404, detail="No creator account access")
+
+    member_role = member.get("role", "viewer")
+    permissions = member.get("permissions", [])
+
+    if permission:
+        allowed = (
+            member_role in ("owner", "admin")
+            or permission in permissions
+            or "*" in permissions
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Insufficient creator account permission")
+
+    band = await db.bands.find_one({"id": member["band_id"]}, {"_id": 0})
+    if not band:
+        raise HTTPException(status_code=404, detail="Creator account not found")
+
+    return band
+
+
+async def user_can_access_band(
+    db,
+    user: User,
+    band_id: str,
+    permission: Optional[str] = None,
+) -> bool:
+    if user.role == "super_admin":
+        return True
+
+    owner = await db.bands.find_one({"id": band_id, "user_id": user.id}, {"_id": 0})
+    if owner:
+        return True
+
+    member = await db.band_members.find_one(
+        {"band_id": band_id, "user_id": user.id, "status": "active"},
+        {"_id": 0},
+    )
+
+    if not member:
+        return False
+
+    if not permission:
+        return True
+
+    permissions = member.get("permissions", [])
+    return member.get("role") in ("owner", "admin") or permission in permissions or "*" in permissions
+
+
+async def get_band_for_product_access(
+    db,
+    user: User,
+    product: dict,
+    permission: str,
+) -> Optional[dict]:
+    if user.role == "super_admin":
+        return await db.bands.find_one({"id": product["band_id"]}, {"_id": 0})
+
+    allowed = await user_can_access_band(db, user, product["band_id"], permission=permission)
+    if not allowed:
+        return None
+
+    return await db.bands.find_one({"id": product["band_id"]}, {"_id": 0})
+
+
+# =============================================================================
+# BANDS / CREATORS
+# =============================================================================
+
+bands_router = APIRouter(prefix="/bands")
+
+
+class CreatorMemberCreate(BaseModel):
+    email: str
+    name: Optional[str] = None
+    password: Optional[str] = None
+    role: str = "manager"
+    permissions: List[str] = ["manage_products", "view_orders"]
+
+
+class CreatorMemberUpdate(BaseModel):
+    role: Optional[str] = None
+    permissions: Optional[List[str]] = None
+    status: Optional[str] = None
+
+
+@bands_router.post("", response_model=Band)
+async def create_band(
+    payload: BandCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+
+    existing = await db.bands.find_one({"user_id": user.id}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="You already have a creator profile")
+
+    slug = slugify(payload.slug or payload.name)
+    if await db.bands.find_one({"slug": slug}, {"_id": 0}):
+        slug = f"{slug}-{uid()[:4]}"
+
+    band = Band(**payload.model_dump(), user_id=user.id, slug=slug)
+    doc = iso_dates(band.model_dump())
+    await db.bands.insert_one(doc)
+
+    if user.role == "buyer":
+        await db.users.update_one({"id": user.id}, {"$set": {"role": "band"}})
+
+    return band
+
+
+@bands_router.get("", response_model=List[Band])
+async def list_bands(
+    request: Request,
+    status: Optional[str] = None,
+):
+    db = request.app.state.db
+    q = {"status": status or "active"}
+    docs = await db.bands.find(q, {"_id": 0}).to_list(200)
+    return [Band(**d) for d in docs]
+
+
+@bands_router.get("/me", response_model=Band)
+async def get_my_band(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user)
+    return Band(**band)
+
+
+@bands_router.patch("/me", response_model=Band)
+async def update_my_band(
+    payload: BandUpdate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user, permission="manage_settings")
+
+    updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    await db.bands.update_one({"id": band["id"]}, {"$set": updates})
+    doc = await db.bands.find_one({"id": band["id"]}, {"_id": 0})
+    return Band(**doc)
+
+
+@bands_router.get("/me/users")
+async def list_creator_users(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user, permission="manage_members")
+
+    owner_doc = await db.users.find_one({"id": band["user_id"]}, {"_id": 0})
+    members = await db.band_members.find({"band_id": band["id"]}, {"_id": 0}).to_list(500)
+
+    user_ids = [m["user_id"] for m in members]
+    user_docs = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(500)
+    users_by_id = {u["id"]: clean_user_doc(u) for u in user_docs}
+
+    out = []
+
+    if owner_doc:
+        out.append({
+            "membership_id": None,
+            "user": clean_user_doc(owner_doc),
+            "role": "owner",
+            "permissions": ["*"],
+            "status": "active",
+            "is_owner": True,
+        })
+
+    for member in members:
+        member_user = users_by_id.get(member["user_id"])
+        if not member_user:
+            continue
+
+        out.append({
+            "membership_id": member["id"],
+            "user": member_user,
+            "role": member.get("role", "viewer"),
+            "permissions": member.get("permissions", []),
+            "status": member.get("status", "active"),
+            "is_owner": False,
+        })
+
+    return out
+
+
+@bands_router.post("/me/users")
+async def add_creator_user(
+    payload: CreatorMemberCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user, permission="manage_members")
+
+    validate_creator_member_role(payload.role)
+    validate_creator_member_permissions(payload.permissions)
+
+    email = normalize_email(payload.email)
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+
+    if not existing_user:
+        if not payload.password:
+            raise HTTPException(status_code=400, detail="Password required when creating a new user")
+
+        new_user = User(
+            email=email,
+            name=payload.name or email.split("@")[0],
+            role="band",
+            status="active",
+        )
+
+        doc = new_user.model_dump()
+        doc["created_at"] = doc["created_at"].isoformat()
+        doc["password_hash"] = hash_password(payload.password)
+
+        await db.users.insert_one(doc)
+        existing_user = doc
+    else:
+        if existing_user.get("role") == "buyer":
+            await db.users.update_one({"id": existing_user["id"]}, {"$set": {"role": "band"}})
+            existing_user["role"] = "band"
+
+    if existing_user["id"] == band["user_id"]:
+        raise HTTPException(status_code=400, detail="User is already the owner of this creator account")
+
+    existing_member = await db.band_members.find_one({
+        "band_id": band["id"],
+        "user_id": existing_user["id"],
+    })
+
+    if existing_member:
+        raise HTTPException(status_code=400, detail="User is already added to this creator account")
+
+    member = {
+        "id": uid(),
+        "band_id": band["id"],
+        "user_id": existing_user["id"],
+        "role": payload.role,
+        "permissions": payload.permissions,
+        "status": "active",
+        "created_at": utcnow().isoformat(),
+    }
+
+    await db.band_members.insert_one(member)
+
+    return {
+        "membership_id": member["id"],
+        "user": clean_user_doc(existing_user),
+        "role": member["role"],
+        "permissions": member["permissions"],
+        "status": member["status"],
+        "is_owner": False,
+    }
+
+
+@bands_router.patch("/me/users/{member_user_id}")
+async def update_creator_user(
+    member_user_id: str,
+    payload: CreatorMemberUpdate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user, permission="manage_members")
+
+    if member_user_id == band["user_id"]:
+        raise HTTPException(status_code=400, detail="Owner permissions cannot be changed here")
+
+    member = await db.band_members.find_one(
+        {"band_id": band["id"], "user_id": member_user_id},
+        {"_id": 0},
+    )
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Creator member not found")
+
+    updates = payload.model_dump(exclude_none=True)
+
+    if "role" in updates:
+        validate_creator_member_role(updates["role"])
+
+    if "status" in updates:
+        validate_user_status(updates["status"])
+
+    if "permissions" in updates:
+        validate_creator_member_permissions(updates["permissions"])
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    await db.band_members.update_one(
+        {"band_id": band["id"], "user_id": member_user_id},
+        {"$set": updates},
+    )
+
+    updated = await db.band_members.find_one(
+        {"band_id": band["id"], "user_id": member_user_id},
+        {"_id": 0},
+    )
+    member_user = await db.users.find_one({"id": member_user_id}, {"_id": 0})
+
+    return {
+        "membership_id": updated["id"],
+        "user": clean_user_doc(member_user),
+        "role": updated.get("role", "viewer"),
+        "permissions": updated.get("permissions", []),
+        "status": updated.get("status", "active"),
+        "is_owner": False,
+    }
+
+
+@bands_router.delete("/me/users/{member_user_id}")
+async def remove_creator_user(
+    member_user_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user, permission="manage_members")
+
+    if member_user_id == band["user_id"]:
+        raise HTTPException(status_code=400, detail="Owner cannot be removed")
+
+    result = await db.band_members.delete_one({
+        "band_id": band["id"],
+        "user_id": member_user_id,
+    })
+
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Creator member not found")
+
+    return {"status": "removed"}
+
+
+@bands_router.get("/slug/{slug}", response_model=Band)
+async def get_band_by_slug(slug: str, request: Request):
+    db = request.app.state.db
+    doc = await db.bands.find_one({"slug": slug}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Creator not found")
+    return Band(**doc)
+
+
+@bands_router.get("/{band_id}/products", response_model=List[Product])
+async def band_products(
+    band_id: str,
+    request: Request,
+    published: bool = True,
+):
+    db = request.app.state.db
+    q = {"band_id": band_id}
+
+    if published:
+        q["published"] = True
+
+    docs = await db.products.find(q, {"_id": 0}).to_list(500)
+    return [Product(**d) for d in docs]
+
+
+# =============================================================================
+# PRINTERS
+# =============================================================================
+
+printers_router = APIRouter(prefix="/printers")
+
+
+@printers_router.post("/apply", response_model=Printer)
+async def apply_printer(
+    payload: PrinterApplication,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+
+    existing = await db.printers.find_one({"user_id": user.id}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Already applied")
+
+    printer = Printer(**payload.model_dump(), user_id=user.id)
+    await db.printers.insert_one(iso_dates(printer.model_dump()))
+
+    if user.role == "buyer":
+        await db.users.update_one({"id": user.id}, {"$set": {"role": "printer"}})
+
+    return printer
+
+
+@printers_router.get("/me", response_model=Printer)
+async def my_printer(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    doc = await db.printers.find_one({"user_id": user.id}, {"_id": 0})
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="No printer profile")
+
+    return Printer(**doc)
+
+
+@printers_router.get("", response_model=List[Printer])
+async def list_printers(
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    docs = await db.printers.find({}, {"_id": 0}).to_list(200)
+    return [Printer(**d) for d in docs]
+
+
+@printers_router.get("/me/orders", response_model=List[Order])
+async def my_printer_orders(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    printer = await db.printers.find_one({"user_id": user.id}, {"_id": 0})
+
+    if not printer:
+        raise HTTPException(status_code=404, detail="No printer profile")
+
+    docs = await db.orders.find(
+        {"items.printer_id": printer["id"]},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(500)
+
+    return [Order(**d) for d in docs]
+
+
+# =============================================================================
+# PRODUCT TEMPLATES / ADMIN BLANK CATALOG
+# =============================================================================
+
+product_templates_router = APIRouter(prefix="/product-templates")
+
+
+def normalize_template_payload(data: dict) -> dict:
+    """Normalize admin product template payloads and keep legacy fields compatible."""
+    data = dict(data)
+
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Template name is required")
+
+    data["name"] = name
+    data["slug"] = slugify(data.get("slug") or name)
+
+    if not (data.get("category") or "").strip():
+        raise HTTPException(status_code=400, detail="Category is required")
+
+    base_blank_cost = data.get("base_blank_cost")
+    base_price = data.get("base_price")
+
+    if base_blank_cost in (None, 0) and base_price not in (None, 0):
+        data["base_blank_cost"] = float(base_price)
+
+    if base_price in (None, 0) and data.get("base_blank_cost") not in (None, 0):
+        data["base_price"] = float(data["base_blank_cost"])
+
+    for key in ("available_sizes", "available_colors", "mockup_images", "attribute_ids", "print_option_ids"):
+        data[key] = [
+            str(item).strip() for item in data.get(key, []) if str(item).strip()
+        ]
+
+    if data.get("product_image_url") and not data.get("mockup_url"):
+        data["mockup_url"] = data.get("product_image_url")
+
+    if data.get("mockup_url") and data.get("mockup_url") not in data.get("mockup_images", []):
+        data["mockup_images"] = [data["mockup_url"], *data.get("mockup_images", [])]
+
+    def dump_nested(value):
+        return value if isinstance(value, dict) else value.model_dump()
+
+    data["mockup_screens"] = [dump_nested(screen) for screen in data.get("mockup_screens", [])]
+    data["variations"] = [dump_nested(variation) for variation in data.get("variations", [])]
+    data["print_areas"] = [dump_nested(area) for area in data.get("print_areas", [])]
+    data["print_options"] = [dump_nested(option) for option in data.get("print_options", [])]
+
+    # Keep legacy option field names compatible with the new global Print Option CRUD.
+    for option in data["print_options"]:
+        if option.get("print_method") and not option.get("method"):
+            option["method"] = option["print_method"]
+        if option.get("method") and not option.get("print_method"):
+            option["print_method"] = option["method"]
+
+    return data
+
+
+@product_templates_router.get("", response_model=List[ProductTemplate])
+async def public_product_templates(
+    request: Request,
+    category: Optional[str] = None,
+):
+    db = request.app.state.db
+    q: Dict = {"status": "active"}
+
+    if category:
+        q["category"] = category
+
+    docs = await db.product_templates.find(q, {"_id": 0}).sort("name", 1).to_list(500)
+    return [ProductTemplate(**d) for d in docs]
+
+
+@product_templates_router.get("/{template_id}", response_model=ProductTemplate)
+async def public_product_template(
+    template_id: str,
+    request: Request,
+):
+    db = request.app.state.db
+    doc = await db.product_templates.find_one(
+        {"id": template_id, "status": "active"},
+        {"_id": 0},
+    )
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Product template not found")
+
+    return ProductTemplate(**doc)
+
+
+
+# =============================================================================
+# PRODUCTS
+# =============================================================================
+
+products_router = APIRouter(prefix="/products")
+
+
+@products_router.post("", response_model=Product)
+async def create_product(
+    payload: ProductCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user, permission="manage_products")
+
+    default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})
+    slug = slugify(payload.title) + "-" + uid()[:4]
+
+    if not payload.variations:
+        payload = ProductCreate(**{
+            **payload.model_dump(),
+            "variations": [
+                ProductVariation(size="M", color="Black"),
+                ProductVariation(size="L", color="Black"),
+                ProductVariation(size="XL", color="Black"),
+            ],
+        })
+
+    product = Product(
+        **payload.model_dump(),
+        band_id=band["id"],
+        slug=slug,
+        assigned_printer_id=default_printer["id"] if default_printer else None,
+    )
+
+    await db.products.insert_one(iso_dates(product.model_dump()))
+    return product
+
+
+@products_router.get("", response_model=List[Product])
+async def list_products(
+    request: Request,
+    published: bool = True,
+    band_id: Optional[str] = None,
+):
+    db = request.app.state.db
+    q = {}
+
+    if published:
+        q["published"] = True
+
+    if band_id:
+        q["band_id"] = band_id
+
+    docs = await db.products.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return [Product(**d) for d in docs]
+
+
+@products_router.get("/mine", response_model=List[Product])
+async def my_products(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user, permission="manage_products")
+    docs = await db.products.find({"band_id": band["id"]}, {"_id": 0}).to_list(500)
+    return [Product(**d) for d in docs]
+
+
+@products_router.get("/{product_id}", response_model=Product)
+async def get_product(
+    product_id: str,
+    request: Request,
+):
+    db = request.app.state.db
+    doc = await db.products.find_one({"id": product_id}, {"_id": 0})
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    return Product(**doc)
+
+
+@products_router.patch("/{product_id}", response_model=Product)
+async def update_product(
+    product_id: str,
+    payload: ProductUpdate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    band = await get_band_for_product_access(db, user, product, permission="manage_products")
+    if not band:
+        raise HTTPException(status_code=403, detail="Not your product")
+
+    updates = payload.model_dump(exclude_none=True)
+
+    if updates.get("published"):
+        if band.get("subscription_status") != "active" and user.role != "super_admin":
+            raise HTTPException(status_code=400, detail="Active subscription required to publish")
+
+        artwork = await db.artworks.find_one(
+            {"product_id": product_id, "status": "approved"},
+            {"_id": 0},
+        )
+
+        if not artwork and user.role != "super_admin":
+            raise HTTPException(status_code=400, detail="Product needs approved artwork to publish")
+
+    if "variations" in updates:
+        updates["variations"] = [
+            v if isinstance(v, dict) else v.model_dump()
+            for v in updates["variations"]
+        ]
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    await db.products.update_one({"id": product_id}, {"$set": updates})
+    doc = await db.products.find_one({"id": product_id}, {"_id": 0})
+    return Product(**doc)
+
+
+@products_router.delete("/{product_id}")
+async def delete_product(
+    product_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    allowed = await user_can_access_band(db, user, product["band_id"], permission="manage_products")
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Not your product")
+
+    await db.products.delete_one({"id": product_id})
+    await db.artworks.delete_many({"product_id": product_id})
+
+    return {"status": "deleted"}
+
+
+# =============================================================================
+# ARTWORK
+# =============================================================================
+
+artworks_router = APIRouter(prefix="/artworks")
+
+
+@artworks_router.post("/upload", response_model=ArtworkFile)
+async def upload_artwork(
+    request: Request,
+    product_id: str = Form(...),
+    placement: str = Form("front"),
+    notes: str = Form(""),
+    dimensions: str = Form(""),
+    dpi: int = Form(300),
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    allowed = await user_can_access_band(db, user, product["band_id"], permission="manage_products")
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Not your product")
+
+    url = await save_upload(file, f"artwork/{product_id}", allowed=ALLOWED_ARTWORK)
+
+    art = ArtworkFile(
+        product_id=product_id,
+        file_url=url,
+        file_name=file.filename or "artwork",
+        placement=placement,
+        notes=notes,
+        dimensions=dimensions or None,
+        dpi=dpi,
+    )
+
+    await db.artworks.insert_one(iso_dates(art.model_dump()))
+    return art
+
+
+@artworks_router.get("/product/{product_id}", response_model=List[ArtworkFile])
+async def list_artwork(
+    product_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    allowed = await user_can_access_band(db, user, product["band_id"], permission="manage_products")
+    if not allowed and user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="Not your product")
+
+    docs = await db.artworks.find({"product_id": product_id}, {"_id": 0}).to_list(100)
+    return [ArtworkFile(**d) for d in docs]
+
+
+@artworks_router.patch("/{artwork_id}/status", response_model=ArtworkFile)
+async def update_artwork_status(
+    artwork_id: str,
+    status: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    if status not in ("pending", "approved", "rejected"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    db = request.app.state.db
+    await db.artworks.update_one({"id": artwork_id}, {"$set": {"status": status}})
+
+    doc = await db.artworks.find_one({"id": artwork_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    return ArtworkFile(**doc)
+
+
+# =============================================================================
+# FILE UPLOAD
+# =============================================================================
+
+files_router = APIRouter(prefix="/files")
+
+
+@files_router.post("/image")
+async def upload_image(
+    file: UploadFile = File(...),
+    subdir: str = Form("general"),
+    user: User = Depends(get_current_user),
+):
+    url = await save_upload(file, f"images/{subdir}", allowed=ALLOWED_IMAGE)
+    return {"url": url}
+
+
+# =============================================================================
+# ORDERS / CHECKOUT
+# =============================================================================
+
+orders_router = APIRouter(prefix="/orders")
+
+
+async def _build_order_items(db, items: List[CartItem]) -> tuple[List[OrderItem], float]:
+    out: List[OrderItem] = []
+    subtotal = 0.0
+    settings_doc = await db.settings.find_one({"id": "platform"}, {"_id": 0})
+    default_rate = (settings_doc or {}).get("default_commission_rate", 0.15)
+
+    for ci in items:
+        product = await db.products.find_one({"id": ci.product_id}, {"_id": 0})
+        if not product:
+            raise HTTPException(status_code=400, detail=f"Product not found: {ci.product_id}")
+
+        band = await db.bands.find_one({"id": product["band_id"]}, {"_id": 0})
+        rate = (band or {}).get("commission_rate", default_rate)
+
+        unit_price = float(product["selling_price"])
+        for v in product.get("variations", []) or []:
+            if v.get("id") == ci.variation_id and v.get("price_override") is not None:
+                unit_price = float(v["price_override"])
+                break
+
+        print_cost = float(product["print_cost"])
+        commission_amount = round(unit_price * rate, 2)
+        band_earnings = round(unit_price - print_cost - commission_amount, 2)
+        printer_payout = round(print_cost, 2)
+
+        oi = OrderItem(
+            product_id=product["id"],
+            product_title=product["title"],
+            band_id=product["band_id"],
+            printer_id=product.get("assigned_printer_id"),
+            variation_id=ci.variation_id,
+            size=ci.size,
+            color=ci.color,
+            quantity=ci.quantity,
+            unit_price=unit_price,
+            print_cost_unit=print_cost,
+            commission_rate=rate,
+            commission_amount=commission_amount * ci.quantity,
+            band_earnings=band_earnings * ci.quantity,
+            printer_payout=printer_payout * ci.quantity,
+            customization=ci.customization,
+            artwork_file_url=None,
+        )
+
+        art = await db.artworks.find_one(
+            {"product_id": product["id"], "status": "approved"},
+            {"_id": 0},
+        )
+
+        if art:
+            oi.artwork_file_url = art["file_url"]
+
+        subtotal += unit_price * ci.quantity
+        out.append(oi)
+
+    return out, round(subtotal, 2)
+
+
+@orders_router.post("/checkout", response_model=dict)
+async def checkout(
+    payload: CheckoutRequest,
+    request: Request,
+    user: User = Depends(optional_user),
+):
+    db = request.app.state.db
+
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="Cart is empty")
+
+    order_items, subtotal = await _build_order_items(db, payload.items)
+
+    order = Order(
+        buyer_id=user.id if user else None,
+        buyer_email=payload.shipping_address.email,
+        items=order_items,
+        subtotal=subtotal,
+        total=subtotal,
+        shipping_address=payload.shipping_address,
+        payment_provider=payload.payment_provider,
+    )
+
+    doc = order.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    doc["updated_at"] = doc["updated_at"].isoformat()
+    await db.orders.insert_one(doc)
+
+    ref = new_reference()
+    provider = get_provider(payload.payment_provider)
+    base = str(request.base_url).rstrip("/")
+
+    init = provider.initiate(
+        amount=order.total,
+        description=f"MerchForge Order {order.order_number}",
+        reference=ref,
+        return_url=f"{base}/order-confirmation/{order.id}",
+        cancel_url=f"{base}/cart",
+        notify_url=f"{base}/api/payments/webhook?provider={payload.payment_provider}",
+        email=order.buyer_email,
+    )
+
+    payment = Payment(
+        order_id=order.id,
+        user_id=user.id if user else None,
+        amount=order.total,
+        provider=init["provider"],
+        provider_reference=ref,
+        status="pending",
+        kind="order",
+    )
+
+    await db.payments.insert_one(iso_dates(payment.model_dump()))
+    await db.orders.update_one({"id": order.id}, {"$set": {"payment_id": payment.id}})
+
+    return {
+        "order_id": order.id,
+        "order_number": order.order_number,
+        "payment_url": init["payment_url"],
+        "provider": init["provider"],
+        "reference": ref,
+        "total": order.total,
+    }
+
+
+@orders_router.post("/{order_id}/mock-complete", response_model=Order)
+async def mock_complete(
+    order_id: str,
+    request: Request,
+):
+    """MVP helper - simulates a successful payment. Replace with real webhook in production."""
+    db = request.app.state.db
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order["payment_status"] == "paid":
+        return Order(**order)
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"payment_status": "paid", "status": "sent_to_printer", "updated_at": now}},
+    )
+
+    if order.get("payment_id"):
+        await db.payments.update_one(
+            {"id": order["payment_id"]},
+            {"$set": {"status": "completed", "completed_at": now}},
+        )
+
+    for item in order["items"]:
+        await db.commissions.insert_one(iso_dates(Commission(
+            order_id=order_id,
+            order_item_id=item["id"],
+            band_id=item["band_id"],
+            amount=item["commission_amount"],
+            rate=item["commission_rate"],
+        ).model_dump()))
+
+        if item.get("printer_id"):
+            await db.payouts.insert_one(iso_dates(Payout(
+                printer_id=item["printer_id"],
+                order_id=order_id,
+                order_item_id=item["id"],
+                amount=item["printer_payout"],
+            ).model_dump()))
+
+    doc = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    return Order(**doc)
+
+
+@orders_router.get("/mine", response_model=List[Order])
+async def my_orders(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    docs = await db.orders.find({"buyer_id": user.id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return [Order(**d) for d in docs]
+
+
+@orders_router.get("/band", response_model=List[Order])
+async def band_orders(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user, permission="view_orders")
+
+    docs = await db.orders.find(
+        {"items.band_id": band["id"]},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(500)
+
+    return [Order(**d) for d in docs]
+
+
+@orders_router.get("/{order_id}", response_model=Order)
+async def get_order(
+    order_id: str,
+    request: Request,
+):
+    db = request.app.state.db
+    doc = await db.orders.find_one({"id": order_id}, {"_id": 0})
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    return Order(**doc)
+
+
+@orders_router.patch("/{order_id}/status", response_model=Order)
+async def update_order_status(
+    order_id: str,
+    payload: OrderStatusUpdate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    updates = {"updated_at": datetime.now(timezone.utc).isoformat()}
+
+    if payload.status:
+        if user.role not in ("super_admin", "printer"):
+            raise HTTPException(status_code=403, detail="Insufficient permission")
+        updates["status"] = payload.status
+
+    if payload.item_id and (payload.item_production_status or payload.tracking_number):
+        items = order["items"]
+
+        for i, item in enumerate(items):
+            if item["id"] == payload.item_id:
+                if user.role == "printer":
+                    pr = await db.printers.find_one({"user_id": user.id}, {"_id": 0})
+                    if not pr or pr["id"] != item.get("printer_id"):
+                        raise HTTPException(status_code=403, detail="Not assigned")
+
+                if payload.item_production_status:
+                    items[i]["production_status"] = payload.item_production_status
+
+                if payload.tracking_number:
+                    items[i]["tracking_number"] = payload.tracking_number
+
+                break
+
+        updates["items"] = items
+
+    await db.orders.update_one({"id": order_id}, {"$set": updates})
+    doc = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    return Order(**doc)
+
+
+@orders_router.post("/{order_id}/assign-printer")
+async def assign_printer(
+    order_id: str,
+    printer_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    items = order["items"]
+
+    for i in range(len(items)):
+        items[i]["printer_id"] = printer_id
+
+    await db.orders.update_one({"id": order_id}, {"$set": {"items": items}})
+    return {"status": "ok"}
+
+
+@orders_router.delete("/{order_id}")
+async def delete_order(
+    order_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    await db.orders.delete_one({"id": order_id})
+    await db.commissions.delete_many({"order_id": order_id})
+    await db.payouts.delete_many({"order_id": order_id})
+
+    if order.get("payment_id"):
+        await db.payments.delete_one({"id": order["payment_id"]})
+
+    return {"status": "deleted"}
+
+
+# =============================================================================
+# PAYMENTS
+# =============================================================================
+
+payments_router = APIRouter(prefix="/payments")
+
+
+@payments_router.post("/webhook")
+async def payment_webhook(request: Request):
+    form = await request.form()
+    payload = dict(form) if form else await request.json()
+    provider_name = request.query_params.get("provider", "mock")
+    provider = get_provider(provider_name)
+
+    if not provider.verify_webhook(payload):
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+    ref = payload.get("m_payment_id") or payload.get("reference")
+    db = request.app.state.db
+    pay = await db.payments.find_one({"provider_reference": ref}, {"_id": 0})
+
+    if not pay:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    status = "completed" if (payload.get("payment_status") or "").upper() == "COMPLETE" else "failed"
+    now = datetime.now(timezone.utc).isoformat()
+
+    await db.payments.update_one(
+        {"id": pay["id"]},
+        {"$set": {"status": status, "completed_at": now if status == "completed" else None}},
+    )
+
+    if pay.get("order_id") and status == "completed":
+        await db.orders.update_one(
+            {"id": pay["order_id"]},
+            {"$set": {"payment_status": "paid", "status": "sent_to_printer", "updated_at": now}},
+        )
+
+    return {"ok": True}
+
+
+@payments_router.post("/subscribe", response_model=dict)
+async def band_subscribe(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """MVP: mock-activates creator subscription for 30 days."""
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user, permission="manage_settings")
+
+    end = datetime.now(timezone.utc) + timedelta(days=30)
+    sub = Subscription(
+        band_id=band["id"],
+        amount=band.get("monthly_fee", 19.99),
+        current_period_end=end,
+    )
+
+    doc = sub.model_dump()
+    doc["current_period_end"] = doc["current_period_end"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+
+    await db.subscriptions.insert_one(doc)
+    await db.bands.update_one(
+        {"id": band["id"]},
+        {"$set": {"subscription_status": "active", "status": "active"}},
+    )
+
+    pay = Payment(
+        subscription_id=sub.id,
+        user_id=user.id,
+        amount=sub.amount,
+        provider="mock",
+        provider_reference=new_reference(),
+        status="completed",
+        kind="subscription",
+    )
+
+    pdoc = iso_dates(pay.model_dump())
+    pdoc["completed_at"] = datetime.now(timezone.utc).isoformat()
+    await db.payments.insert_one(pdoc)
+
+    return {"status": "active", "until": end.isoformat()}
+
+
+# =============================================================================
+# ADMIN
+# =============================================================================
+
+admin_router = APIRouter(prefix="/admin")
+
+
+class AdminUserCreate(BaseModel):
+    email: str
+    password: str
+    name: str
+    role: str = "buyer"
+    status: str = "active"
+
+
+class AdminUserUpdate(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
+    name: Optional[str] = None
+    role: Optional[str] = None
+    status: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
+class AdminOrderCreateItem(BaseModel):
+    product_id: str
+    variation_id: str
+    quantity: int = 1
+
+
+class AdminOrderCreate(BaseModel):
+    items: List[AdminOrderCreateItem]
+    shipping_address: ShippingAddress
+    mark_paid: bool = True
+
+
+class AdminProductCreate(ProductCreate):
+    band_id: str
+    assigned_printer_id: Optional[str] = None
+
+
+
+@admin_router.get("/product-templates", response_model=List[ProductTemplate])
+async def admin_product_templates(
+    request: Request,
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    q: Dict = {}
+
+    if status:
+        q["status"] = status
+
+    if category:
+        q["category"] = category
+
+    docs = await db.product_templates.find(q, {"_id": 0}).sort("name", 1).to_list(1000)
+    return [ProductTemplate(**d) for d in docs]
+
+
+@admin_router.post("/product-templates", response_model=ProductTemplate)
+async def admin_create_product_template(
+    payload: ProductTemplateCreate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    data = normalize_template_payload(payload.model_dump())
+    now = utcnow()
+
+    existing = await db.product_templates.find_one({"slug": data["slug"]}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="A product template with this slug already exists")
+
+    template = ProductTemplate(**data, created_at=now, updated_at=now)
+    await db.product_templates.insert_one(iso_dates(template.model_dump()))
+    return template
+
+
+@admin_router.get("/product-templates/{template_id}", response_model=ProductTemplate)
+async def admin_get_product_template(
+    template_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    doc = await db.product_templates.find_one({"id": template_id}, {"_id": 0})
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Product template not found")
+
+    return ProductTemplate(**doc)
+
+
+@admin_router.patch("/product-templates/{template_id}", response_model=ProductTemplate)
+async def admin_update_product_template(
+    template_id: str,
+    payload: ProductTemplateUpdate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    existing = await db.product_templates.find_one({"id": template_id}, {"_id": 0})
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="Product template not found")
+
+    updates = payload.model_dump(exclude_none=True)
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    merged = {**existing, **updates}
+    normalized = normalize_template_payload(merged)
+    normalized["updated_at"] = utcnow().isoformat()
+
+    slug_owner = await db.product_templates.find_one(
+        {"slug": normalized["slug"], "id": {"$ne": template_id}},
+        {"_id": 0},
+    )
+    if slug_owner:
+        raise HTTPException(status_code=400, detail="Another product template already uses this slug")
+
+    await db.product_templates.update_one({"id": template_id}, {"$set": normalized})
+    doc = await db.product_templates.find_one({"id": template_id}, {"_id": 0})
+    return ProductTemplate(**doc)
+
+
+@admin_router.put("/product-templates/{template_id}", response_model=ProductTemplate)
+async def admin_replace_product_template(
+    template_id: str,
+    payload: ProductTemplateCreate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    return await admin_update_product_template(
+        template_id=template_id,
+        payload=ProductTemplateUpdate(**payload.model_dump()),
+        request=request,
+        user=user,
+    )
+
+
+@admin_router.delete("/product-templates/{template_id}")
+async def admin_delete_product_template(
+    template_id: str,
+    request: Request,
+    force: bool = False,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    existing = await db.product_templates.find_one({"id": template_id}, {"_id": 0})
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="Product template not found")
+
+    linked_products = await db.products.count_documents({"template_id": template_id})
+
+    if linked_products and not force:
+        await db.product_templates.update_one(
+            {"id": template_id},
+            {"$set": {"status": "archived", "updated_at": utcnow().isoformat()}},
+        )
+        return {
+            "status": "archived",
+            "linked_products": linked_products,
+            "message": "Template has linked products, so it was archived instead of deleted.",
+        }
+
+    await db.product_templates.delete_one({"id": template_id})
+    return {"status": "deleted", "linked_products": linked_products}
+
+
+@admin_router.get("/users", response_model=List[User])
+async def admin_list_users(
+    request: Request,
+    role: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    q: Dict = {}
+
+    if role:
+        q["role"] = role
+
+    if status:
+        q["status"] = status
+
+    if search:
+        q["$or"] = [
+            {"email": {"$regex": search, "$options": "i"}},
+            {"name": {"$regex": search, "$options": "i"}},
+        ]
+
+    docs = await db.users.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return [User(**clean_user_doc(doc)) for doc in docs]
+
+
+@admin_router.post("/users", response_model=User)
+async def admin_create_user(
+    payload: AdminUserCreate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    email = normalize_email(payload.email)
+
+    validate_user_role(payload.role)
+    validate_user_status(payload.status)
+
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already exists")
+
+    new_user = User(
+        email=email,
+        name=payload.name,
+        role=payload.role,
+        status=payload.status,
+    )
+
+    doc = new_user.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    doc["password_hash"] = hash_password(payload.password)
+
+    await db.users.insert_one(doc)
+    return User(**clean_user_doc(doc))
+
+
+@admin_router.get("/users/{user_id}", response_model=User)
+async def admin_get_user(
+    user_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    doc = await db.users.find_one({"id": user_id}, {"_id": 0})
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return User(**clean_user_doc(doc))
+
+
+@admin_router.patch("/users/{user_id}", response_model=User)
+async def admin_update_user(
+    user_id: str,
+    payload: AdminUserUpdate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    updates = payload.model_dump(exclude_none=True)
+
+    if "email" in updates:
+        updates["email"] = normalize_email(updates["email"])
+        existing = await db.users.find_one({"email": updates["email"], "id": {"$ne": user_id}})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already exists")
+
+    if "role" in updates:
+        validate_user_role(updates["role"])
+
+    if "status" in updates:
+        validate_user_status(updates["status"])
+
+    if updates.get("password"):
+        updates["password_hash"] = hash_password(updates.pop("password"))
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    await db.users.update_one({"id": user_id}, {"$set": updates})
+    doc = await db.users.find_one({"id": user_id}, {"_id": 0})
+
+    return User(**clean_user_doc(doc))
+
+
+@admin_router.delete("/users/{user_id}")
+async def admin_delete_user(
+    user_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+
+    if user.id == user_id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own admin account")
+
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await db.users.delete_one({"id": user_id})
+    await db.band_members.delete_many({"user_id": user_id})
+    await db.printers.delete_many({"user_id": user_id})
+
+    return {"status": "deleted"}
+
+
+@admin_router.get("/stats")
+async def admin_stats(
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+
+    bands = await db.bands.count_documents({})
+    bands_active = await db.bands.count_documents({"status": "active"})
+    printers = await db.printers.count_documents({})
+    products = await db.products.count_documents({})
+    orders_total = await db.orders.count_documents({})
+    orders_paid = await db.orders.count_documents({"payment_status": "paid"})
+    commissions = await db.commissions.find({}, {"_id": 0}).to_list(10000)
+    payouts_due = await db.payouts.find({"status": "due"}, {"_id": 0}).to_list(10000)
+    subs = await db.payments.find({"kind": "subscription", "status": "completed"}, {"_id": 0}).to_list(10000)
+
+    return {
+        "bands": bands,
+        "bands_active": bands_active,
+        "printers": printers,
+        "products": products,
+        "orders_total": orders_total,
+        "orders_paid": orders_paid,
+        "commission_revenue": round(sum(c["amount"] for c in commissions), 2),
+        "subscription_revenue": round(sum(p["amount"] for p in subs), 2),
+        "payouts_due": round(sum(p["amount"] for p in payouts_due), 2),
+    }
+
+
+@admin_router.get("/bands", response_model=List[Band])
+async def admin_bands(
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    docs = await db.bands.find({}, {"_id": 0}).to_list(500)
+    return [Band(**d) for d in docs]
+
+
+@admin_router.patch("/bands/{band_id}/status")
+async def admin_set_band_status(
+    band_id: str,
+    status: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    validate_user_status(status)
+    db = request.app.state.db
+    await db.bands.update_one({"id": band_id}, {"$set": {"status": status}})
+    return {"ok": True}
+
+
+@admin_router.patch("/bands/{band_id}/commission")
+async def admin_set_band_commission(
+    band_id: str,
+    rate: float,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    await db.bands.update_one({"id": band_id}, {"$set": {"commission_rate": rate}})
+    return {"ok": True}
+
+
+@admin_router.patch("/printers/{printer_id}/status")
+async def admin_set_printer_status(
+    printer_id: str,
+    status: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    validate_user_status(status)
+    db = request.app.state.db
+    await db.printers.update_one({"id": printer_id}, {"$set": {"status": status}})
+    return {"ok": True}
+
+
+@admin_router.get("/orders", response_model=List[Order])
+async def admin_orders(
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    docs = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return [Order(**d) for d in docs]
+
+
+@admin_router.post("/orders", response_model=Order)
+async def admin_create_order(
+    payload: AdminOrderCreate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="At least one item required")
+
+    cart_items: List[CartItem] = []
+
+    for line in payload.items:
+        product = await db.products.find_one({"id": line.product_id}, {"_id": 0})
+        if not product:
+            raise HTTPException(status_code=400, detail=f"Product not found: {line.product_id}")
+
+        variation = next((v for v in product.get("variations", []) if v["id"] == line.variation_id), None)
+        if not variation:
+            raise HTTPException(status_code=400, detail=f"Variation not found: {line.variation_id}")
+
+        cart_items.append(CartItem(
+            product_id=product["id"],
+            product_title=product["title"],
+            band_id=product["band_id"],
+            variation_id=variation["id"],
+            size=variation["size"],
+            color=variation["color"],
+            unit_price=product["selling_price"],
+            quantity=line.quantity,
+            mockup_url=(product.get("mockup_images") or [None])[0],
+        ))
+
+    order_items, subtotal = await _build_order_items(db, cart_items)
+
+    order = Order(
+        buyer_id=None,
+        buyer_email=payload.shipping_address.email,
+        items=order_items,
+        subtotal=subtotal,
+        total=subtotal,
+        shipping_address=payload.shipping_address,
+        payment_provider="manual",
+        status="pending_payment",
+    )
+
+    doc = order.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    doc["updated_at"] = doc["updated_at"].isoformat()
+    await db.orders.insert_one(doc)
+
+    if payload.mark_paid:
+        now = datetime.now(timezone.utc).isoformat()
+
+        await db.orders.update_one(
+            {"id": order.id},
+            {"$set": {"payment_status": "paid", "status": "sent_to_printer", "updated_at": now}},
+        )
+
+        for item in order_items:
+            await db.commissions.insert_one(iso_dates(Commission(
+                order_id=order.id,
+                order_item_id=item.id,
+                band_id=item.band_id,
+                amount=item.commission_amount,
+                rate=item.commission_rate,
+            ).model_dump()))
+
+            if item.printer_id:
+                await db.payouts.insert_one(iso_dates(Payout(
+                    printer_id=item.printer_id,
+                    order_id=order.id,
+                    order_item_id=item.id,
+                    amount=item.printer_payout,
+                ).model_dump()))
+
+        pay = Payment(
+            order_id=order.id,
+            user_id=user.id,
+            amount=order.total,
+            provider="manual",
+            provider_reference=new_reference(),
+            status="completed",
+            kind="order",
+        )
+
+        pdoc = iso_dates(pay.model_dump())
+        pdoc["completed_at"] = datetime.now(timezone.utc).isoformat()
+        await db.payments.insert_one(pdoc)
+
+    doc = await db.orders.find_one({"id": order.id}, {"_id": 0})
+    return Order(**doc)
+
+
+@admin_router.get("/products", response_model=List[Product])
+async def admin_products(
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    docs = await db.products.find({}, {"_id": 0}).to_list(500)
+    return [Product(**d) for d in docs]
+
+
+@admin_router.post("/products", response_model=Product)
+async def admin_create_product(
+    payload: AdminProductCreate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+
+    band = await db.bands.find_one({"id": payload.band_id}, {"_id": 0})
+    if not band:
+        raise HTTPException(status_code=400, detail="Creator not found")
+
+    data = payload.model_dump()
+    band_id = data.pop("band_id")
+    assigned_printer_id = data.pop("assigned_printer_id", None)
+
+    if not assigned_printer_id:
+        default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})
+        assigned_printer_id = default_printer["id"] if default_printer else None
+
+    if not data.get("variations"):
+        data["variations"] = [
+            ProductVariation(size="M", color="Black").model_dump(),
+            ProductVariation(size="L", color="Black").model_dump(),
+        ]
+
+    product = Product(
+        **data,
+        band_id=band_id,
+        slug=slugify(data["title"]) + "-" + uid()[:4],
+        assigned_printer_id=assigned_printer_id,
+    )
+
+    await db.products.insert_one(iso_dates(product.model_dump()))
+    return product
+
+
+
+
+@admin_router.get("/products/{product_id}", response_model=Product)
+async def admin_get_product(
+    product_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    doc = await db.products.find_one({"id": product_id}, {"_id": 0})
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    return Product(**doc)
+
+
+@admin_router.patch("/products/{product_id}", response_model=Product)
+async def admin_update_product(
+    product_id: str,
+    payload: ProductUpdate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    updates = payload.model_dump(exclude_none=True)
+
+    if "variations" in updates:
+        updates["variations"] = [
+            v if isinstance(v, dict) else v.model_dump()
+            for v in updates["variations"]
+        ]
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    await db.products.update_one({"id": product_id}, {"$set": updates})
+    doc = await db.products.find_one({"id": product_id}, {"_id": 0})
+    return Product(**doc)
+
+
+@admin_router.delete("/products/{product_id}")
+async def admin_delete_product(
+    product_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    await db.products.delete_one({"id": product_id})
+    await db.artworks.delete_many({"product_id": product_id})
+
+    return {"status": "deleted"}
+
+
+@admin_router.get("/commissions")
+async def admin_commissions(
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    docs = await db.commissions.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return docs
+
+
+@admin_router.get("/payouts")
+async def admin_payouts(
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    docs = await db.payouts.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return docs
+
+
+@admin_router.patch("/payouts/{payout_id}/paid")
+async def mark_payout_paid(
+    payout_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    await db.payouts.update_one({"id": payout_id}, {"$set": {"status": "paid"}})
+    return {"ok": True}
+
+
+@admin_router.get("/settings", response_model=PlatformSettings)
+async def get_settings(
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    doc = await db.settings.find_one({"id": "platform"}, {"_id": 0})
+
+    if not doc:
+        s = PlatformSettings()
+        await db.settings.insert_one(s.model_dump())
+        return s
+
+    return PlatformSettings(**doc)
+
+
+@admin_router.patch("/settings", response_model=PlatformSettings)
+async def update_settings(
+    request: Request,
+    default_commission_rate: Optional[float] = None,
+    default_monthly_band_fee: Optional[float] = None,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    updates = {}
+
+    if default_commission_rate is not None:
+        updates["default_commission_rate"] = default_commission_rate
+
+    if default_monthly_band_fee is not None:
+        updates["default_monthly_band_fee"] = default_monthly_band_fee
+
+    if updates:
+        await db.settings.update_one({"id": "platform"}, {"$set": updates}, upsert=True)
+
+    doc = await db.settings.find_one({"id": "platform"}, {"_id": 0})
+    return PlatformSettings(**doc)
+
+
+# =============================================================================
+# CREATOR DASHBOARD
+# =============================================================================
+
+band_dash_router = APIRouter(prefix="/band-dash")
+
+
+@band_dash_router.get("/stats")
+async def band_stats(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    band = await get_creator_account_for_user(db, user)
+
+    orders = await db.orders.find(
+        {"items.band_id": band["id"], "payment_status": "paid"},
+        {"_id": 0},
+    ).to_list(10000)
+
+    total_sales = 0.0
+    total_earnings = 0.0
+    total_commission = 0.0
+    order_count = 0
+
+    for o in orders:
+        for item in o["items"]:
+            if item["band_id"] == band["id"]:
+                total_sales += item["unit_price"] * item["quantity"]
+                total_earnings += item["band_earnings"]
+                total_commission += item["commission_amount"]
+        order_count += 1
+
+    product_count = await db.products.count_documents({"band_id": band["id"]})
+
+    return {
+        "total_sales": round(total_sales, 2),
+        "total_earnings": round(total_earnings, 2),
+        "total_commission": round(total_commission, 2),
+        "order_count": order_count,
+        "product_count": product_count,
+        "subscription_status": band.get("subscription_status"),
+    }
+
+
+# =============================================================================
+# PRINTER DASHBOARD
+# =============================================================================
+
+printer_dash_router = APIRouter(prefix="/printer-dash")
+
+
+@printer_dash_router.get("/stats")
+async def printer_stats(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    pr = await db.printers.find_one({"user_id": user.id}, {"_id": 0})
+
+    if not pr:
+        raise HTTPException(status_code=404, detail="No printer")
+
+    payouts = await db.payouts.find({"printer_id": pr["id"]}, {"_id": 0}).to_list(10000)
+    due = sum(p["amount"] for p in payouts if p["status"] == "due")
+    paid = sum(p["amount"] for p in payouts if p["status"] == "paid")
+
+    active_orders = await db.orders.count_documents({
+        "items.printer_id": pr["id"],
+        "status": {"$in": ["sent_to_printer", "in_production", "ready_for_dispatch"]},
+    })
+
+    return {
+        "payouts_due": round(due, 2),
+        "payouts_paid": round(paid, 2),
+        "active_orders": active_orders,
+    }
+
+
+@printer_dash_router.get("/payouts")
+async def printer_payouts(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    pr = await db.printers.find_one({"user_id": user.id}, {"_id": 0})
+
+    if not pr:
+        raise HTTPException(status_code=404, detail="No printer")
+
+    docs = await db.payouts.find({"printer_id": pr["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return docs
+
+
+# =============================================================================
+# PRINT OPTIONS
+# =============================================================================
+
+print_options_router = APIRouter(prefix="/print-options")
+
+
+def normalize_print_option_payload(data: dict) -> dict:
+    data = dict(data)
+    method = (data.get("print_method") or "").strip()
+    size = (data.get("print_size") or "").strip()
+
+    if not method:
+        raise HTTPException(status_code=400, detail="Print method is required")
+
+    if not size:
+        raise HTTPException(status_code=400, detail="Print size is required")
+
+    data["print_method"] = method
+    data["print_size"] = size
+    data["print_positions"] = [
+        str(position).strip()
+        for position in data.get("print_positions", [])
+        if str(position).strip()
+    ]
+    data["print_cost_max"] = float(data.get("print_cost_max") or 0)
+    data["slug"] = slugify(f"{method}-{size}")
+    return data
+
+
+@print_options_router.get("", response_model=List[PrintOption])
+async def list_print_options(
+    request: Request,
+    status: Optional[str] = None,
+):
+    db = request.app.state.db
+    q: Dict = {}
+
+    if status:
+        q["status"] = status
+
+    docs = await db.print_options.find(q, {"_id": 0}).sort("print_method", 1).to_list(500)
+    return [PrintOption(**d) for d in docs]
+
+
+@print_options_router.post("", response_model=PrintOption)
+async def create_print_option(
+    payload: PrintOptionCreate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    data = normalize_print_option_payload(payload.model_dump())
+    now = utcnow()
+
+    existing = await db.print_options.find_one({"slug": data["slug"]}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Print option already exists")
+
+    option = PrintOption(**data, created_at=now, updated_at=now)
+    await db.print_options.insert_one(iso_dates(option.model_dump()))
+    return option
+
+
+@print_options_router.patch("/{option_id}", response_model=PrintOption)
+async def update_print_option(
+    option_id: str,
+    payload: PrintOptionUpdate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    existing = await db.print_options.find_one({"id": option_id}, {"_id": 0})
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="Print option not found")
+
+    updates = payload.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    merged = {**existing, **updates}
+    normalized = normalize_print_option_payload(merged)
+    normalized["updated_at"] = utcnow().isoformat()
+
+    slug_owner = await db.print_options.find_one(
+        {"slug": normalized["slug"], "id": {"$ne": option_id}},
+        {"_id": 0},
+    )
+    if slug_owner:
+        raise HTTPException(status_code=400, detail="Another print option already uses this method/size")
+
+    await db.print_options.update_one({"id": option_id}, {"$set": normalized})
+    doc = await db.print_options.find_one({"id": option_id}, {"_id": 0})
+    return PrintOption(**doc)
+
+
+@print_options_router.delete("/{option_id}")
+async def delete_print_option(
+    option_id: str,
+    request: Request,
+    force: bool = False,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    linked_templates = await db.product_templates.count_documents({"print_option_ids": option_id})
+
+    if linked_templates and not force:
+        await db.print_options.update_one(
+            {"id": option_id},
+            {"$set": {"status": "archived", "updated_at": utcnow().isoformat()}},
+        )
+        return {"status": "archived", "linked_templates": linked_templates}
+
+    await db.print_options.delete_one({"id": option_id})
+    return {"status": "deleted", "linked_templates": linked_templates}
+
+
+# =============================================================================
+# CATEGORIES
+# =============================================================================
+
+categories_router = APIRouter(prefix="/categories")
+
+
+@categories_router.get("", response_model=List[Category])
+async def list_categories(request: Request):
+    db = request.app.state.db
+    docs = await db.categories.find({}, {"_id": 0}).to_list(100)
+    return [Category(**d) for d in docs]
+
+
+@categories_router.post("", response_model=Category)
+async def create_category(
+    payload: CategoryCreate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    slug = slugify(payload.name)
+
+    if await db.categories.find_one({"slug": slug}, {"_id": 0}):
+        raise HTTPException(status_code=400, detail="Category exists")
+
+    cat = Category(name=payload.name, slug=slug)
+    await db.categories.insert_one(cat.model_dump())
+
+    return cat
+
+
+@categories_router.patch("/{cat_id}", response_model=Category)
+async def update_category(
+    cat_id: str,
+    payload: CategoryUpdate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    updates = payload.model_dump(exclude_none=True)
+
+    if "name" in updates:
+        updates["slug"] = slugify(updates["name"])
+
+    await db.categories.update_one({"id": cat_id}, {"$set": updates})
+
+    doc = await db.categories.find_one({"id": cat_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    return Category(**doc)
+
+
+@categories_router.delete("/{cat_id}")
+async def delete_category(
+    cat_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    await db.categories.delete_one({"id": cat_id})
+    return {"status": "deleted"}
+
+
+# =============================================================================
+# ATTRIBUTES
+# =============================================================================
+
+attributes_router = APIRouter(prefix="/attributes")
+
+
+@attributes_router.get("", response_model=List[Attribute])
+async def list_attributes(request: Request):
+    db = request.app.state.db
+    docs = await db.attributes.find({}, {"_id": 0}).to_list(200)
+    return [Attribute(**d) for d in docs]
+
+
+@attributes_router.post("", response_model=Attribute)
+async def create_attribute(
+    payload: AttributeCreate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    slug = slugify(payload.name)
+
+    if await db.attributes.find_one({"slug": slug}, {"_id": 0}):
+        raise HTTPException(status_code=400, detail="Attribute exists")
+
+    attr = Attribute(
+        name=payload.name,
+        slug=slug,
+        values=payload.values,
+        used_for_variation=payload.used_for_variation,
+    )
+
+    doc = attr.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+
+    await db.attributes.insert_one(doc)
+    return attr
+
+
+@attributes_router.patch("/{attr_id}", response_model=Attribute)
+async def update_attribute(
+    attr_id: str,
+    payload: AttributeUpdate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    updates = payload.model_dump(exclude_none=True)
+
+    if "name" in updates:
+        updates["slug"] = slugify(updates["name"])
+
+    await db.attributes.update_one({"id": attr_id}, {"$set": updates})
+
+    doc = await db.attributes.find_one({"id": attr_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    return Attribute(**doc)
+
+
+@attributes_router.delete("/{attr_id}")
+async def delete_attribute(
+    attr_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    await db.attributes.delete_one({"id": attr_id})
+    return {"status": "deleted"}

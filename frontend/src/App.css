@@ -1,0 +1,12 @@
+body,
+html,
+#root {
+  background-color: var(--ff-page-bg, var(--bg-primary, #0A0A0A));
+  color: var(--ff-page-text, var(--text-primary, #FFFFFF));
+}
+
+.App {
+  min-height: 100vh;
+  background-color: var(--ff-page-bg, var(--bg-primary, #0A0A0A));
+  color: var(--ff-page-text, var(--text-primary, #FFFFFF));
+}

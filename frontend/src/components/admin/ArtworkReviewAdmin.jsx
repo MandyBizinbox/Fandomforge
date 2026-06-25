@@ -1,0 +1,330 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { Check, X, RefreshCw, Image as ImageIcon, ExternalLink } from "lucide-react";
+import { http, assetUrl } from "../../lib/api";
+import StatusBadge from "../StatusBadge";
+import { toast } from "sonner";
+
+const STATUS_OPTIONS = [
+  { value: "pending_review", label: "Pending Review" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+  { value: "all", label: "All Artwork" },
+];
+
+function money(value) {
+  return `R ${Number(value || 0).toFixed(2)}`;
+}
+
+function statusTone(status) {
+  if (status === "approved") return "text-[#34C759]";
+  if (status === "rejected") return "text-[var(--ff-primary)]";
+  return "text-[var(--ff-primary)]";
+}
+
+function ArtworkPreview({ row }) {
+  const mockupUrl = assetUrl(row.mockup_image_url);
+  const fileUrl = assetUrl(row.file_url);
+
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <div className="overline mb-2">Mockup</div>
+        <div className="aspect-square border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] flex items-center justify-center overflow-hidden">
+          {mockupUrl ? (
+            <img src={mockupUrl} alt="Mockup" className="w-full h-full object-contain" />
+          ) : (
+            <div className="text-center text-[var(--ff-muted-text)]">
+              <ImageIcon className="mx-auto mb-2" />
+              <div className="text-xs uppercase tracking-widest">No mockup</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="overline mb-2">Artwork</div>
+        <div className="aspect-square border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] flex items-center justify-center overflow-hidden">
+          {fileUrl ? (
+            <img src={fileUrl} alt={row.file_name || "Artwork"} className="w-full h-full object-contain" />
+          ) : (
+            <div className="text-center text-[var(--ff-muted-text)]">
+              <ImageIcon className="mx-auto mb-2" />
+              <div className="text-xs uppercase tracking-widest">No artwork</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ArtworkReviewCard({ row, onReview, busy }) {
+  const [note, setNote] = useState(row.review_note || row.rejection_reason || "");
+  const [overrideCost, setOverrideCost] = useState(row.print_cost_override ?? "");
+  const [overrideReason, setOverrideReason] = useState(row.print_cost_override_reason || "");
+  const placement = row.placement || {};
+
+  return (
+    <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-5" data-testid={`artwork-review-${row.product_id}-${row.artwork_id}`}>
+      <div className="grid xl:grid-cols-[380px_1fr_280px] gap-5">
+        <ArtworkPreview row={row} />
+
+        <div>
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div>
+              <div className="overline mb-1">{row.band_name}</div>
+              <h2 className="font-display text-3xl uppercase leading-none">{row.product_title}</h2>
+              <div className="text-xs text-[var(--ff-muted-text)] mt-2">Template: {row.template_name}</div>
+            </div>
+            <StatusBadge status={row.artwork_status} />
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-3 text-sm">
+            <div className="border border-[var(--ff-card-border)] p-3 bg-[var(--ff-card-bg)]">
+              <div className="overline mb-1">Artwork Group</div>
+              <div className="font-bold">{row.group_label}</div>
+              <div className="text-xs text-[var(--ff-muted-text)] mt-1">
+                Scope: {row.group_scope_type || "custom"}
+                {row.group_attribute_key && row.group_attribute_value ? ` · ${row.group_attribute_key}: ${row.group_attribute_value}` : ""}
+              </div>
+              {row.variation_ids?.length > 0 && (
+                <div className="text-xs text-[var(--ff-muted-text)] mt-1">{row.variation_ids.length} linked variation(s)</div>
+              )}
+            </div>
+
+            <div className="border border-[var(--ff-card-border)] p-3 bg-[var(--ff-card-bg)]">
+              <div className="overline mb-1">Production Area</div>
+              <div className="font-bold">{row.print_area_name}</div>
+              <div className="text-xs text-[var(--ff-muted-text)] mt-1">
+                {row.screen_name || row.screen_view || "View"} · {row.print_option_label}
+              </div>
+            </div>
+
+            <div className="border border-[var(--ff-card-border)] p-3 bg-[var(--ff-card-bg)]">
+              <div className="overline mb-1">Placement</div>
+              <div className="text-xs text-[var(--ff-muted-text)]">
+                X {Number(placement.x || 0).toFixed(1)}% · Y {Number(placement.y || 0).toFixed(1)}%<br />
+                W {Number(placement.width || 0).toFixed(1)}% · H {Number(placement.height || 0).toFixed(1)}%<br />
+                Rotation {Number(placement.rotation || 0).toFixed(1)}°
+              </div>
+            </div>
+
+            <div className="border border-[var(--ff-card-border)] p-3 bg-[var(--ff-card-bg)]">
+              <div className="overline mb-1">File</div>
+              <div className="text-xs text-[var(--ff-muted-text)] break-all">{row.file_name || "Artwork file"}</div>
+              {row.file_url && (
+                <a href={assetUrl(row.file_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs uppercase tracking-widest text-[var(--ff-primary)] font-bold mt-2">
+                  Open file <ExternalLink size={12} />
+                </a>
+              )}
+            </div>
+
+            <div className="border border-[var(--ff-card-border)] p-3 bg-[var(--ff-card-bg)] md:col-span-2">
+              <div className="overline mb-1">Print Cost</div>
+              <div className="text-xs text-[var(--ff-muted-text)]">
+                Current: {money(row.print_cost_override ?? row.creator_print_price ?? row.calculated_print_cost)} · {row.charged_width_mm || row.artwork_width_mm || 0}×{row.charged_height_mm || row.artwork_height_mm || 0}mm · {row.charged_area_cm2 || row.area_cm2 || 0}cm²
+              </div>
+              <div className="text-[11px] text-[var(--ff-muted-text)] mt-1">{row.pricing_source || "print_area_fallback"}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="border border-[var(--ff-card-border)] p-4 bg-[var(--ff-card-bg)] h-fit">
+          <div className="overline mb-2">Review Decision</div>
+          <textarea
+            className="input-base min-h-[110px] text-sm"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Optional approval note or rejection reason..."
+          />
+
+          <div className="mt-3 space-y-2">
+            <label className="label">Override print cost</label>
+            <input
+              className="input-base text-sm"
+              type="number"
+              min="0"
+              step="0.01"
+              value={overrideCost}
+              onChange={(e) => setOverrideCost(e.target.value)}
+              placeholder={String(row.creator_print_price ?? row.calculated_print_cost ?? "")}
+            />
+            <input
+              className="input-base text-sm"
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="Override reason shown to creator"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onReview(row, "approved", note, overrideCost, overrideReason)}
+              className="btn-primary text-xs justify-center"
+            >
+              <Check size={14} /> Approve
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onReview(row, "rejected", note || "Artwork rejected")}
+              className="btn-secondary text-xs justify-center"
+            >
+              <X size={14} /> Reject
+            </button>
+          </div>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onReview(row, "pending_review", note)}
+            className="mt-2 text-xs uppercase tracking-widest text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)] font-bold"
+          >
+            Return to pending
+          </button>
+
+          <div className="border-t border-[var(--ff-card-border)] mt-4 pt-3 text-xs text-[var(--ff-muted-text)]">
+            Product status: <span className={statusTone(row.product_artwork_review_status)}>{row.product_artwork_review_status}</span><br />
+            Published: {row.product_published ? "yes" : "no"}
+          </div>
+
+          <Link to={`/admin/products/${row.product_id}`} className="block mt-3 text-xs uppercase tracking-widest text-[var(--ff-primary)] font-bold">
+            Edit product →
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function ArtworkReviewAdmin() {
+  const [status, setStatus] = useState("pending_review");
+  const [items, setItems] = useState([]);
+  const [counts, setCounts] = useState({ total: 0, pending_review: 0, approved: 0, rejected: 0 });
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState(null);
+  const [search, setSearch] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const response = await http.get(`/admin/artwork-review?status=${status}`);
+      setItems(Array.isArray(response.data?.items) ? response.data.items : []);
+      setCounts(response.data?.counts || { total: 0, pending_review: 0, approved: 0, rejected: 0 });
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Could not load artwork review queue");
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  const filteredItems = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return items;
+    return items.filter((item) => [
+      item.product_title,
+      item.band_name,
+      item.template_name,
+      item.group_label,
+      item.print_area_name,
+      item.file_name,
+    ].filter(Boolean).some((value) => String(value).toLowerCase().includes(needle)));
+  }, [items, search]);
+
+  const review = async (row, nextStatus, notes, overrideCost = "", overrideReason = "") => {
+    setBusyId(`${row.product_id}-${row.group_id}-${row.artwork_id}`);
+    try {
+      const payload = {
+        status: nextStatus,
+        notes: notes || "",
+      };
+      if (nextStatus === "approved" && overrideCost !== "" && overrideCost !== null && overrideCost !== undefined) {
+        payload.print_cost_override = Number(overrideCost);
+        payload.print_cost_override_reason = overrideReason || notes || "Admin print cost override";
+      }
+      await http.patch(`/admin/artwork-review/${row.product_id}/${row.group_id}/${row.artwork_id}`, payload);
+      toast.success(nextStatus === "approved" ? "Artwork approved" : nextStatus === "rejected" ? "Artwork rejected" : "Artwork returned to pending");
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Review update failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div data-testid="admin-artwork-review-page">
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5 mb-8">
+        <div>
+          <div className="overline mb-2">Quality Control</div>
+          <h1 className="font-display text-5xl uppercase">Artwork Review</h1>
+          <p className="text-[var(--ff-muted-text)] mt-2 max-w-2xl">
+            Approve or reject uploaded artwork before creator products can be published and sent to production.
+          </p>
+        </div>
+
+        <button type="button" onClick={load} className="btn-secondary w-fit">
+          <RefreshCw size={14} /> Refresh
+        </button>
+      </div>
+
+      <div className="grid md:grid-cols-4 gap-0 border border-[var(--ff-card-border)] mb-6">
+        {["total", "pending_review", "approved", "rejected"].map((key) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setStatus(key === "total" ? "all" : key)}
+            className={`p-5 text-left border-r border-[var(--ff-card-border)] hover:bg-[var(--ff-surface-bg)] ${status === key || (key === "total" && status === "all") ? "bg-[var(--ff-surface-bg)]" : ""}`}
+          >
+            <div className="overline mb-1">{key.replace(/_/g, " ")}</div>
+            <div className={`font-display text-3xl ${statusTone(key)}`}>{counts[key] ?? 0}</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="grid md:grid-cols-[260px_1fr] gap-4 mb-6">
+        <div>
+          <label className="label">Status filter</label>
+          <select className="input-base" value={status} onChange={(e) => setStatus(e.target.value)}>
+            {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Search</label>
+          <input
+            className="input-base"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search product, creator, file, print area..."
+          />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="card text-[var(--ff-muted-text)]">Loading artwork queue...</div>
+      ) : filteredItems.length > 0 ? (
+        <div className="space-y-4">
+          {filteredItems.map((row) => (
+            <ArtworkReviewCard
+              key={`${row.product_id}-${row.group_id}-${row.artwork_id}`}
+              row={row}
+              onReview={review}
+              busy={busyId === `${row.product_id}-${row.group_id}-${row.artwork_id}`}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="card text-center text-[var(--ff-muted-text)] overline">No artwork found for this filter</div>
+      )}
+    </div>
+  );
+}

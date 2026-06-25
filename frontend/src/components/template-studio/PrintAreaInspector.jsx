@@ -1,0 +1,429 @@
+import React, { useMemo } from "react";
+import { safeArray, normalizeArea, STANDARD_PRINT_SIZE_PRESETS, getPrintSizePreset, printSizeLabel } from "./templateStudioUtils";
+
+const AREA_KEY_OPTIONS = [
+  { key: "front", label: "Front" },
+  { key: "front_full", label: "Front Full" },
+  { key: "back", label: "Back" },
+  { key: "back_full", label: "Back Full" },
+  { key: "sleeve", label: "Sleeve" },
+  { key: "left_sleeve", label: "Left Sleeve" },
+  { key: "right_sleeve", label: "Right Sleeve" },
+  { key: "neck_label", label: "Neck Label" },
+  { key: "pocket", label: "Pocket" },
+  { key: "left_chest", label: "Left Chest" },
+  { key: "right_chest", label: "Right Chest" },
+  { key: "other", label: "Other" },
+];
+
+const AREA_KEY_TAG_ALIASES = {
+  front: ["front"],
+  front_full: ["front"],
+  left_chest: ["front", "pocket"],
+  right_chest: ["front", "pocket"],
+  back: ["back"],
+  back_full: ["back"],
+  sleeve: ["sleeve"],
+  left_sleeve: ["sleeve"],
+  right_sleeve: ["sleeve"],
+  neck_label: ["neck_label"],
+  pocket: ["pocket", "front"],
+  other: [],
+};
+
+function placementTagsForAreaKey(value) {
+  const key = String(value || "").trim().toLowerCase();
+  return AREA_KEY_TAG_ALIASES[key] || (key ? [key] : []);
+}
+
+function money(value) {
+  return `R ${Number(value || 0).toFixed(2)}`;
+}
+
+function optionOutputLabel(option) {
+  const parts = [];
+
+  if (option?.standard_print_size_key) parts.push(option.standard_print_size_key);
+  if (option?.width_mm && option?.height_mm) parts.push(`${option.width_mm}×${option.height_mm}mm`);
+  if (option?.dpi) parts.push(`${option.dpi}DPI`);
+  if (option?.fit_mode) parts.push(`${option.fit_mode} fit`);
+
+  return parts.length ? parts.join(" · ") : "No production metadata";
+}
+
+function optionPlacementTags(option) {
+  return safeArray(option?.print_positions)
+    .map((item) => String(item || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function getOptionLabel(option) {
+  return option?.rule_name || [option?.print_method, option?.print_size].filter(Boolean).join(" · ") || option?.id || "Pricing rule";
+}
+
+function groupPrintOptionsByMethod(printOptions) {
+  return safeArray(printOptions).reduce((groups, option) => {
+    const key = option?.method_key || option?.print_method || "Other";
+    const label = option?.rule_name || option?.print_method || key || "Other";
+
+    if (!groups[key]) {
+      groups[key] = {
+        key,
+        label,
+        options: [],
+      };
+    }
+
+    groups[key].options.push(option);
+    return groups;
+  }, {});
+}
+
+export default function PrintAreaInspector({ selectedArea, printOptions, onChange }) {
+  const activeOptionIds = safeArray(selectedArea?.allowed_print_option_ids);
+  const areaKey = selectedArea?.area_key || selectedArea?.view_key || selectedArea?.screen_view || "";
+
+  const groupedOptions = useMemo(() => {
+    const groups = groupPrintOptionsByMethod(printOptions);
+    return Object.values(groups).sort((a, b) => String(a.label).localeCompare(String(b.label)));
+  }, [printOptions]);
+
+  if (!selectedArea) {
+    return (
+      <div className="studio-panel h-full">
+        <div className="overline mb-2">Inspector</div>
+        <div className="text-zinc-500 text-sm">
+          Select a print area to edit its placement, dimensions and allowed print options.
+        </div>
+      </div>
+    );
+  }
+
+  const update = (patch) => onChange(normalizeArea({ ...selectedArea, ...patch }));
+
+  const applyStandardPrintSize = (sizeKey) => {
+    const preset = getPrintSizePreset(sizeKey);
+    update({
+      standard_print_size_key: preset.value,
+      print_size: preset.value,
+      width_mm: preset.width_mm || null,
+      height_mm: preset.height_mm || null,
+    });
+  };
+
+  const toggleOption = (optionId) => {
+    const current = safeArray(selectedArea.allowed_print_option_ids);
+    update({
+      allowed_print_option_ids: current.includes(optionId)
+        ? current.filter((id) => id !== optionId)
+        : [...current, optionId],
+    });
+  };
+
+  const setAllowedOptionIds = (ids) => {
+    update({ allowed_print_option_ids: Array.from(new Set(safeArray(ids))) });
+  };
+
+  const allowMatchingPlacementTags = () => {
+    const key = (selectedArea.area_key || selectedArea.view_key || selectedArea.screen_view || "").toLowerCase();
+    const acceptedTags = placementTagsForAreaKey(key);
+
+    if (!acceptedTags.length) {
+      return;
+    }
+
+    const matching = safeArray(printOptions)
+      .filter((option) => {
+        const tags = optionPlacementTags(option);
+        return acceptedTags.some((tag) => tags.includes(tag));
+      })
+      .map((option) => option.id)
+      .filter(Boolean);
+
+    setAllowedOptionIds(matching);
+  };
+
+  const allowAllActive = () => {
+    setAllowedOptionIds(
+      safeArray(printOptions)
+        .filter((option) => (option.status || "active") === "active")
+        .map((option) => option.id)
+        .filter(Boolean)
+    );
+  };
+
+  const clearAll = () => {
+    setAllowedOptionIds([]);
+  };
+
+  const applyAreaKey = (nextAreaKey) => {
+    const selected = AREA_KEY_OPTIONS.find((item) => item.key === nextAreaKey);
+    update({
+      area_key: nextAreaKey,
+      view_key: selectedArea.view_key || nextAreaKey,
+      name: selectedArea.name || selected?.label || nextAreaKey,
+    });
+  };
+
+  return (
+    <div className="studio-panel h-full overflow-y-auto">
+      <div className="studio-panel-header">
+        <div>
+          <div className="overline mb-1">Inspector</div>
+          <h2 className="font-display text-2xl uppercase">Print Area</h2>
+          <p className="text-xs text-zinc-500 mt-1">
+            Area defines where artwork goes. Allowed options define which method + size combinations can be used there.
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-4">
+          <div>
+            <div className="overline mb-2">Area identity</div>
+            <div className="grid gap-3">
+              <label>
+                <span className="label">Area name</span>
+                <input
+                  className="input-base"
+                  value={selectedArea.name || ""}
+                  onChange={(e) => update({ name: e.target.value })}
+                  placeholder="Sleeve, Front, Back, Neck Label"
+                />
+              </label>
+
+              <label>
+                <span className="label">Area key</span>
+                <select
+                  className="input-base"
+                  value={areaKey}
+                  onChange={(e) => applyAreaKey(e.target.value)}
+                >
+                  <option value="">Select area key</option>
+                  {AREA_KEY_OPTIONS.map((item) => (
+                    <option key={item.key} value={item.key}>{item.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex items-center gap-3 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={Boolean(selectedArea.required)}
+                  onChange={(e) => update({ required: e.target.checked })}
+                />
+                Required print area
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-4">
+          <div>
+            <div className="overline mb-2">Mockup position</div>
+            <div className="grid grid-cols-2 gap-3">
+              <label>
+                <span className="label">X %</span>
+                <input
+                  className="input-base"
+                  type="number"
+                  step="0.1"
+                  value={selectedArea.x}
+                  onChange={(e) => update({ x: Number(e.target.value) })}
+                />
+              </label>
+              <label>
+                <span className="label">Y %</span>
+                <input
+                  className="input-base"
+                  type="number"
+                  step="0.1"
+                  value={selectedArea.y}
+                  onChange={(e) => update({ y: Number(e.target.value) })}
+                />
+              </label>
+              <label>
+                <span className="label">Width %</span>
+                <input
+                  className="input-base"
+                  type="number"
+                  step="0.1"
+                  value={selectedArea.width}
+                  onChange={(e) => update({ width: Number(e.target.value) })}
+                />
+              </label>
+              <label>
+                <span className="label">Height %</span>
+                <input
+                  className="input-base"
+                  type="number"
+                  step="0.1"
+                  value={selectedArea.height}
+                  onChange={(e) => update({ height: Number(e.target.value) })}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-4">
+          <div>
+            <div className="overline mb-2">Production size</div>
+            <p className="text-xs text-zinc-500 mb-3">
+              Real-world output size for this print area. This is separate from the mockup position above.
+            </p>
+
+            <div className="grid gap-3">
+              <label>
+                <span className="label">Standard print size</span>
+                <select
+                  className="input-base"
+                  value={selectedArea.standard_print_size_key || selectedArea.print_size || "custom"}
+                  onChange={(e) => applyStandardPrintSize(e.target.value)}
+                >
+                  {STANDARD_PRINT_SIZE_PRESETS.map((preset) => (
+                    <option key={preset.value} value={preset.value}>{preset.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="text-xs text-zinc-500">
+                Output: {printSizeLabel(selectedArea.width_mm, selectedArea.height_mm, selectedArea.dpi || 300)}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label>
+                  <span className="label">Width mm</span>
+                  <input
+                    className="input-base"
+                    type="number"
+                    step="1"
+                    value={selectedArea.width_mm || ""}
+                    onChange={(e) => update({ standard_print_size_key: "custom", print_size: "custom", width_mm: e.target.value ? Number(e.target.value) : null })}
+                  />
+                </label>
+                <label>
+                  <span className="label">Height mm</span>
+                  <input
+                    className="input-base"
+                    type="number"
+                    step="1"
+                    value={selectedArea.height_mm || ""}
+                    onChange={(e) => update({ standard_print_size_key: "custom", print_size: "custom", height_mm: e.target.value ? Number(e.target.value) : null })}
+                  />
+                </label>
+                <label>
+                  <span className="label">DPI</span>
+                  <input
+                    className="input-base"
+                    type="number"
+                    step="1"
+                    value={selectedArea.dpi || 300}
+                    onChange={(e) => update({ dpi: Number(e.target.value || 300) })}
+                  />
+                </label>
+                <label>
+                  <span className="label">Fit mode</span>
+                  <select
+                    className="input-base"
+                    value={selectedArea.fit_mode || "contain"}
+                    onChange={(e) => update({ fit_mode: e.target.value })}
+                  >
+                    <option value="contain">Contain</option>
+                    <option value="cover">Cover</option>
+                    <option value="stretch">Stretch</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div>
+              <div className="overline mb-2">Allowed print options</div>
+              <p className="text-xs text-zinc-500">
+                Selected: {activeOptionIds.length} / {safeArray(printOptions).length}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-2 mb-4">
+            <button
+              type="button"
+              className="btn-secondary text-xs justify-center"
+              onClick={allowMatchingPlacementTags}
+              disabled={!areaKey}
+            >
+              Allow matching placement tags
+            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" className="border border-white/15 py-2 text-xs uppercase tracking-widest text-zinc-300 hover:text-white" onClick={allowAllActive}>
+                Allow all active
+              </button>
+              <button type="button" className="border border-white/15 py-2 text-xs uppercase tracking-widest text-zinc-300 hover:text-[#FF3B30]" onClick={clearAll}>
+                Clear all
+              </button>
+            </div>
+          </div>
+
+          <div className="grid gap-4 max-h-[420px] overflow-auto pr-1">
+            {groupedOptions.map((group) => (
+              <div key={group.key} className="border border-white/10 rounded-xl overflow-hidden">
+                <div className="bg-black/30 px-3 py-2 font-bold text-xs uppercase tracking-widest text-zinc-300">
+                  {group.label}
+                </div>
+
+                <div className="divide-y divide-white/10">
+                  {group.options.map((option) => {
+                    const checked = activeOptionIds.includes(option.id);
+                    const tags = optionPlacementTags(option);
+
+                    return (
+                      <label
+                        key={option.id}
+                        className={`flex gap-3 p-3 text-xs cursor-pointer transition ${
+                          checked ? "bg-[#FF3B30]/10" : "hover:bg-white/[0.03]"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleOption(option.id)}
+                          className="mt-1"
+                        />
+
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-bold text-zinc-100">{getOptionLabel(option)}</span>
+                          <span className="block text-zinc-500 mt-1">{optionOutputLabel(option)}</span>
+                          <span className="block text-zinc-500 mt-1">
+                            {option.calculation_type || "fixed"} · {option.calculation_type === "area_from_sheet" ? `R ${Number(option.cost_per_cm2 || 0).toFixed(4)}/cm²` : `Platform print cost ${money(option.print_cost_max)}`} · Tags: {tags.length ? tags.join(", ") : "none"}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            {safeArray(printOptions).length === 0 && (
+              <div className="text-xs text-zinc-500">Create print options first.</div>
+            )}
+          </div>
+        </div>
+
+        <label>
+          <span className="label">Notes</span>
+          <textarea
+            className="input-base"
+            rows={3}
+            value={selectedArea.notes || ""}
+            onChange={(e) => update({ notes: e.target.value })}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}

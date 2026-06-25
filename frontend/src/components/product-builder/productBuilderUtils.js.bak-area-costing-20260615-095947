@@ -1,0 +1,247 @@
+export function asArray(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.results)) return value.results;
+  return [];
+}
+
+export function money(value) {
+  return `R ${Number(value || 0).toFixed(2)}`;
+}
+
+export function makeId(prefix = "id") {
+  return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now().toString(16)}`;
+}
+
+export function getTemplateImage(template, selectedArea) {
+  if (!template) return "";
+
+  if (selectedArea?.screen_id) {
+    const screen = asArray(template.mockup_screens).find((item) => item.id === selectedArea.screen_id);
+    if (screen?.image_url) return screen.image_url;
+  }
+
+  const primary = asArray(template.mockup_screens).find((item) => item.is_primary && item.image_url);
+  if (primary?.image_url) return primary.image_url;
+
+  const firstScreen = asArray(template.mockup_screens).find((item) => item.image_url);
+  if (firstScreen?.image_url) return firstScreen.image_url;
+
+  return template.product_image_url || template.mockup_url || asArray(template.mockup_images)[0] || "";
+}
+
+export function getVariationAttributes(variation) {
+  return variation?.attributes || variation?.attribute_values || {};
+}
+
+export function getAttrValue(variation, keys) {
+  const attrs = getVariationAttributes(variation);
+  const candidates = Array.isArray(keys) ? keys : [keys];
+  for (const key of candidates) {
+    const direct = attrs[key];
+    if (direct !== undefined && direct !== null && String(direct).trim() !== "") return String(direct);
+    const foundKey = Object.keys(attrs).find((item) => item.toLowerCase() === String(key).toLowerCase());
+    if (foundKey && attrs[foundKey] !== undefined && attrs[foundKey] !== null) return String(attrs[foundKey]);
+  }
+  return "";
+}
+
+export function getVariationColour(variation) {
+  return getAttrValue(variation, ["Colour", "Color", "colour", "color"]) || variation?.color || "Default";
+}
+
+export function getVariationSize(variation) {
+  return getAttrValue(variation, ["Size", "size"]) || variation?.size || "One Size";
+}
+
+export function getVariationLabel(variation) {
+  const attrs = getVariationAttributes(variation);
+  const label = Object.entries(attrs)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(" / ");
+
+  return label || [variation?.size, variation?.color].filter(Boolean).join(" / ") || variation?.sku || "Variation";
+}
+
+export function getVariationCost(variation, template) {
+  const value = variation?.cost ?? variation?.base_blank_cost ?? template?.base_blank_cost ?? template?.base_price ?? 0;
+  return Number(value || 0);
+}
+
+export function getPrintOptionLabel(option) {
+  if (!option) return "Print option";
+  return [option.print_method || option.method, option.print_size]
+    .filter(Boolean)
+    .join(" · ") || option.name || "Print option";
+}
+
+export function getPrintOptionCost(option) {
+  return Number(option?.print_cost_max || 0);
+}
+
+export function calculatePricing({ sellingPrice = 0, blankCost = 0, printCost = 0, commissionRate = 0.15 }) {
+  const price = Number(sellingPrice || 0);
+  const blankSupplierCost = Number(blankCost || 0);
+  const platformPrintCost = Number(printCost || 0);
+
+  const blankPayout = Math.round(blankSupplierCost * 1.10 * 100) / 100;
+  const printPayout = Math.round(platformPrintCost * 1.10 * 100) / 100;
+  const production = Math.round((blankPayout + printPayout) * 100) / 100;
+  const rate = Number(commissionRate || 0);
+  const commission = Math.round(price * rate * 100) / 100;
+  const profit = Math.round((price - production - commission) * 100) / 100;
+  const minimumSellingPrice = rate >= 1 ? production : Math.ceil((production / (1 - rate)) * 100) / 100;
+
+  return {
+    blank: blankPayout,
+    blankSupplierCost,
+    print: printPayout,
+    platformPrintCost,
+    production,
+    rate,
+    commission,
+    profit,
+    minimumSellingPrice,
+    canPublishProfitably: price > 0 && profit >= 0,
+  };
+}
+
+export function buildProductVariations(template, selectedIds) {
+  const templateVars = asArray(template?.variations);
+  const ids = selectedIds?.length ? selectedIds : templateVars.map((item) => item.id);
+
+  return templateVars
+    .filter((item) => ids.includes(item.id))
+    .map((item) => ({
+      sku: item.sku || undefined,
+      stock_status: "made_to_order",
+      price_override: null,
+      attribute_values: item.attributes || {},
+      size: getVariationSize(item),
+      color: getVariationColour(item),
+    }));
+}
+
+export function getAreaPreviewImage(template, selectedArea, variationId = "") {
+  if (!template) return "";
+  const variation = asArray(template?.variations).find((item) => item.id === variationId);
+
+  if (variation?.mockup_screen_overrides && selectedArea?.screen_id) {
+    const override = variation.mockup_screen_overrides[selectedArea.screen_id] || variation.mockup_screen_overrides[selectedArea.screen_view];
+    if (override) return override;
+  }
+
+  if (variation?.image_url) return variation.image_url;
+
+  return getTemplateImage(template, selectedArea);
+}
+
+export function getVariationMatrix(variations) {
+  const rows = [];
+  const sizes = [];
+  const byColour = new Map();
+
+  asArray(variations).forEach((variation) => {
+    const colour = getVariationColour(variation);
+    const size = getVariationSize(variation);
+    if (!sizes.includes(size)) sizes.push(size);
+    if (!byColour.has(colour)) byColour.set(colour, []);
+    byColour.get(colour).push(variation);
+  });
+
+  byColour.forEach((items, colour) => rows.push({ colour, items }));
+
+  return {
+    colours: rows.map((row) => row.colour),
+    sizes,
+    rows,
+  };
+}
+
+export function getSelectedVariations(template, selectedIds) {
+  const ids = new Set(asArray(selectedIds));
+  return asArray(template?.variations).filter((variation) => ids.has(variation.id));
+}
+
+export function createDefaultArtworkGroup() {
+  return {
+    id: "default-all",
+    label: "Default artwork",
+    scope_type: "all",
+    attribute_key: null,
+    attribute_value: null,
+    variation_ids: [],
+    inherits_from: null,
+    artworks: [],
+    primary_mockup_image_url: "",
+    sort_order: 0,
+  };
+}
+
+export function createColourArtworkGroups(selectedVariations) {
+  const { rows } = getVariationMatrix(selectedVariations);
+  return rows.map((row, index) => ({
+    id: `colour-${row.colour.toLowerCase().replace(/[^a-z0-9]+/g, "-") || index}`,
+    label: row.colour,
+    scope_type: "attribute",
+    attribute_key: "Colour",
+    attribute_value: row.colour,
+    variation_ids: row.items.map((variation) => variation.id),
+    inherits_from: "default-all",
+    artworks: [],
+    primary_mockup_image_url: "",
+    sort_order: index,
+  }));
+}
+
+export function createVariationArtworkGroups(selectedVariations) {
+  return asArray(selectedVariations).map((variation, index) => ({
+    id: `variation-${variation.id}`,
+    label: getVariationLabel(variation),
+    scope_type: "variation",
+    attribute_key: null,
+    attribute_value: null,
+    variation_ids: [variation.id],
+    inherits_from: "default-all",
+    artworks: [],
+    primary_mockup_image_url: "",
+    sort_order: index,
+  }));
+}
+
+export function getGroupRepresentativeVariationId(group, selectedVariations) {
+  if (group?.variation_ids?.length) return group.variation_ids[0];
+  return asArray(selectedVariations)[0]?.id || "";
+}
+
+export function flattenArtworkGroups(groups) {
+  const out = [];
+  asArray(groups).forEach((group) => {
+    asArray(group.artworks).forEach((artwork) => {
+      out.push({ ...artwork, artwork_group_id: group.id, artwork_group_label: group.label });
+    });
+  });
+  return out;
+}
+
+export function getUniquePrintCostFromGroups(groups, printOptions) {
+  const ids = new Set();
+  flattenArtworkGroups(groups).forEach((artwork) => {
+    if (artwork.print_option_id) ids.add(artwork.print_option_id);
+  });
+
+  return [...ids].reduce((sum, id) => {
+    const option = asArray(printOptions).find((item) => item.id === id);
+    return sum + getPrintOptionCost(option);
+  }, 0);
+}
+
+export function getPrimaryMockupFromGroups(groups) {
+  for (const group of asArray(groups)) {
+    if (group.primary_mockup_image_url) return group.primary_mockup_image_url;
+    const mockup = asArray(group.artworks).find((artwork) => artwork.mockup_image_url)?.mockup_image_url;
+    if (mockup) return mockup;
+  }
+  return "";
+}

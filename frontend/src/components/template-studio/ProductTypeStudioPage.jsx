@@ -1,0 +1,593 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ChevronLeft, Plus, Save, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { http } from "../../lib/api";
+import {
+  VIEW_OPTIONS,
+  newId,
+  safeArray,
+  slugify,
+} from "./templateStudioUtils";
+
+const blankProductType = {
+  name: "",
+  slug: "",
+  description: "",
+  category: "",
+  category_id: "",
+  base_views: [],
+  default_variation_axes: [],
+  attribute_ids: [],
+  default_attribute_values: {},
+  supports_printing: true,
+  supports_mockups: true,
+  requires_template: true,
+  supports_neck_label: false,
+  supports_sleeves: false,
+  supports_wraparound: false,
+
+  // Legacy compatibility only. Product Type should no longer edit production print areas.
+  mockup_screens: [],
+  print_areas: [],
+  print_option_ids: [],
+  allowed_print_size_keys: [],
+
+  status: "draft",
+};
+
+const commonAxes = ["Size", "Color", "Material", "Style"];
+
+function normalizeBaseViews(productType) {
+  const baseViews = safeArray(productType.base_views);
+
+  if (baseViews.length) {
+    return baseViews.map((view, index) => ({
+      id: view.id || newId("view"),
+      view_key: view.view_key || view.view || "front",
+      name: view.name || VIEW_OPTIONS.find((option) => option.value === (view.view_key || view.view))?.label || "View",
+      sort_order: Number(view.sort_order ?? index),
+      is_primary: Boolean(view.is_primary || index === 0),
+      notes: view.notes || "",
+    }));
+  }
+
+  // Legacy fallback: existing product types may still have mockup_screens.
+  return safeArray(productType.mockup_screens).map((screen, index) => ({
+    id: screen.id || newId("view"),
+    view_key: screen.view || screen.view_key || "front",
+    name: screen.name || VIEW_OPTIONS.find((option) => option.value === (screen.view || screen.view_key))?.label || "View",
+    sort_order: Number(screen.sort_order ?? index),
+    is_primary: Boolean(screen.is_primary || index === 0),
+    notes: screen.notes || "",
+  }));
+}
+
+export default function ProductTypeStudioPage() {
+  const { id } = useParams();
+  const isNew = !id;
+  const navigate = useNavigate();
+
+  const [productType, setProductType] = useState(blankProductType);
+  const [categories, setCategories] = useState([]);
+  const [attributes, setAttributes] = useState([]);
+  const [activeTab, setActiveTab] = useState("setup");
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(!isNew);
+
+  const baseViews = useMemo(() => normalizeBaseViews(productType), [productType]);
+
+  useEffect(() => {
+    Promise.all([
+      http.get("/categories"),
+      http.get("/attributes"),
+    ])
+      .then(([catRes, attrRes]) => {
+        setCategories(safeArray(catRes.data));
+        setAttributes(safeArray(attrRes.data));
+      })
+      .catch(() => toast.error("Could not load product type setup data"));
+  }, []);
+
+  useEffect(() => {
+    if (isNew) return;
+
+    setLoading(true);
+    http.get(`/admin/product-types/${id}`)
+      .then((response) => {
+        const data = { ...blankProductType, ...response.data };
+        setProductType({
+          ...data,
+          base_views: normalizeBaseViews(data),
+          default_variation_axes: safeArray(data.default_variation_axes),
+        });
+      })
+      .catch((error) => toast.error(error.response?.data?.detail || "Could not load product type"))
+      .finally(() => setLoading(false));
+  }, [id, isNew]);
+
+  const updateProductType = (patch) => {
+    setProductType((current) => ({ ...current, ...patch }));
+  };
+
+  const toggleArrayValue = (key, value) => {
+    const current = safeArray(productType[key]);
+    const next = current.includes(value)
+      ? current.filter((item) => item !== value)
+      : [...current, value];
+
+    updateProductType({ [key]: next });
+  };
+
+  const addBaseView = () => {
+    const nextViewKey = baseViews.length ? "back" : "front";
+    const option = VIEW_OPTIONS.find((view) => view.value === nextViewKey) || VIEW_OPTIONS[0];
+
+    updateProductType({
+      base_views: [
+        ...baseViews,
+        {
+          id: newId("view"),
+          view_key: option.value,
+          name: option.label,
+          sort_order: baseViews.length,
+          is_primary: baseViews.length === 0,
+          notes: "",
+        },
+      ],
+    });
+  };
+
+  const updateBaseView = (viewId, patch) => {
+    const nextViews = baseViews.map((view) => {
+      if (view.id !== viewId) return view;
+
+      const updated = { ...view, ...patch };
+      if (patch.view_key && !patch.name) {
+        updated.name = VIEW_OPTIONS.find((option) => option.value === patch.view_key)?.label || updated.name;
+      }
+
+      return updated;
+    });
+
+    updateProductType({ base_views: nextViews });
+  };
+
+  const removeBaseView = (viewId) => {
+    const nextViews = baseViews
+      .filter((view) => view.id !== viewId)
+      .map((view, index) => ({
+        ...view,
+        sort_order: index,
+        is_primary: index === 0 ? true : Boolean(view.is_primary),
+      }));
+
+    updateProductType({ base_views: nextViews });
+  };
+
+  const setPrimaryBaseView = (viewId) => {
+    updateProductType({
+      base_views: baseViews.map((view) => ({
+        ...view,
+        is_primary: view.id === viewId,
+      })),
+    });
+  };
+
+  const save = async () => {
+    if (!productType.name.trim()) {
+      toast.error("Enter a product type name.");
+      return;
+    }
+
+    setSaving(true);
+
+    const selectedCategory = categories.find((category) => category.id === productType.category_id);
+    const normalizedViews = normalizeBaseViews({ ...productType, base_views: baseViews });
+
+    const payload = {
+      ...productType,
+      name: productType.name.trim(),
+      slug: productType.slug || slugify(productType.name),
+      category_id: productType.category_id || "",
+      category: selectedCategory?.slug || selectedCategory?.name || productType.category || "",
+      base_views: normalizedViews,
+      default_variation_axes: safeArray(productType.default_variation_axes),
+      attribute_ids: safeArray(productType.attribute_ids),
+      default_attribute_values: productType.default_attribute_values || {},
+      supports_printing: Boolean(productType.supports_printing),
+      supports_mockups: Boolean(productType.supports_mockups),
+      requires_template: Boolean(productType.requires_template),
+      supports_neck_label: Boolean(productType.supports_neck_label),
+      supports_sleeves: Boolean(productType.supports_sleeves),
+      supports_wraparound: Boolean(productType.supports_wraparound),
+
+      // Legacy fields stay present but Product Type no longer owns production setup.
+      mockup_screens: [],
+      print_areas: [],
+      print_option_ids: [],
+      allowed_print_size_keys: [],
+
+      status: productType.status || "draft",
+    };
+
+    try {
+      const response = isNew
+        ? await http.post("/admin/product-types", payload)
+        : await http.patch(`/admin/product-types/${id}`, payload);
+
+      toast.success("Product type saved");
+
+      if (isNew) {
+        navigate(`/admin/product-types/${response.data.id}`);
+      } else {
+        const data = { ...blankProductType, ...response.data };
+        setProductType({ ...data, base_views: normalizeBaseViews(data) });
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Could not save product type");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="overline">Loading product type…</div>;
+
+  return (
+    <div className="template-studio-page" data-testid="product-type-studio">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <Link to="/admin/product-templates" className="btn-secondary text-xs">
+            <ChevronLeft size={14} /> Back
+          </Link>
+          <div>
+            <div className="overline mb-1">Product Type Blueprint</div>
+            <h1 className="font-display text-4xl uppercase">{productType.name || "New Product Type"}</h1>
+            <p className="text-zinc-500 text-sm mt-1 max-w-3xl">
+              Define the generic product family only. Supplier templates own mockup images, print areas, print rules and blank costing.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <select className="input-base w-36" value={productType.status || "draft"} onChange={(event) => updateProductType({ status: event.target.value })}>
+            <option value="draft">Draft</option>
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+          </select>
+          {!isNew && (
+            <button
+              type="button"
+              onClick={() => navigate(`/admin/product-templates/new?product_type_id=${productType.id}`)}
+              className="btn-secondary"
+            >
+              Create Supplier Template
+            </button>
+          )}
+          <button type="button" onClick={save} disabled={saving} className="btn-primary">
+            <Save size={14} /> {saving ? "Saving…" : "Save Product Type"}
+          </button>
+        </div>
+      </div>
+
+      <div className="studio-tabs">
+        {[
+          ["setup", "Setup"],
+          ["views", "Base Views"],
+          ["defaults", "Defaults"],
+          ["review", "Review"],
+        ].map(([tab, label]) => (
+          <button key={tab} type="button" className={activeTab === tab ? "studio-tab active" : "studio-tab"} onClick={() => setActiveTab(tab)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "setup" && (
+        <div className="grid xl:grid-cols-[1fr_360px] gap-5">
+          <div className="studio-panel">
+            <div className="studio-panel-header">
+              <div>
+                <div className="overline mb-1">Blueprint details</div>
+                <h2 className="font-display text-2xl uppercase">Product Type Setup</h2>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <label>
+                <span className="label">Product type name</span>
+                <input
+                  className="input-base"
+                  value={productType.name}
+                  onChange={(event) => updateProductType({ name: event.target.value, slug: productType.slug || slugify(event.target.value) })}
+                  placeholder="T-Shirt"
+                />
+              </label>
+
+              <label>
+                <span className="label">Slug</span>
+                <input className="input-base" value={productType.slug || ""} onChange={(event) => updateProductType({ slug: event.target.value })} />
+              </label>
+
+              <label>
+                <span className="label">Marketplace category</span>
+                <select
+                  className="input-base"
+                  value={productType.category_id || ""}
+                  onChange={(event) => {
+                    const category = categories.find((item) => item.id === event.target.value);
+                    updateProductType({
+                      category_id: event.target.value,
+                      category: category?.slug || category?.name || "",
+                    });
+                  }}
+                >
+                  <option value="">Select category</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="label">Status</span>
+                <select className="input-base" value={productType.status || "draft"} onChange={(event) => updateProductType({ status: event.target.value })}>
+                  <option value="draft">Draft</option>
+                  <option value="active">Active</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </label>
+
+              <label className="md:col-span-2">
+                <span className="label">Description</span>
+                <textarea
+                  className="input-base min-h-[120px]"
+                  value={productType.description || ""}
+                  onChange={(event) => updateProductType({ description: event.target.value })}
+                  placeholder="Generic product family used by supplier templates."
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="studio-panel">
+            <div className="overline mb-3">Behaviour</div>
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 border border-white/10 bg-black/20 rounded-xl p-3 text-sm">
+                <input type="checkbox" checked={Boolean(productType.supports_printing)} onChange={(event) => updateProductType({ supports_printing: event.target.checked })} />
+                <span>Supports printing</span>
+              </label>
+              <label className="flex items-center gap-2 border border-white/10 bg-black/20 rounded-xl p-3 text-sm">
+                <input type="checkbox" checked={Boolean(productType.supports_mockups)} onChange={(event) => updateProductType({ supports_mockups: event.target.checked })} />
+                <span>Supports mockup views</span>
+              </label>
+              <label className="flex items-center gap-2 border border-white/10 bg-black/20 rounded-xl p-3 text-sm">
+                <input type="checkbox" checked={Boolean(productType.requires_template)} onChange={(event) => updateProductType({ requires_template: event.target.checked })} />
+                <span>Requires supplier template</span>
+              </label>
+            </div>
+
+            <div className="overline mt-6 mb-3">Capabilities</div>
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 border border-white/10 bg-black/20 rounded-xl p-3 text-sm">
+                <input type="checkbox" checked={Boolean(productType.supports_neck_label)} onChange={(event) => updateProductType({ supports_neck_label: event.target.checked })} />
+                <span>Can support neck labels</span>
+              </label>
+              <label className="flex items-center gap-2 border border-white/10 bg-black/20 rounded-xl p-3 text-sm">
+                <input type="checkbox" checked={Boolean(productType.supports_sleeves)} onChange={(event) => updateProductType({ supports_sleeves: event.target.checked })} />
+                <span>Can support sleeve areas</span>
+              </label>
+              <label className="flex items-center gap-2 border border-white/10 bg-black/20 rounded-xl p-3 text-sm">
+                <input type="checkbox" checked={Boolean(productType.supports_wraparound)} onChange={(event) => updateProductType({ supports_wraparound: event.target.checked })} />
+                <span>Can support wraparound areas</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "views" && (
+        <div className="space-y-4">
+          <div className="studio-panel">
+            <div className="studio-panel-header">
+              <div>
+                <div className="overline mb-1">Base views</div>
+                <h2 className="font-display text-2xl uppercase">View Blueprint</h2>
+                <p className="text-sm text-zinc-400 mt-2">
+                  Add generic views only. Supplier templates will upload real blank mockup images for these views.
+                </p>
+              </div>
+              <button type="button" className="btn-secondary" onClick={addBaseView}>
+                <Plus size={14} /> Add View
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {baseViews.map((view, index) => (
+                <div key={view.id} className="border border-white/10 bg-black/20 rounded-xl p-4 grid lg:grid-cols-[160px_1fr_120px_90px] gap-3 items-end">
+                  <label>
+                    <span className="label">View type</span>
+                    <select
+                      className="input-base"
+                      value={view.view_key || "front"}
+                      onChange={(event) => updateBaseView(view.id, { view_key: event.target.value })}
+                    >
+                      {VIEW_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span className="label">Display name</span>
+                    <input
+                      className="input-base"
+                      value={view.name || ""}
+                      onChange={(event) => updateBaseView(view.id, { name: event.target.value })}
+                      placeholder="Front"
+                    />
+                  </label>
+
+                  <label>
+                    <span className="label">Sort</span>
+                    <input
+                      type="number"
+                      className="input-base"
+                      value={Number(view.sort_order ?? index)}
+                      onChange={(event) => updateBaseView(view.id, { sort_order: Number(event.target.value || 0) })}
+                    />
+                  </label>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className={view.is_primary ? "btn-primary text-xs" : "btn-secondary text-xs"}
+                      onClick={() => setPrimaryBaseView(view.id)}
+                    >
+                      Primary
+                    </button>
+                    <button type="button" className="btn-secondary text-xs" onClick={() => removeBaseView(view.id)}>
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {!baseViews.length && (
+                <div className="border border-dashed border-white/15 rounded-xl p-6 text-sm text-zinc-500">
+                  No base views yet. Add Front, Back, Sleeve or any other generic view this product family can use.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "defaults" && (
+        <div className="grid xl:grid-cols-2 gap-5">
+          <div className="studio-panel">
+            <div className="studio-panel-header">
+              <div>
+                <div className="overline mb-1">Default attributes</div>
+                <h2 className="font-display text-2xl uppercase">Attribute Sets</h2>
+                <p className="text-xs text-zinc-500 mt-2">
+                  Choose the normal attributes used by this product type. Supplier templates can still choose exact values later.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2 max-h-[520px] overflow-auto pr-1">
+              {safeArray(attributes).map((attribute) => {
+                const checked = safeArray(productType.attribute_ids).includes(attribute.id);
+
+                return (
+                  <label key={attribute.id} className="flex items-start gap-3 border border-white/10 bg-black/20 rounded-xl p-3 text-sm">
+                    <input type="checkbox" checked={checked} onChange={() => toggleArrayValue("attribute_ids", attribute.id)} />
+                    <span>
+                      <span className="block font-bold">{attribute.name}</span>
+                      <span className="block text-xs text-zinc-500">{safeArray(attribute.values).join(", ") || attribute.slug}</span>
+                    </span>
+                  </label>
+                );
+              })}
+              {!safeArray(attributes).length && <div className="text-xs text-zinc-500">No attributes configured yet.</div>}
+            </div>
+          </div>
+
+          <div className="studio-panel">
+            <div className="studio-panel-header">
+              <div>
+                <div className="overline mb-1">Variation axes</div>
+                <h2 className="font-display text-2xl uppercase">Default Matrix Axes</h2>
+                <p className="text-xs text-zinc-500 mt-2">
+                  This is only a hint for template setup. Supplier templates still define actual variations and costs.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {commonAxes.map((axis) => {
+                const checked = safeArray(productType.default_variation_axes).includes(axis);
+
+                return (
+                  <label key={axis} className="flex items-center gap-2 border border-white/10 bg-black/20 rounded-xl p-3 text-sm">
+                    <input type="checkbox" checked={checked} onChange={() => toggleArrayValue("default_variation_axes", axis)} />
+                    <span>{axis}</span>
+                  </label>
+                );
+              })}
+
+              <label className="block pt-3">
+                <span className="label">Custom axes, comma separated</span>
+                <input
+                  className="input-base"
+                  value={safeArray(productType.default_variation_axes).filter((axis) => !commonAxes.includes(axis)).join(", ")}
+                  onChange={(event) => {
+                    const custom = event.target.value
+                      .split(",")
+                      .map((item) => item.trim())
+                      .filter(Boolean);
+
+                    updateProductType({
+                      default_variation_axes: [
+                        ...safeArray(productType.default_variation_axes).filter((axis) => commonAxes.includes(axis)),
+                        ...custom,
+                      ],
+                    });
+                  }}
+                  placeholder="Length, Finish, Pack size"
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "review" && (
+        <div className="grid xl:grid-cols-[1fr_360px] gap-5">
+          <div className="studio-panel">
+            <div className="overline mb-1">Review</div>
+            <h2 className="font-display text-2xl uppercase mb-4">Blueprint Summary</h2>
+
+            <div className="grid md:grid-cols-3 gap-3 text-sm">
+              <Info label="Base views" value={baseViews.length} />
+              <Info label="Attributes" value={safeArray(productType.attribute_ids).length} />
+              <Info label="Axes" value={safeArray(productType.default_variation_axes).length} />
+              <Info label="Printing" value={productType.supports_printing ? "Yes" : "No"} />
+              <Info label="Requires template" value={productType.requires_template ? "Yes" : "No"} />
+              <Info label="Status" value={productType.status || "draft"} />
+            </div>
+
+            <p className="text-sm text-zinc-500 mt-5">
+              Next step: create a supplier template from this product type, then define real mockup images, print areas, print methods and blank costs on the template.
+            </p>
+          </div>
+
+          <div className="studio-panel space-y-3">
+            {!isNew && (
+              <button
+                type="button"
+                className="btn-secondary w-full justify-center"
+                onClick={() => navigate(`/admin/product-templates/new?product_type_id=${productType.id}`)}
+              >
+                Create Supplier Template
+              </button>
+            )}
+            <button type="button" className="btn-primary w-full" onClick={save} disabled={saving}>
+              <Save size={14} /> {saving ? "Saving…" : "Save Product Type"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Info({ label, value }) {
+  return (
+    <div className="border border-white/10 bg-black/20 rounded-xl p-4">
+      <div className="text-xs uppercase tracking-widest text-zinc-500 mb-2">{label}</div>
+      <div className="font-display text-3xl uppercase">{value}</div>
+    </div>
+  );
+}

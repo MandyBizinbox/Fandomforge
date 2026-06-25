@@ -1,0 +1,136 @@
+/*
+ * Theme Lockdown Layer
+ * --------------------
+ * This file forces global platform branding to apply beyond Home.jsx.
+ * It deliberately keeps existing legacy classes working while introducing
+ * stronger global theme variables for future components.
+ */
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background-color: var(--ff-page-bg, var(--bg-primary, #FFFFFF)) !important;
+  color: var(--ff-page-text, var(--text-primary, #111111));
+}
+
+body {
+  background: var(--ff-page-bg, var(--bg-primary, #FFFFFF)) !important;
+}
+
+/*
+ * Common app/page wrappers.
+ * Many pages currently hardcode bg-[#0A0A0A]. These overrides make those
+ * pages obey the platform background until we clean each component properly.
+ */
+#root > div,
+.min-h-screen,
+.page-shell,
+.app-shell,
+.admin-shell,
+.main-layout,
+main {
+  background-color: var(--ff-page-bg, var(--bg-primary, #FFFFFF)) !important;
+  color: var(--ff-page-text, var(--text-primary, #111111));
+}
+
+/*
+ * Preserve intentional media/mockup black boxes by not trying to override
+ * every single bg-black utility. Only global containers are controlled above.
+ */
+
+.card,
+.surface,
+.panel,
+.admin-card,
+.dashboard-card,
+.settings-card {
+  background-color: var(--ff-card-bg, var(--bg-secondary, #FFFFFF));
+  border-color: var(--ff-card-border, var(--border, rgba(255, 255, 255, 0.15)));
+  color: var(--ff-surface-text, var(--ff-page-text, #111111));
+}
+
+.input-base,
+input,
+textarea,
+select {
+  color: var(--ff-page-text, #111111);
+}
+
+.label,
+.overline,
+.text-zinc-400,
+.text-zinc-500 {
+  /*
+   * This is intentionally not !important everywhere because Tailwind utility
+   * text colours are sometimes used to communicate status.
+   */
+  color: var(--ff-muted-text, var(--text-secondary, #A3A3A3));
+}
+
+.brand-text,
+.theme-brand-text {
+  color: var(--ff-primary, var(--brand, #FF3B30)) !important;
+}
+
+/*
+ * Buttons
+ */
+.btn-primary,
+button.btn-primary,
+a.btn-primary,
+.theme-button-primary {
+  background-color: var(--ff-button-primary-bg, var(--button-primary-bg, var(--brand, #FF3B30))) !important;
+  color: var(--ff-button-primary-text, var(--button-primary-text, #FFFFFF)) !important;
+  border-color: var(--ff-button-primary-border, var(--button-primary-border, var(--brand, #FF3B30))) !important;
+}
+
+.btn-primary:hover,
+button.btn-primary:hover,
+a.btn-primary:hover,
+.theme-button-primary:hover {
+  background-color: var(--ff-button-alternate-bg, var(--button-alternate-bg, #FFFFFF)) !important;
+  color: var(--ff-button-alternate-text, var(--button-alternate-text, #000000)) !important;
+  border-color: var(--ff-button-alternate-border, var(--button-alternate-border, #FFFFFF)) !important;
+}
+
+.btn-secondary,
+button.btn-secondary,
+a.btn-secondary,
+.theme-button-secondary {
+  background-color: transparent !important;
+  color: var(--ff-page-text, var(--button-alternate-bg, #FFFFFF)) !important;
+  border-color: var(--ff-card-border, rgba(255, 255, 255, 0.2)) !important;
+}
+
+.btn-secondary:hover,
+button.btn-secondary:hover,
+a.btn-secondary:hover,
+.theme-button-secondary:hover {
+  background-color: var(--ff-button-primary-bg, var(--button-primary-bg, var(--brand, #FF3B30))) !important;
+  color: var(--ff-button-primary-text, var(--button-primary-text, #FFFFFF)) !important;
+  border-color: var(--ff-button-primary-border, var(--button-primary-border, var(--brand, #FF3B30))) !important;
+}
+
+/*
+ * Aggressive but controlled support for common active/selected states.
+ */
+.border-\[\#FF3B30\] {
+  border-color: var(--ff-primary, #FF3B30) !important;
+}
+
+.text-\[\#FF3B30\] {
+  color: var(--ff-primary, #FF3B30) !important;
+}
+
+.bg-\[\#FF3B30\] {
+  background-color: var(--ff-primary, #FF3B30) !important;
+}
+
+/*
+ * Navbar colour hooks.
+ */
+header {
+  background-color: var(--ff-header-bg, #FFFFFF);
+  color: var(--ff-header-text, #FFFFFF);
+}

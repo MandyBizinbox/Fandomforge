@@ -1,0 +1,134 @@
+{
+  "project_name": "MerchForge",
+  "theme_archetype": {
+    "archetype_number": 4,
+    "name": "Swiss & High-Contrast (Brutalist Edge)",
+    "theme": "Dark",
+    "rationale": "Perfect for the music/band industry—combines the raw, edgy aesthetic of rock (high contrast, brutalist elements) with the precise, trustworthy functionality required for an e-commerce and SaaS platform."
+  },
+  "typography": {
+    "heading_font": "Anton",
+    "heading_fallback": "sans-serif",
+    "body_font": "Chivo",
+    "body_fallback": "sans-serif",
+    "rules": {
+      "h1": "text-5xl md:text-6xl+ uppercase tracking-tighter leading-none font-normal",
+      "h2": "text-3xl md:text-4xl uppercase tracking-tight leading-tight",
+      "h3": "text-xl md:text-2xl uppercase tracking-tight",
+      "body": "text-base tracking-normal leading-relaxed text-zinc-300",
+      "overline": "text-xs uppercase tracking-[0.2em] text-zinc-400 font-bold"
+    },
+    "links": [
+      "https://fonts.googleapis.com/css2?family=Anton&family=Chivo:wght@300;400;700&display=swap"
+    ]
+  },
+  "colors": {
+    "background": {
+      "primary": "#0A0A0A",
+      "secondary": "#111111",
+      "surface": "#161616"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A3A3A3",
+      "muted": "#737373",
+      "inverse": "#000000"
+    },
+    "brand": {
+      "primary": "#FF3B30",
+      "primary_hover": "#FF5A52",
+      "accent": "#FFFFFF"
+    },
+    "border": {
+      "default": "rgba(255, 255, 255, 0.15)",
+      "focus": "#FF3B30"
+    },
+    "status": {
+      "success": "#34C759",
+      "warning": "#FFCC00",
+      "error": "#FF3B30",
+      "info": "#0A84FF"
+    }
+  },
+  "layout_spacing": {
+    "container": "max-w-7xl mx-auto px-6 md:px-12",
+    "section_gap": "py-24 md:py-32",
+    "bento_gap": "gap-6 md:gap-8",
+    "card_padding": "p-6 md:p-8",
+    "radius": "rounded-none",
+    "grid_strategy": {
+      "dashboard": "Strict bento grid. 1px borders (border-white/15) separating panels. Use h-full to stretch components.",
+      "storefront": "Asymmetrical masonry or brutalist stacked grid for products. Massive imagery."
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#FF3B30] text-white rounded-none uppercase font-bold tracking-wider hover:bg-white hover:text-black transition-colors duration-200",
+      "secondary": "bg-transparent text-white border border-white/20 rounded-none uppercase font-bold tracking-wider hover:bg-white hover:text-black transition-colors duration-200",
+      "brutalist_hover": "hover:shadow-[4px_4px_0_0_#FF3B30] hover:-translate-y-1 transition-all"
+    },
+    "cards": {
+      "base": "bg-[#111111] border border-white/15 rounded-none p-6",
+      "interactive": "hover:border-[#FF3B30]/50 transition-colors duration-300"
+    },
+    "inputs": {
+      "base": "bg-transparent border border-white/20 rounded-none text-white focus-visible:ring-1 focus-visible:ring-[#FF3B30] focus-visible:border-[#FF3B30] focus-visible:ring-offset-0"
+    },
+    "badges": {
+      "base": "uppercase text-[10px] tracking-widest font-bold px-2 py-1 rounded-none border"
+    },
+    "navigation": {
+      "header": "fixed top-0 w-full z-50 bg-[#0A0A0A]/90 backdrop-blur-md border-b border-white/10",
+      "sidebar": "bg-[#0A0A0A] border-r border-white/10"
+    }
+  },
+  "motion_interactions": {
+    "hover": "Crisp, instantaneous color inversions or hard shadows. Avoid slow soft fades.",
+    "page_transition": "Hard cuts or fast slide-ins.",
+    "marquee": "Use an 'Editorial Ribbon' or 'Kinetic Texture' (massive outline text running in the background) for the storefront landing page."
+  },
+  "assets": {
+    "icons": {
+      "library": "@phosphor-icons/react",
+      "style": "Duotone or bold weights to match the chunky typography."
+    },
+    "images": [
+      {
+        "url": "https://images.pexels.com/photos/11963130/pexels-photo-11963130.png",
+        "description": "Energetic rock band performance with striking stage lights.",
+        "category": "hero_background"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1692271931628-adc2b16670dd",
+        "description": "Crowd with hands up at a concert.",
+        "category": "landing_page_social_proof"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1571455786673-9d9d6c194f90",
+        "description": "Man wearing a black crew-neck t-shirt.",
+        "category": "product_mockup_lifestyle"
+      },
+      {
+        "url": "https://images.pexels.com/photos/8532616/pexels-photo-8532616.jpeg",
+        "description": "Minimalist black t-shirt on hanger.",
+        "category": "product_mockup_flat"
+      }
+    ]
+  },
+  "accessibility": {
+    "contrast": "Ensure all text against #0A0A0A meets APCA standards. Use text-white for primary text and text-zinc-300 for secondary.",
+    "focus": "All interactive elements must have a visible 1px solid #FF3B30 focus outline.",
+    "testing": "Add data-testid attributes to all interactive elements."
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Dark Theme + Brutalist aesthetic (Archetype 4). No rounded corners (rounded-none).",
+    "Use Anton for all main headings (H1, H2) and Chivo for body text and dashboards.",
+    "Implement Shadcn UI but override all default radiuses to 0 (rounded-none) and borders to white/15.",
+    "The band public storefronts (/bands/:slug) should feel like a concert poster: massive headings, high contrast, immersive.",
+    "The Dashboards (Band, Printer, Super Admin) must be strictly functional: dark bento grids, no fluff, high data density.",
+    "For the customization canvas (Lumise style), implement a dark, pro-tool UI (similar to Figma) with Phosphor icons.",
+    "Do NOT use purple, teal, or generic AI gradients. Use pure #FF3B30 (Signal Red) as the sole accent color.",
+    "Inject fonts correctly into index.css via standard @import or link tag in index.html.",
+    "Use Pure HTML/Tailwind for marketing/storefront layouts; heavily customize Shadcn for complex forms/tables."
+  ]
+}

@@ -1,0 +1,58 @@
+# Secrets
+.env
+*.env
+.env.*
+backend/.env
+frontend/.env
+frontend/.env.*
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs/cache/temp
+*.log
+logs/
+cache/
+tmp/
+.temp/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Python envs
+venv/
+.venv/
+backend/venv/
+
+# Node deps/build cache
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output can be rebuilt
+frontend/build/
+frontend/dist/
+
+# Runtime uploads - keep out of git unless intentionally archived elsewhere
+backend/uploads/
+uploads/
+
+# Local/agent/backup folders
+.emergent/
+memory/
+test_reports/
+.patch-backups/
+.phase-backups/
+
+# Archives/dumps
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.sql
+*.dump
