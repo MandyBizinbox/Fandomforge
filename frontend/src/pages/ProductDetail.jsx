@@ -261,8 +261,7 @@ function renderInlineText(text) {
 }
 
 function FormattedText({ text, className = "", ...props }) {
-  const lines = String(text || "").split(/?
-/);
+  const lines = String(text || "").split(/\r?\n/);
   const nodes = [];
   let list = [];
   let ordered = false;

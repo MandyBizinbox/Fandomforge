@@ -1,0 +1,23 @@
+# /etc/systemd/system/fandomforge-backend.service
+[Unit]
+Description=FandomForge Backend
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/sites/fandomforge/backend
+EnvironmentFile=/var/www/sites/fandomforge/backend/.env
+Environment="PATH=/var/www/sites/fandomforge/backend/venv/bin"
+ExecStart=/var/www/sites/fandomforge/backend/venv/bin/uvicorn server:app --host 127.0.0.1 --port 8009
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/fandomforge-backend.service.d/10-mongodb-dependency.conf
+[Unit]
+Wants=mongod.service
+After=mongod.service network.target

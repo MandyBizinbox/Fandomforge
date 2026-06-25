@@ -304,14 +304,11 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     const before = currentValue.slice(0, start);
     const after = currentValue.slice(end);
     const fallback = selected || (kind === "heading" ? "Heading" : kind === "numbered" ? "Item" : kind === "bullet" ? "Item" : "text");
-    const prefix = before && !before.endsWith("
-") ? "
-" : "";
+    const prefix = before && !before.endsWith("\n") ? "\n" : "";
     let replacement = fallback;
 
     if (kind === "bold") replacement = `**${fallback}**`;
-    if (kind === "heading") replacement = `${prefix}## ${fallback}
-`;
+    if (kind === "heading") replacement = `${prefix}## ${fallback}\n`;
     if (kind === "bullet") replacement = `${prefix}- ${fallback}`;
     if (kind === "numbered") replacement = `${prefix}1. ${fallback}`;
 
