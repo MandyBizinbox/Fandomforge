@@ -67,6 +67,7 @@ function buildAdminLinks(basePath = "/admin") {
 
     { type: "section", label: "Operations" },
     { to: `${basePath}/product-templates`, label: "Products & Templates", key: "product-templates", permission: "manage_product_templates", icon: <Package size={14} /> },
+      { to: `${basePath}/artwork-review`, label: "Artwork Review", key: "artwork-review", permission: "manage_bands", icon: <ImageIcon size={14} /> },
     { to: `${basePath}/fulfilment`, label: "Orders & Fulfilment", key: "fulfilment", permission: "manage_orders", icon: <ShoppingBag size={14} /> },
     { to: `${basePath}/notifications`, label: "Notifications", key: "notifications", permission: "manage_orders", icon: <Bell size={14} /> },
     { to: `${basePath}/activity`, label: "Activity", key: "activity", permission: "manage_reports", icon: <Clock3 size={14} /> },
@@ -2296,7 +2297,7 @@ export default function AdminDashboard({ mode = "admin", basePath = "/admin", ti
         <Route path="simple-products/new" element={<QuickProductCreator />} />
         <Route path="products/new" element={<ProductBuilder mode="admin" backTo="/admin/products" />} />
         <Route path="products/:id" element={<ProductBuilder mode="admin" backTo="/admin/products" />} />
-        <Route path="artwork-review" element={<Navigate to={`${basePath}/creators`} replace />} />
+        <Route path="artwork-review" element={<ArtworkReviewAdmin />} />
         <Route path="categories" element={<Navigate to={`${basePath}/product-templates`} replace />} />
         <Route path="attributes" element={<Navigate to={`${basePath}/product-templates`} replace />} />
         <Route path="print-options" element={<Navigate to={`${basePath}/product-templates`} replace />} />

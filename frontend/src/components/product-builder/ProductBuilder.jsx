@@ -83,6 +83,43 @@ function productionSizeText(slot) {
 }
 
 
+
+function normalizeTypeKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function templateMatchesProductType(template, productType) {
+  if (!template || !productType) return false;
+
+  const templateTypeId = String(template.product_type_id || "").trim();
+  const productTypeId = String(productType.id || "").trim();
+
+  if (templateTypeId && productTypeId && templateTypeId === productTypeId) return true;
+
+  const templateKeys = [
+    template.product_type_slug,
+    template.product_type_key,
+    template.product_type,
+    template.category,
+    template.category_id,
+    template.category_slug,
+  ].map(normalizeTypeKey).filter(Boolean);
+
+  const productTypeKeys = [
+    productType.slug,
+    productType.category,
+    productType.key,
+    productType.name,
+  ].map(normalizeTypeKey).filter(Boolean);
+
+  return templateKeys.some((key) => productTypeKeys.includes(key));
+}
+
 export default function ProductBuilder({ mode = "creator", backTo = "/creator/products" }) {
   const navigate = useNavigate();
   const { id: routeId } = useParams();
@@ -133,13 +170,9 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   );
 
   const filteredTemplates = useMemo(() => {
-    if (isAdmin || !isNew) return templates;
+    if (!isNew) return templates;
     if (!selectedProductType) return [];
-    return templates.filter((template) => (
-      template.product_type_id
-        ? template.product_type_id === selectedProductType.id
-        : template.category === selectedProductType.category
-    ));
+    return templates.filter((template) => templateMatchesProductType(template, selectedProductType));
   }, [isAdmin, isNew, selectedProductType, templates]);
 
   const availableTemplateVariations = useMemo(() => {
@@ -185,7 +218,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           http.get("/print-options"),
         ];
 
-        if (!isAdmin) requests.push(http.get("/public/product-types?status=active"));
+        if (isNew) requests.push(http.get("/public/product-types?status=active"));
         if (isAdmin) requests.push(http.get("/admin/creators"));
         if (!isNew) requests.push(http.get(isAdmin ? `/admin/products/${routeId}` : `/products/${routeId}`));
 
@@ -194,10 +227,10 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         setPrintOptions(asArray(responses[1].data));
 
         let cursor = 2;
-        if (!isAdmin) {
-          setProductTypes(asArray(responses[cursor].data));
-          cursor += 1;
-        }
+        if (isNew) {
+            setProductTypes(asArray(responses[cursor].data));
+            cursor += 1;
+          }
         if (isAdmin) {
           setBands(asArray(responses[cursor].data));
           cursor += 1;
@@ -729,7 +762,7 @@ function BuilderSidebar({ canContinueDetails, form, readyArtworkSlots, generated
 }
 
 function DetailsStep({ isAdmin, creators, productTypes = [], selectedProductTypeId, selectedProductType, chooseProductType, templates, allTemplates = [], form, selectedTemplate, product, isNew, update, setForm, applyTextFormat }) {
-  const creatorNew = !isAdmin && isNew;
+  const creatorNew = isNew;
   const showTemplateChooser = !creatorNew || Boolean(selectedProductTypeId);
   const showProductDetails = !creatorNew || Boolean(form.template_id);
   const templateCount = creatorNew && selectedProductTypeId ? templates.length : allTemplates.length;
@@ -788,7 +821,7 @@ function DetailsStep({ isAdmin, creators, productTypes = [], selectedProductType
         <section className="border border-white/10 bg-black/20 p-5 rounded-xl">
           <div className="overline mb-3">{creatorNew ? "Step 2: Choose template" : "Product Template"}</div>
           {creatorNew && selectedProductType && (
-            <p className="text-sm text-zinc-500 mb-4">Showing templates for {selectedProductType.name}.</p>
+            <p className="text-sm text-zinc-500 mb-4">Showing templates for {selectedProductType?.name || "selected product type"}.</p>
           )}
 
           <div className="grid gap-3 max-h-[620px] overflow-auto pr-1">
