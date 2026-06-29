@@ -645,8 +645,8 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         </div>
       </div>
 
-      <div className={activeStep === "artwork" ? "product-builder-layout grid grid-cols-1 gap-5" : "product-builder-layout grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5"}>
-        <main className={activeStep === "artwork" ? "product-builder-main min-w-0 min-h-[820px]" : "product-builder-main min-w-0 card min-h-[720px]"}>
+      <div className={activeStep === "artwork" || activeStep === "review" ? "product-builder-layout grid grid-cols-1 gap-5" : "product-builder-layout grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5"}>
+        <main className={activeStep === "artwork" || activeStep === "review" ? "product-builder-main min-w-0 min-h-[820px]" : "product-builder-main min-w-0 card min-h-[720px]"}>
           {activeStep === "product_type" && (
             <ProductTypeStep
               productTypes={productTypes}
@@ -753,7 +753,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           )}
         </main>
 
-        {activeStep !== "artwork" && (
+        {activeStep !== "artwork" && activeStep !== "review" && (
           <aside className="product-builder-aside space-y-4">
             <BuilderSidebar
               canContinueProductType={canContinueProductType}
@@ -1294,6 +1294,14 @@ function ReviewStep({
   const safeGeneratedMockups = asArray(generatedMockups);
   const safeSelectedVariations = asArray(selectedVariations);
   const safeUploadedWithoutPrintMethod = asArray(uploadedWithoutPrintMethod);
+  const variationStatus = hasTemplateVariations ? `${safeSelectedVariations.length} selected variation(s)` : "Standard product";
+  const variationDetail = hasTemplateVariations ? `${safeSelectedVariations.length} variation(s) selected` : "No variations needed";
+  const pricingStatus = pricing?.canPublishProfitably ? "Covers costs" : "Needs price review";
+  const artworkStatus = product?.artwork_review_status || (safeReadyArtworkSlots.length ? "Ready for review" : "Needs artwork");
+  const productTypeLabel = selectedTemplate?.product_type || selectedTemplate?.product_type_name || selectedTemplate?.category || selectedTemplate?.product_type_slug || "Product option";
+  const publishingMode = isAdmin
+    ? (form.published ? "Publish on save" : "Save unpublished")
+    : (form.publish_on_approval ? "Publish after approval" : "Manual publish after approval");
 
   const ready = Boolean(
     selectedTemplate &&
@@ -1305,49 +1313,72 @@ function ReviewStep({
 
   return (
     <div className="space-y-6">
-      <div>
-        <div className="overline mb-1">Review</div>
-        <p className="text-sm text-zinc-500">Confirm the product is production-ready before saving or publishing.</p>
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
+        <div>
+          <div className="overline mb-1">Final review</div>
+          <h2 className="font-display text-4xl uppercase">Confirm product setup</h2>
+          <p className="text-sm text-zinc-500 mt-2 max-w-3xl">Check the product details, artwork output and pricing before saving.</p>
+        </div>
+        <div className={`text-xs rounded-lg px-3 py-2 border self-start lg:self-end ${ready ? "border-[#34C759]/40 text-[#A7F3C4] bg-[#34C759]/10" : "border-white/10 text-zinc-400 bg-black/20"}`}>
+          {ready ? "Ready to save" : "Draft can be saved"}
+        </div>
       </div>
 
-      <div className="grid lg:grid-cols-[1fr_320px] gap-5">
-        <div className="card space-y-3">
-          <ChecklistItem done={Boolean(selectedTemplate)} label={`Product option: ${selectedTemplate?.name || "Missing"}`} />
-          <ChecklistItem done={Boolean(title.trim())} label={`Title: ${title || "Missing"}`} />
-          <ChecklistItem done={!hasTemplateVariations || safeSelectedVariations.length > 0} label={hasTemplateVariations ? `${safeSelectedVariations.length} selected variation(s)` : "Standard product: no variations needed"} />
-          <ChecklistItem done={artworkGroups.length > 0} label={`${artworkGroups.length} artwork group(s)`} />
-          <ChecklistItem done={safeReadyArtworkSlots.length > 0} label={`${safeReadyArtworkSlots.length} artwork slot(s) with file + print method`} />
-
-          {safeUploadedWithoutPrintMethod.length > 0 && (
-            <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg">
-              {safeUploadedWithoutPrintMethod.length} uploaded artwork slot(s) still need a print method. Go back to Step 4 Artwork and select a print method for each uploaded artwork.
+      <div className="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
+        <div className="grid lg:grid-cols-2 gap-5">
+          <section className="card">
+            <div className="overline mb-3">Readiness checklist</div>
+            <div className="grid gap-1">
+              <ChecklistItem done={Boolean(selectedTemplate)} label={`Product option: ${selectedTemplate?.name || "Missing"}`} />
+              <ChecklistItem done={Boolean(title.trim())} label={`Title: ${title || "Missing"}`} />
+              <ChecklistItem done={!hasTemplateVariations || safeSelectedVariations.length > 0} label={variationDetail} />
+              <ChecklistItem done={artworkGroups.length > 0} label={`Artwork groups: ${artworkGroups.length}`} />
+              <ChecklistItem done={safeReadyArtworkSlots.length > 0} label={`Ready artwork slots: ${safeReadyArtworkSlots.length}`} />
+              <ChecklistItem done={safeGeneratedMockups.length > 0} label={`Mockups generated: ${safeGeneratedMockups.length}`} />
+              <ChecklistItem done={Boolean(pricing?.canPublishProfitably)} label={`Pricing: ${pricingStatus.toLowerCase()}`} />
             </div>
-          )}
 
-          <ChecklistItem done={safeGeneratedMockups.length > 0} label={`${safeGeneratedMockups.length} generated mockup(s)`} />
-          <ChecklistItem done={Boolean(pricing?.canPublishProfitably)} label={`Pricing check: ${money(pricing?.profit || 0)} estimated creator/fundraising amount`} />
+            {safeUploadedWithoutPrintMethod.length > 0 && (
+              <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg mt-4">
+                {safeUploadedWithoutPrintMethod.length} uploaded artwork slot(s) still need a print method. Go back to Artwork and select a print method for each uploaded artwork.
+              </div>
+            )}
+          </section>
+
+          <section className="card">
+            <div className="overline mb-3">Product details</div>
+            <div className="grid sm:grid-cols-2 gap-3 text-sm">
+              <Info label="Product title" value={title || "Missing"} />
+              <Info label="Product option" value={selectedTemplate?.name || "Missing"} />
+              <Info label="Product type/category" value={productTypeLabel} />
+              <Info label="Variation status" value={variationStatus} />
+              <Info label="Publishing mode" value={publishingMode} />
+              <Info label="Artwork review status" value={artworkStatus} />
+              <Info label="Pricing review status" value={pricingStatus} />
+              {!hasTemplateVariations && <Info label="Variation requirement" value="No variations needed" />}
+            </div>
+          </section>
         </div>
 
-        <PricingSummaryPanel pricing={pricing} sellingPrice={form.selling_price} product={product} isAdmin={isAdmin} compact />
-
-        <div className="card">
+        <section className="card">
           <div className="overline mb-3">Primary mockup</div>
           {productPrimaryMockup ? (
-            <img src={assetUrl(productPrimaryMockup)} alt="Primary" className="w-full max-h-64 object-contain bg-black rounded-lg" />
+            <img src={assetUrl(productPrimaryMockup)} alt="Primary product mockup" className="w-full max-h-[420px] object-contain bg-black border border-white/10 rounded-lg" />
           ) : (
-            <div className="text-sm text-zinc-500">No mockup generated.</div>
+            <div className="min-h-[220px] text-sm text-zinc-500 border border-dashed border-white/15 rounded-lg flex items-center justify-center p-4 text-center">
+              No mockup generated.
+            </div>
           )}
-        </div>
+        </section>
       </div>
 
-      <div className="card">
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+      <PricingSummaryPanel pricing={pricing} sellingPrice={form.selling_price} product={product} isAdmin={isAdmin} />
+
+      <section className="card">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
           <div>
             <div className="overline mb-1">Production output metadata</div>
-            <h3 className="font-display text-2xl uppercase">Ready artwork slots</h3>
-            <p className="text-sm text-zinc-500 mt-1">
-              Review the artwork slots that will be saved with this product.
-            </p>
+            <h3 className="font-display text-2xl uppercase">Artwork slots</h3>
           </div>
           <div className="text-xs text-zinc-500 border border-white/10 rounded-lg px-3 py-2">
             {safeReadyArtworkSlots.length} ready slot(s)
@@ -1355,36 +1386,36 @@ function ReviewStep({
         </div>
 
         {safeReadyArtworkSlots.length ? (
-          <div className="space-y-3">
+          <div className="grid lg:grid-cols-2 gap-3">
             {safeReadyArtworkSlots.map((slot, index) => (
               <div key={slot.id || `${slot.print_area_id || "area"}-${index}`} className="border border-white/10 bg-black/20 rounded-xl p-4">
-                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-                  <div>
-                    <div className="font-bold text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-bold text-sm text-white truncate">
                       {slot.artwork_group_label || "Artwork group"} · {slot.area_key || slot.screen_view || slot.print_area_id || "Print area"}
                     </div>
                     <div className="text-xs text-zinc-500 mt-1">
                       {slot.calculated_print_cost !== undefined
-                        ? `Costed artwork: ${slot.print_width_mm || 0}×${slot.print_height_mm || 0}mm · ${slot.area_cm2 || 0}cm² · ${money(slot.calculated_print_cost || 0)}`
+                        ? `Costed artwork: ${slot.print_width_mm || 0}x${slot.print_height_mm || 0}mm · ${slot.area_cm2 || 0}cm² · ${money(slot.calculated_print_cost || 0)}`
                         : `Production size: ${slot.standard_print_size_key || "Custom / unset"}`}
                     </div>
                     {slot.placement_box_width_mm && slot.placement_box_height_mm ? (
                       <div className="text-[11px] text-zinc-600 mt-1">
-                        Placement box: {slot.placement_box_width_mm}×{slot.placement_box_height_mm}mm
+                        Placement box: {slot.placement_box_width_mm}x{slot.placement_box_height_mm}mm
                       </div>
                     ) : null}
                   </div>
 
                   <button
                     type="button"
-                    className="border border-[#FF3B30]/60 text-[#FFB4B0] hover:bg-[#FF3B30]/15 rounded-lg px-3 py-2 text-[10px] uppercase tracking-widest font-bold"
+                    className="border border-[#FF3B30]/60 text-[#FFB4B0] hover:bg-[#FF3B30]/15 rounded-lg px-3 py-2 text-[10px] uppercase tracking-widest font-bold shrink-0"
                     onClick={() => onRemoveArtworkSlot?.(slot.id)}
                   >
                     Remove
                   </button>
                 </div>
 
-                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 text-xs">
+                <div className="grid sm:grid-cols-2 gap-3 mt-4 text-xs">
                   <Info label="Print area ID" value={slot.print_area_id || "Missing"} />
                   <Info label="Screen" value={slot.screen_view || slot.screen_id || "Missing"} />
                   <Info label="Print rule" value={slot.rule_name || slot.print_method || "Missing"} />
@@ -1394,13 +1425,18 @@ function ReviewStep({
             ))}
           </div>
         ) : (
-          <div className="text-sm text-zinc-500">No ready artwork slots yet.</div>
+          <div className="text-sm text-zinc-500 border border-dashed border-white/15 rounded-xl p-4">No ready artwork slots yet.</div>
         )}
-      </div>
+      </section>
 
-      <button type="button" className="btn-primary" disabled={saving} onClick={save}>
-        <Save size={14} /> {saving ? "Saving…" : ready ? "Save Product" : "Save Draft"}
-      </button>
+      <div className="card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="text-sm text-zinc-500">
+          {ready ? "Everything needed for production review is present." : "You can save a draft, then return to complete any missing review items."}
+        </div>
+        <button type="button" className="btn-primary sm:min-w-[180px]" disabled={saving} onClick={save}>
+          <Save size={14} /> {saving ? "Saving..." : ready ? "Save Product" : "Save Draft"}
+        </button>
+      </div>
     </div>
   );
 }
