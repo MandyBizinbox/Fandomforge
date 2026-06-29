@@ -229,7 +229,7 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
                   type="number"
                   step="0.1"
                   value={selectedArea.x}
-                  onChange={(e) => update({ x: Number(e.target.value) })}
+                  onChange={(e) => { const value = Number(e.target.value || 0); update({ x: value, x_pct: value }); }}
                 />
               </label>
               <label>
@@ -239,7 +239,7 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
                   type="number"
                   step="0.1"
                   value={selectedArea.y}
-                  onChange={(e) => update({ y: Number(e.target.value) })}
+                  onChange={(e) => { const value = Number(e.target.value || 0); update({ y: value, y_pct: value }); }}
                 />
               </label>
               <label>
@@ -249,7 +249,7 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
                   type="number"
                   step="0.1"
                   value={selectedArea.width}
-                  onChange={(e) => update({ width: Number(e.target.value) })}
+                  onChange={(e) => { const value = Number(e.target.value || 1); update({ width: value, width_pct: value }); }}
                 />
               </label>
               <label>
@@ -259,9 +259,92 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
                   type="number"
                   step="0.1"
                   value={selectedArea.height}
-                  onChange={(e) => update({ height: Number(e.target.value) })}
+                  onChange={(e) => { const value = Number(e.target.value || 1); update({ height: value, height_pct: value }); }}
                 />
               </label>
+            </div>
+
+            <div className="border-t border-white/10 pt-3">
+              <div className="overline mb-2">Quick move / resize</div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div />
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => {
+                    const value = Number(selectedArea.y || selectedArea.y_pct || 0) - 1;
+                    update({ y: value, y_pct: value });
+                  }}
+                >
+                  Up
+                </button>
+                <div />
+
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => {
+                    const value = Number(selectedArea.x || selectedArea.x_pct || 0) - 1;
+                    update({ x: value, x_pct: value });
+                  }}
+                >
+                  Left
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => {
+                    const width = Number(selectedArea.width || selectedArea.width_pct || 30);
+                    const height = Number(selectedArea.height || selectedArea.height_pct || 30);
+                    const x = Math.max(0, (100 - width) / 2);
+                    const y = Math.max(0, (100 - height) / 2);
+                    update({ x, x_pct: x, y, y_pct: y });
+                  }}
+                >
+                  Center
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => {
+                    const value = Number(selectedArea.x || selectedArea.x_pct || 0) + 1;
+                    update({ x: value, x_pct: value });
+                  }}
+                >
+                  Right
+                </button>
+
+                <div />
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => {
+                    const value = Number(selectedArea.y || selectedArea.y_pct || 0) + 1;
+                    update({ y: value, y_pct: value });
+                  }}
+                >
+                  Down
+                </button>
+                <div />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => update({ x: 10, x_pct: 10, y: 10, y_pct: 10, width: 80, width_pct: 80, height: 80, height_pct: 80 })}
+                >
+                  Reset box
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => update({ x: 0, x_pct: 0, width: 100, width_pct: 100 })}
+                >
+                  Full width
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -2202,3 +2202,52 @@ svg {
     line-height: 1 !important;
   }
 }
+
+/* Template Studio print-area interaction fix */
+.print-canvas-image-shell {
+  touch-action: none;
+}
+
+.print-area-box {
+  touch-action: none;
+  overflow: visible;
+}
+
+.print-area-box span,
+.print-area-box small {
+  pointer-events: none;
+}
+
+.print-area-handle {
+  position: absolute;
+  z-index: 30;
+  width: 16px;
+  height: 16px;
+  background: #FF3B30;
+  border: 2px solid #ffffff;
+  border-radius: 9999px;
+}
+
+.print-area-handle-nw {
+  left: -8px;
+  top: -8px;
+  cursor: nwse-resize;
+}
+
+.print-area-handle-ne {
+  right: -8px;
+  top: -8px;
+  cursor: nesw-resize;
+}
+
+.print-area-handle-sw {
+  left: -8px;
+  bottom: -8px;
+  cursor: nesw-resize;
+}
+
+.print-area-handle-se {
+  right: -8px;
+  bottom: -8px;
+  cursor: nwse-resize;
+}
