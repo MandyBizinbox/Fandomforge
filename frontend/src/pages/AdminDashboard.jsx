@@ -136,6 +136,7 @@ const blankTemplate = {
 const VIEW_OPTIONS = [
   "front",
   "back",
+  "side",
   "left-side",
   "right-side",
   "left-sleeve",
@@ -143,10 +144,81 @@ const VIEW_OPTIONS = [
   "pocket",
   "neck-label",
   "inside-label",
+  "full_wrap",
+  "mug_wrap",
+  "handle_side",
   "top",
   "bottom",
   "custom",
 ];
+
+const VIEW_LABELS = {
+  front: "Front",
+  back: "Back",
+  side: "Side",
+  "left-side": "Left Side",
+  "right-side": "Right Side",
+  "left-sleeve": "Left Sleeve",
+  "right-sleeve": "Right Sleeve",
+  pocket: "Pocket",
+  "neck-label": "Neck Label",
+  "inside-label": "Inside Label",
+  full_wrap: "Full Wrap",
+  mug_wrap: "Mug Wrap",
+  handle_side: "Handle Side",
+  top: "Top",
+  bottom: "Bottom",
+  custom: "Custom",
+};
+
+const APPAREL_VIEW_PRESETS = [
+  { name: "Front", view: "front" },
+  { name: "Back", view: "back" },
+  { name: "Side", view: "side" },
+  { name: "Left Sleeve", view: "left-sleeve" },
+  { name: "Right Sleeve", view: "right-sleeve" },
+  { name: "Neck Label", view: "neck-label" },
+];
+
+const DRINKWARE_VIEW_PRESETS = [
+  { name: "Front", view: "front" },
+  { name: "Back", view: "back" },
+  { name: "Full Wrap", view: "full_wrap" },
+  { name: "Handle Side", view: "handle_side" },
+];
+
+function viewLabel(view) {
+  return VIEW_LABELS[view] || String(view || "custom").replace(/[_-]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function templateLooksLikeDrinkware(template = {}) {
+  const value = [template.name, template.category, template.category_id, template.slug, template.product_type, template.product_type_slug]
+    .map((item) => String(item || "").toLowerCase())
+    .join(" ");
+  return /mug|tumbler|water.?bottle|drinkware|cooler|can.?bottle/.test(value);
+}
+
+function screenViewKey(screen = {}) {
+  return screen.view_key || screen.screen_view || screen.view || "front";
+}
+
+function defaultPrintAreaForScreen(screen = {}, areaCount = 0) {
+  const view = screenViewKey(screen);
+  const isFullWrap = ["full_wrap", "mug_wrap"].includes(view);
+  return {
+    screen_id: screen.id,
+    screen_view: view,
+    view_key: view,
+    area_key: isFullWrap ? "full_wrap" : view,
+    name: isFullWrap ? `Full Wrap Area ${areaCount + 1}` : `Print Area ${areaCount + 1}`,
+    print_size: isFullWrap ? "Full Wrap" : "A4",
+    standard_print_size_key: isFullWrap ? "full_wrap" : "a4_portrait",
+    width_mm: isFullWrap ? 220 : 210,
+    height_mm: isFullWrap ? 90 : 297,
+    dpi: 300,
+    allowed_print_option_ids: [],
+  };
+}
 
 function newId(prefix = "id") {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
@@ -986,7 +1058,7 @@ function PrintAreaCanvas({ screen, areas, selectedAreaId, onSelectArea, onCreate
 
   const endPointer = () => {
     if (draft && draft.width > 1 && draft.height > 1) {
-      onCreateArea({ ...draft, screen_id: screen.id, screen_view: screen.view, name: `Print Area ${areas.length + 1}`, print_size: "A4", width_mm: 210, height_mm: 297, allowed_print_option_ids: [] });
+      onCreateArea({ ...draft, ...defaultPrintAreaForScreen(screen, areas.length) });
     }
     setDrawStart(null); setDraft(null); setDrag(null); if (mode === "draw") setMode("select");
   };
@@ -1066,7 +1138,7 @@ function ProductTemplateStudio() {
   const addScreen = async (file, name = "Front", view = "front") => {
     const url = await uploadImage(file, "product-template-views");
     if (!url) return;
-    const screen = { id: newId("screen"), name, view, image_url: url, sort_order: template.mockup_screens.length, is_primary: template.mockup_screens.length === 0 };
+    const screen = { id: newId("screen"), name, view, label: name, view_key: view, screen_view: view, image_url: url, sort_order: template.mockup_screens.length, is_primary: template.mockup_screens.length === 0 };
     patch({ mockup_screens: [...template.mockup_screens, screen], mockup_url: template.mockup_url || url, product_image_url: template.product_image_url || url, mockup_images: Array.from(new Set([...(template.mockup_images || []), url])) });
     setActiveScreenId(screen.id);
   };
@@ -1133,8 +1205,8 @@ function ProductTemplateStudio() {
             <div><label className="label">Status</label><select className="input-base" value={template.status} onChange={(e) => patch({ status: e.target.value })}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></select></div>
           </div>}
           {activePanel === "views" && <div className="p-4 space-y-4">
-            <div className="card"><div className="overline mb-3">Add Perspective View</div><ViewUpload onAdd={addScreen} uploading={uploading} /></div>
-            <div className="space-y-2">{template.mockup_screens.map((s) => <button key={s.id} onClick={() => setActiveScreenId(s.id)} className={`w-full border ${activeScreen?.id === s.id ? "border-[var(--ff-primary)]" : "border-[var(--ff-card-border)]"} p-2 flex gap-3 text-left`}><img src={assetUrl(s.image_url)} alt="" className="w-16 h-16 object-contain bg-[var(--ff-card-bg)]" /><span><b className="block uppercase">{s.name}</b><span className="text-xs text-[var(--ff-muted-text)]">{s.view}</span></span></button>)}</div>
+            <div className="card"><div className="overline mb-3">Add Base View</div><ViewUpload template={template} onAdd={addScreen} uploading={uploading} /></div>
+            <div className="space-y-2">{template.mockup_screens.map((s) => <button key={s.id} onClick={() => setActiveScreenId(s.id)} className={`w-full border ${activeScreen?.id === s.id ? "border-[var(--ff-primary)]" : "border-[var(--ff-card-border)]"} p-2 flex gap-3 text-left`}><img src={assetUrl(s.image_url)} alt="" className="w-16 h-16 object-contain bg-[var(--ff-card-bg)]" /><span><b className="block uppercase">{s.name}</b><span className="text-xs text-[var(--ff-muted-text)]">{viewLabel(screenViewKey(s))}</span></span></button>)}</div>
           </div>}
           {activePanel === "areas" && <div className="p-4 space-y-3"><div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest">Select a view, click Draw Area, then drag on the mockup.</div>{screenAreas.map((a) => <button key={a.id} onClick={() => setSelectedAreaId(a.id)} className={`w-full text-left border ${selectedAreaId === a.id ? "border-[var(--ff-primary)]" : "border-[var(--ff-card-border)]"} p-3`}><b>{a.name}</b><span className="block text-xs text-[var(--ff-muted-text)]">{a.print_size} · {a.width_mm || 0}×{a.height_mm || 0}mm</span></button>)}</div>}
           {activePanel === "variations" && <div className="p-4 space-y-4"><div className="overline">Attributes</div>{attributes.filter((a) => a.used_for_variation).map((a) => <label key={a.id} className="flex gap-2 text-sm"><input type="checkbox" checked={template.attribute_ids.includes(a.id)} onChange={(e) => patch({ attribute_ids: e.target.checked ? [...template.attribute_ids, a.id] : template.attribute_ids.filter((id) => id !== a.id) })} /> {a.name} <span className="text-[var(--ff-muted-text)]">({(a.values || []).join(", ")})</span></label>)}<button onClick={generateVariations} className="btn-primary w-full"><Wand2 size={14} /> Generate Matrix</button><VariationMatrix rows={template.variations} onChange={(variations) => patch({ variations })} /></div>}
@@ -1147,10 +1219,40 @@ function ProductTemplateStudio() {
   );
 }
 
-function ViewUpload({ onAdd, uploading }) {
-  const [name, setName] = useState("Front");
-  const [view, setView] = useState("front");
-  return <div className="space-y-3"><input className="input-base" value={name} onChange={(e) => setName(e.target.value)} placeholder="Front" /><select className="input-base" value={view} onChange={(e) => setView(e.target.value)}>{VIEW_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}</select><label className="btn-primary w-full cursor-pointer justify-center"><ImageIcon size={14} /> {uploading ? "Uploading…" : "Upload View"}<input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && onAdd(e.target.files[0], name, view)} /></label></div>;
+function ViewUpload({ template, onAdd, uploading }) {
+  const presets = templateLooksLikeDrinkware(template) ? DRINKWARE_VIEW_PRESETS : APPAREL_VIEW_PRESETS;
+  const [name, setName] = useState(presets[0]?.name || "Front");
+  const [view, setView] = useState(presets[0]?.view || "front");
+
+  const applyPreset = (preset) => {
+    setName(preset.name);
+    setView(preset.view);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        {presets.map((preset) => (
+          <button
+            key={preset.view}
+            type="button"
+            onClick={() => applyPreset(preset)}
+            className={`border px-2 py-2 text-[10px] uppercase tracking-widest font-bold ${view === preset.view ? "border-[var(--ff-primary)] text-[var(--ff-card-text)]" : "border-[var(--ff-card-border)] text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)]"}`}
+          >
+            {preset.name}
+          </button>
+        ))}
+      </div>
+      <input className="input-base" value={name} onChange={(e) => setName(e.target.value)} placeholder="Front" />
+      <select className="input-base" value={view} onChange={(e) => { setView(e.target.value); if (!name.trim() || name === viewLabel(view)) setName(viewLabel(e.target.value)); }}>
+        {VIEW_OPTIONS.map((v) => <option key={v} value={v}>{viewLabel(v)}</option>)}
+      </select>
+      <label className="btn-primary w-full cursor-pointer justify-center">
+        <ImageIcon size={14} /> {uploading ? "Uploading…" : "Upload View"}
+        <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && onAdd(e.target.files[0], name || viewLabel(view), view)} />
+      </label>
+    </div>
+  );
 }
 
 function Inspector({ template, patch, screen, selectedArea, patchArea, deleteArea, printOptions, uploadImage, uploading }) {
@@ -1158,7 +1260,7 @@ function Inspector({ template, patch, screen, selectedArea, patchArea, deleteAre
     return <div className="p-4 space-y-4"><div><div className="overline">Inspector</div><h2 className="font-display text-3xl uppercase">Print Area</h2></div><div><label className="label">Area Name</label><input className="input-base" value={selectedArea.name || ""} onChange={(e) => patchArea(selectedArea.id, { name: e.target.value })} /></div><div><label className="label">Print Size Label</label><input className="input-base" value={selectedArea.print_size || ""} onChange={(e) => patchArea(selectedArea.id, { print_size: e.target.value })} /></div><div className="grid grid-cols-2 gap-2"><div><label className="label">Width mm</label><input type="number" className="input-base" value={selectedArea.width_mm || 0} onChange={(e) => patchArea(selectedArea.id, { width_mm: Number(e.target.value) })} /></div><div><label className="label">Height mm</label><input type="number" className="input-base" value={selectedArea.height_mm || 0} onChange={(e) => patchArea(selectedArea.id, { height_mm: Number(e.target.value) })} /></div></div><div className="card"><div className="overline mb-3">Allowed Pricing Rules for this Area</div>{printOptions.map((o) => <label key={o.id} className="flex gap-2 text-xs mb-2"><input type="checkbox" checked={(selectedArea.allowed_print_option_ids || []).includes(o.id)} onChange={(e) => { const ids = selectedArea.allowed_print_option_ids || []; patchArea(selectedArea.id, { allowed_print_option_ids: e.target.checked ? [...ids, o.id] : ids.filter((id) => id !== o.id) }); }} /> <span><b>{printRuleLabel(o)}</b><span className="block text-[var(--ff-muted-text)]">{printRulePricingSummary(o)}</span></span></label>)}</div><div><label className="label">Notes</label><textarea className="input-base" rows={3} value={selectedArea.notes || ""} onChange={(e) => patchArea(selectedArea.id, { notes: e.target.value })} /></div><button onClick={() => deleteArea(selectedArea.id)} className="w-full border border-[var(--ff-primary)] text-[var(--ff-primary)] py-3 uppercase tracking-widest text-xs font-bold"><Trash2 size={14} className="inline mr-2" /> Delete Area</button></div>;
   }
   if (screen) {
-    return <div className="p-4 space-y-4"><div><div className="overline">Inspector</div><h2 className="font-display text-3xl uppercase">View Settings</h2></div><div className="aspect-square bg-[var(--ff-card-bg)] border border-[var(--ff-card-border)] flex items-center justify-center overflow-hidden"><img src={assetUrl(screen.image_url)} alt="" className="w-full h-full object-contain" /></div><div><label className="label">View Name</label><input className="input-base" value={screen.name} onChange={(e) => patch({ mockup_screens: template.mockup_screens.map((s) => s.id === screen.id ? { ...s, name: e.target.value } : s) })} /></div><div><label className="label">View Type</label><select className="input-base" value={screen.view} onChange={(e) => patch({ mockup_screens: template.mockup_screens.map((s) => s.id === screen.id ? { ...s, view: e.target.value } : s) })}>{VIEW_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}</select></div><label className="flex gap-2 text-sm"><input type="checkbox" checked={!!screen.is_primary} onChange={() => patch({ mockup_screens: template.mockup_screens.map((s) => ({ ...s, is_primary: s.id === screen.id })), mockup_url: screen.image_url, product_image_url: screen.image_url })} /> Primary product image</label><label className="btn-primary w-full cursor-pointer justify-center"><ImageIcon size={14} /> {uploading ? "Uploading…" : "Replace Image"}<input type="file" accept="image/*" className="hidden" onChange={async (e) => { const url = await uploadImage(e.target.files?.[0], "product-template-views"); if (url) patch({ mockup_screens: template.mockup_screens.map((s) => s.id === screen.id ? { ...s, image_url: url } : s) }); }} /></label></div>;
+    return <div className="p-4 space-y-4"><div><div className="overline">Inspector</div><h2 className="font-display text-3xl uppercase">View Settings</h2></div><div className="aspect-square bg-[var(--ff-card-bg)] border border-[var(--ff-card-border)] flex items-center justify-center overflow-hidden"><img src={assetUrl(screen.image_url)} alt="" className="w-full h-full object-contain" /></div><div><label className="label">View Name</label><input className="input-base" value={screen.name} onChange={(e) => patch({ mockup_screens: template.mockup_screens.map((s) => s.id === screen.id ? { ...s, name: e.target.value, label: e.target.value } : s) })} /></div><div><label className="label">View Type</label><select className="input-base" value={screenViewKey(screen)} onChange={(e) => patch({ mockup_screens: template.mockup_screens.map((s) => s.id === screen.id ? { ...s, view: e.target.value, view_key: e.target.value, screen_view: e.target.value } : s) })}>{VIEW_OPTIONS.map((v) => <option key={v} value={v}>{viewLabel(v)}</option>)}</select></div><label className="flex gap-2 text-sm"><input type="checkbox" checked={!!screen.is_primary} onChange={() => patch({ mockup_screens: template.mockup_screens.map((s) => ({ ...s, is_primary: s.id === screen.id })), mockup_url: screen.image_url, product_image_url: screen.image_url })} /> Primary product image</label><label className="btn-primary w-full cursor-pointer justify-center"><ImageIcon size={14} /> {uploading ? "Uploading…" : "Replace Image"}<input type="file" accept="image/*" className="hidden" onChange={async (e) => { const url = await uploadImage(e.target.files?.[0], "product-template-views"); if (url) patch({ mockup_screens: template.mockup_screens.map((s) => s.id === screen.id ? { ...s, image_url: url } : s) }); }} /></label></div>;
   }
   return <div className="p-4 text-[var(--ff-muted-text)] overline">Select a view or print area</div>;
 }
