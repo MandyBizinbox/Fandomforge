@@ -14,6 +14,9 @@ import {
   flattenArtworkGroups,
   getPrimaryMockupFromGroups,
   getSelectedVariations,
+  getTemplateAttributeRange,
+  getTemplateImage,
+  getTemplateShortDescription,
   getUniquePrintCostFromGroups,
   getCreatorBlankPrice,
   getVariationCost,
@@ -21,12 +24,14 @@ import {
 } from "./productBuilderUtils";
 
 const steps = [
-  { key: "details", label: "1 Details" },
-  { key: "variations", label: "2 Variations" },
-  { key: "scope", label: "3 Artwork Scope" },
-  { key: "artwork", label: "4 Artwork" },
-  { key: "pricing", label: "5 Pricing" },
-  { key: "review", label: "6 Review" },
+  { key: "product_type", label: "1 Product Type" },
+  { key: "product_option", label: "2 Product Option" },
+  { key: "details", label: "3 Details" },
+  { key: "variations", label: "4 Variations" },
+  { key: "scope", label: "5 Artwork Scope" },
+  { key: "artwork", label: "6 Artwork" },
+  { key: "pricing", label: "7 Pricing" },
+  { key: "review", label: "8 Review" },
 ];
 
 const emptyArtwork = {
@@ -126,7 +131,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const isNew = !routeId || routeId === "new";
   const isAdmin = mode === "admin";
 
-  const [activeStep, setActiveStep] = useState("details");
+  const [activeStep, setActiveStep] = useState("product_type");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [creators, setBands] = useState([]);
@@ -170,10 +175,9 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   );
 
   const filteredTemplates = useMemo(() => {
-    if (!isNew) return templates;
-    if (!selectedProductType) return [];
+    if (!selectedProductType) return isNew ? [] : templates;
     return templates.filter((template) => templateMatchesProductType(template, selectedProductType));
-  }, [isAdmin, isNew, selectedProductType, templates]);
+  }, [isNew, selectedProductType, templates]);
 
   const availableTemplateVariations = useMemo(() => {
     return asArray(selectedTemplate?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
@@ -218,7 +222,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           http.get("/print-options"),
         ];
 
-        if (isNew) requests.push(http.get("/public/product-types?status=active"));
+        requests.push(http.get("/public/product-types?status=active"));
         if (isAdmin) requests.push(http.get("/admin/creators"));
         if (!isNew) requests.push(http.get(isAdmin ? `/admin/products/${routeId}` : `/products/${routeId}`));
 
@@ -227,10 +231,8 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         setPrintOptions(asArray(responses[1].data));
 
         let cursor = 2;
-        if (isNew) {
-            setProductTypes(asArray(responses[cursor].data));
-            cursor += 1;
-          }
+        setProductTypes(asArray(responses[cursor].data));
+        cursor += 1;
         if (isAdmin) {
           setBands(asArray(responses[cursor].data));
           cursor += 1;
@@ -323,6 +325,27 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     }));
   };
 
+  const chooseTemplate = (template) => {
+    setForm((current) => ({
+      ...current,
+      template_id: template.id,
+      selected_template_variation_ids: [],
+      variation_price_overrides: {},
+      selected_print_area_id: "",
+      selected_print_option_id: "",
+      artworks: [],
+      artwork_groups: [],
+      artwork: emptyArtwork,
+      placement: emptyPlacement,
+      mockup_images: [],
+      mockup_image_url: "",
+      primary_mockup_image_url: "",
+      published: false,
+      publish_on_approval: !isAdmin,
+      category: template.category || current.category || "",
+    }));
+  };
+
   const update = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
@@ -406,7 +429,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
 
   const validate = () => {
     if (isAdmin && !form.band_id) return "Select a creator.";
-    if (!form.template_id) return "Select a product template.";
+    if (!form.template_id) return "Select a product option.";
     if (!form.title.trim()) return "Enter a product title.";
     if (!form.selected_template_variation_ids.length) return "Select at least one variation.";
     if (!form.artwork_groups.length) return "Create at least one artwork group.";
@@ -505,10 +528,53 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     }
   };
 
-  const canContinueDetails = selectedTemplate && form.title.trim() && (!isAdmin || form.band_id);
+  const canContinueProductType = Boolean(selectedProductTypeId || (!isNew && selectedTemplate));
+  const canContinueProductOption = Boolean(selectedTemplate);
+  const canContinueDetails = Boolean(selectedTemplate && form.title.trim() && (!isAdmin || form.band_id));
   const stepIndex = steps.findIndex((step) => step.key === activeStep);
 
+  const getStepGateError = (stepKey) => {
+    if (stepKey === "product_type" && !canContinueProductType) return "Select a product type.";
+    if (stepKey === "product_option" && !canContinueProductOption) return "Select a product option.";
+    if (stepKey === "details" && !canContinueDetails) {
+      if (isAdmin && !form.band_id) return "Select a creator.";
+      return "Enter a product title.";
+    }
+    if (stepKey === "variations" && !form.selected_template_variation_ids.length) return "Select at least one variation.";
+    if (stepKey === "scope" && !form.artwork_groups.length) return "Create at least one artwork group.";
+    if (stepKey === "artwork") {
+      if (!readyArtworkSlots.length) return "Add at least one artwork file and print method.";
+      if (!generatedMockups.length) return "Generate at least one mockup.";
+    }
+    if (stepKey === "pricing" && Number(form.selling_price || 0) <= 0) return "Enter a selling price.";
+    return null;
+  };
+
+  const goToStep = (targetKey) => {
+    const targetIndex = steps.findIndex((step) => step.key === targetKey);
+    if (targetIndex <= stepIndex) {
+      setActiveStep(targetKey);
+      return;
+    }
+
+    for (let index = 0; index < targetIndex; index += 1) {
+      const error = getStepGateError(steps[index].key);
+      if (error) {
+        toast.error(error);
+        setActiveStep(steps[index].key);
+        return;
+      }
+    }
+
+    setActiveStep(targetKey);
+  };
+
   const nextStep = () => {
+    const error = getStepGateError(activeStep);
+    if (error) {
+      toast.error(error);
+      return;
+    }
     const next = steps[Math.min(stepIndex + 1, steps.length - 1)];
     if (next) setActiveStep(next.key);
   };
@@ -565,7 +631,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               <button
                 key={step.key}
                 type="button"
-                onClick={() => setActiveStep(step.key)}
+                onClick={() => goToStep(step.key)}
                 className={`px-4 py-3 rounded-xl border text-xs uppercase tracking-widest font-bold ${active ? "border-[#FF3B30] bg-[#FF3B30]/15 text-white" : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-white"}`}
               >
                 {step.label}
@@ -577,22 +643,35 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
 
       <div className={activeStep === "artwork" ? "product-builder-layout grid grid-cols-1 gap-5" : "product-builder-layout grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5"}>
         <main className={activeStep === "artwork" ? "product-builder-main min-w-0 min-h-[820px]" : "product-builder-main min-w-0 card min-h-[720px]"}>
-          {activeStep === "details" && (
-            <DetailsStep
-              isAdmin={isAdmin}
-              creators={creators}
+          {activeStep === "product_type" && (
+            <ProductTypeStep
               productTypes={productTypes}
               selectedProductTypeId={selectedProductTypeId}
-              selectedProductType={selectedProductType}
+              selectedTemplate={selectedTemplate}
+              isNew={isNew}
               chooseProductType={chooseProductType}
+            />
+          )}
+
+          {activeStep === "product_option" && (
+            <ProductOptionStep
               templates={filteredTemplates}
-              allTemplates={templates}
+              selectedProductType={selectedProductType}
+              selectedTemplate={selectedTemplate}
+              form={form}
+              chooseTemplate={chooseTemplate}
+            />
+          )}
+
+          {activeStep === "details" && (
+            <ProductDetailsStep
+              isAdmin={isAdmin}
+              creators={creators}
               form={form}
               selectedTemplate={selectedTemplate}
               product={product}
               isNew={isNew}
               update={update}
-              setForm={setForm}
               applyTextFormat={applyTextFormat}
             />
           )}
@@ -670,6 +749,8 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         {activeStep !== "artwork" && (
           <aside className="product-builder-aside space-y-4">
             <BuilderSidebar
+              canContinueProductType={canContinueProductType}
+              canContinueProductOption={canContinueProductOption}
               canContinueDetails={canContinueDetails}
               form={form}
               readyArtworkSlots={readyArtworkSlots}
@@ -689,7 +770,9 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
 
         {activeStep === "artwork" && (
           <section className="card flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
-            <div className="grid sm:grid-cols-2 lg:grid-cols-6 gap-2 text-xs">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-2 text-xs">
+              <ChecklistItem done={Boolean(canContinueProductType)} label="Product type" />
+              <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option" />
               <ChecklistItem done={Boolean(canContinueDetails)} label="Details" />
               <ChecklistItem done={form.selected_template_variation_ids.length > 0} label={`${form.selected_template_variation_ids.length} variations`} />
               <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} groups`} />
@@ -715,11 +798,13 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   );
 }
 
-function BuilderSidebar({ canContinueDetails, form, readyArtworkSlots, generatedMockups, pricing, productPrimaryMockup, stepIndex, activeStep, prevStep, nextStep, save, saving, isNew }) {
+function BuilderSidebar({ canContinueProductType, canContinueProductOption, canContinueDetails, form, readyArtworkSlots, generatedMockups, pricing, productPrimaryMockup, stepIndex, activeStep, prevStep, nextStep, save, saving, isNew }) {
   return (
     <>
       <section className="card">
         <div className="overline mb-3">Progress</div>
+        <ChecklistItem done={Boolean(canContinueProductType)} label="Product type selected" />
+        <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option selected" />
         <ChecklistItem done={Boolean(canContinueDetails)} label="Details complete" />
         <ChecklistItem done={form.selected_template_variation_ids.length > 0} label={`${form.selected_template_variation_ids.length} variation(s) selected`} />
         <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} artwork group(s)`} />
@@ -764,185 +849,202 @@ function BuilderSidebar({ canContinueDetails, form, readyArtworkSlots, generated
   );
 }
 
-function DetailsStep({ isAdmin, creators, productTypes = [], selectedProductTypeId, selectedProductType, chooseProductType, templates, allTemplates = [], form, selectedTemplate, product, isNew, update, setForm, applyTextFormat }) {
-  const creatorNew = isNew;
-  const showTemplateChooser = !creatorNew || Boolean(selectedProductTypeId);
-  const showProductDetails = !creatorNew || Boolean(form.template_id);
-  const templateCount = creatorNew && selectedProductTypeId ? templates.length : allTemplates.length;
-
-  const chooseTemplate = (template) => {
-    setForm((current) => ({
-      ...current,
-      template_id: template.id,
-      selected_template_variation_ids: [],
-      variation_price_overrides: {},
-      selected_print_area_id: "",
-      selected_print_option_id: "",
-      artworks: [],
-      artwork_groups: [],
-      artwork: emptyArtwork,
-      placement: emptyPlacement,
-      mockup_images: [],
-      mockup_image_url: "",
-      primary_mockup_image_url: "",
-      published: false,
-      publish_on_approval: !isAdmin,
-      category: template.category || current.category || "",
-    }));
-  };
-
+function ProductTypeStep({ productTypes = [], selectedProductTypeId, selectedTemplate, isNew, chooseProductType }) {
   return (
     <div className="space-y-6 product-builder-main">
-      {creatorNew && (
-        <section className="border border-white/10 bg-black/20 p-5 rounded-xl space-y-4">
-          <div>
-            <div className="overline mb-1">Step 1: Choose product type</div>
-            <p className="text-sm text-zinc-500 max-w-3xl">Start with the product type so only matching templates are shown.</p>
-          </div>
+      <div>
+        <div className="overline mb-1">Choose product type</div>
+        <p className="text-sm text-zinc-500 max-w-3xl">Start with the product type so the next screen only shows matching product options.</p>
+      </div>
 
-          <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            {productTypes.map((type) => (
-              <button
-                key={type.id}
-                type="button"
-                onClick={() => chooseProductType(type.id)}
-                className={`w-full text-left border rounded-xl p-4 transition ${selectedProductTypeId === type.id ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}
-              >
-                <div className="font-bold text-white">{type.name}</div>
-                <div className="text-xs text-zinc-500 mt-1">{type.category || type.slug}</div>
-              </button>
-            ))}
-          </div>
+      <section className="border border-white/10 bg-black/20 p-5 rounded-xl space-y-4">
+        <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {productTypes.map((type) => (
+            <button
+              key={type.id}
+              type="button"
+              onClick={() => chooseProductType(type.id)}
+              className={`w-full text-left border rounded-xl p-4 transition ${selectedProductTypeId === type.id ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}
+            >
+              <div className="font-bold text-white">{type.name}</div>
+              <div className="text-xs text-zinc-500 mt-1">{type.category || type.slug}</div>
+            </button>
+          ))}
+        </div>
 
-          {!productTypes.length && (
-            <div className="text-sm text-zinc-500 border border-dashed border-white/15 rounded-xl p-4">No active product types are available yet.</div>
-          )}
-        </section>
+        {!productTypes.length && (
+          <div className="text-sm text-zinc-500 border border-dashed border-white/15 rounded-xl p-4">No active product types are available yet.</div>
+        )}
+
+        {!isNew && selectedTemplate && !selectedProductTypeId && (
+          <div className="text-xs text-zinc-500 border border-white/10 rounded-xl p-3">
+            Existing product option: {selectedTemplate.name}. Select a product type to change the available options.
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ProductOptionStep({ templates = [], selectedProductType, selectedTemplate, form, chooseTemplate }) {
+  return (
+    <div className="space-y-6 product-builder-main">
+      <div>
+        <div className="overline mb-1">Choose product option</div>
+        <p className="text-sm text-zinc-500 max-w-3xl">
+          Creator cost excludes printing. Final selling price depends on print area, print method and fundraising amount.
+        </p>
+      </div>
+
+      {selectedProductType && (
+        <div className="text-sm text-zinc-500 border border-white/10 bg-black/20 rounded-xl p-3">
+          Showing available options for {selectedProductType.name}.
+        </div>
       )}
 
-      {showTemplateChooser && (
-        <section className="border border-white/10 bg-black/20 p-5 rounded-xl">
-          <div className="overline mb-3">{creatorNew ? "Step 2: Choose template" : "Product Template"}</div>
-          {creatorNew && selectedProductType && (
-            <p className="text-sm text-zinc-500 mb-4">Showing templates for {selectedProductType?.name || "selected product type"}.</p>
-          )}
+      <section className="border border-white/10 bg-black/20 p-5 rounded-xl">
+        <div className="hidden lg:grid gap-3 lg:grid-cols-[88px_minmax(140px,1.1fr)_minmax(180px,1.3fr)_minmax(150px,0.9fr)_minmax(150px,0.8fr)] px-3 pb-2 text-[10px] uppercase tracking-widest text-zinc-500">
+          <div>Picture</div>
+          <div>Name</div>
+          <div>Description</div>
+          <div>Attribute range</div>
+          <div>Creator cost excl. printing</div>
+        </div>
+        <div className="grid gap-3 max-h-[680px] overflow-auto pr-1">
+          {templates.map((template) => {
+            const image = getTemplateImage(template);
+            const selected = form.template_id === template.id;
 
-          <div className="grid gap-3 max-h-[620px] overflow-auto pr-1">
-            {templates.map((template) => (
+            return (
               <button
                 key={template.id}
                 type="button"
                 onClick={() => chooseTemplate(template)}
-                className={`w-full text-left border rounded-xl p-4 transition ${form.template_id === template.id ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}
+                className={`w-full text-left border rounded-xl p-3 transition ${selected ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}
               >
-                <div className="flex gap-3">
-                  {template.product_image_url || template.mockup_url ? (
-                    <img src={assetUrl(template.product_image_url || template.mockup_url)} alt={template.name} className="h-16 w-16 object-contain bg-black border border-white/10 rounded" />
-                  ) : (
-                    <div className="h-16 w-16 bg-black border border-white/10 rounded flex items-center justify-center"><Package size={24} className="text-zinc-600" /></div>
-                  )}
-                  <div className="flex-1">
+                <div className="grid gap-3 lg:grid-cols-[88px_minmax(140px,1.1fr)_minmax(180px,1.3fr)_minmax(150px,0.9fr)_minmax(150px,0.8fr)] lg:items-center">
+                  <div>
+                    {image ? (
+                      <img src={assetUrl(image)} alt={template.name} className="h-20 w-20 object-contain bg-black border border-white/10 rounded" />
+                    ) : (
+                      <div className="h-20 w-20 bg-black border border-white/10 rounded flex items-center justify-center"><Package size={24} className="text-zinc-600" /></div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 lg:hidden">Name</div>
                     <div className="font-bold text-white">{template.name}</div>
-                    <div className="text-xs text-zinc-400 mt-1">From {money(getCreatorBlankPrice(template))} base product cost</div>
-                    <div className="text-xs text-zinc-500 mt-1">Final selling price depends on print area, print method and your fundraising amount.</div>
-                    <div className="text-xs text-zinc-600 mt-1">Variations: {asArray(template.variations).length} · Print areas: {asArray(template.print_areas).length}</div>
+                    {selectedTemplate?.id === template.id && <div className="text-[11px] text-[#A7F3C4] mt-1">Selected</div>}
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 lg:hidden">Description</div>
+                    <div className="text-xs text-zinc-400 line-clamp-3">{getTemplateShortDescription(template)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 lg:hidden">Attribute range</div>
+                    <div className="text-xs text-zinc-300">{getTemplateAttributeRange(template)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Creator cost excl. printing</div>
+                    <div className="font-bold text-white">{money(getCreatorBlankPrice(template))}</div>
                   </div>
                 </div>
               </button>
-            ))}
-          </div>
+            );
+          })}
+        </div>
 
-          {templateCount === 0 && (
-            <div className="text-sm text-zinc-500 border border-dashed border-white/15 rounded-xl p-4">No active templates match this product type.</div>
-          )}
-        </section>
-      )}
+        {!templates.length && (
+          <div className="text-sm text-zinc-500 border border-dashed border-white/15 rounded-xl p-4">No active product options match this product type.</div>
+        )}
+      </section>
+    </div>
+  );
+}
 
-      {showProductDetails && (
-        <>
+function ProductDetailsStep({ isAdmin, creators, form, selectedTemplate, product, isNew, update, applyTextFormat }) {
+  return (
+    <div className="space-y-6 product-builder-main">
+      <div>
+        <div className="overline mb-1">Product details</div>
+        <p className="text-sm text-zinc-500 max-w-3xl">Create the sellable product shell first. Variations and artwork are configured in the next steps.</p>
+      </div>
+
+      <section className="border border-white/10 bg-black/20 p-5 rounded-xl space-y-4">
+        {isAdmin && (
           <div>
-            <div className="overline mb-1">{creatorNew ? "Step 3: Product details" : "Main Product Details"}</div>
-            <p className="text-sm text-zinc-500 max-w-3xl">Create the sellable product shell first. Variations and artwork are configured in the next steps.</p>
+            <label className="label">Creator</label>
+            <select className="input-base" value={form.band_id} onChange={(e) => update("band_id", e.target.value)} disabled={!isNew && Boolean(product?.band_id)}>
+              <option value="">Select creator</option>
+              {creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.name}</option>)}
+            </select>
           </div>
+        )}
 
-          <section className="border border-white/10 bg-black/20 p-5 rounded-xl space-y-4">
-            {isAdmin && (
-              <div>
-                <label className="label">Creator</label>
-                <select className="input-base" value={form.band_id} onChange={(e) => update("band_id", e.target.value)} disabled={!isNew && Boolean(product?.band_id)}>
-                  <option value="">Select creator</option>
-                  {creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.name}</option>)}
-                </select>
-              </div>
-            )}
+        <div>
+          <label className="label">Product title</label>
+          <input className="input-base" value={form.title} onChange={(e) => update("title", e.target.value)} placeholder="Creator logo hoodie" />
+        </div>
 
-            <div>
-              <label className="label">Product title</label>
-              <input className="input-base" value={form.title} onChange={(e) => update("title", e.target.value)} placeholder="Creator logo hoodie" />
-            </div>
+        <div>
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <label className="label mb-0">Description</label>
+            <TextFormatToolbar field="description" onFormat={applyTextFormat} />
+          </div>
+          <textarea
+            className="input-base"
+            rows={6}
+            data-format-field="description"
+            value={form.description}
+            onChange={(e) => update("description", e.target.value)}
+          />
+        </div>
 
-            <div>
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <label className="label mb-0">Description</label>
-                <TextFormatToolbar field="description" onFormat={applyTextFormat} />
-              </div>
-              <textarea
-                className="input-base"
-                rows={6}
-                data-format-field="description"
-                value={form.description}
-                onChange={(e) => update("description", e.target.value)}
-              />
-            </div>
+        <div>
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <label className="label mb-0">Specs / Features</label>
+            <TextFormatToolbar field="specs" onFormat={applyTextFormat} />
+          </div>
+          <textarea
+            className="input-base"
+            rows={5}
+            data-format-field="specs"
+            value={form.specs || ""}
+            onChange={(e) => update("specs", e.target.value)}
+            placeholder="Fabric, fit, care, print method, sizing notes..."
+          />
+        </div>
 
-            <div>
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <label className="label mb-0">Specs / Features</label>
-                <TextFormatToolbar field="specs" onFormat={applyTextFormat} />
-              </div>
-              <textarea
-                className="input-base"
-                rows={5}
-                data-format-field="specs"
-                value={form.specs || ""}
-                onChange={(e) => update("specs", e.target.value)}
-                placeholder="Fabric, fit, care, print method, sizing notes..."
-              />
-            </div>
+        {isAdmin && (
+          <label className="flex items-center gap-3 text-sm">
+            <input type="checkbox" checked={form.published} onChange={(e) => update("published", e.target.checked)} />
+            Publish product when saved
+          </label>
+        )}
 
-            {isAdmin && (
-              <label className="flex items-center gap-3 text-sm">
-                <input type="checkbox" checked={form.published} onChange={(e) => update("published", e.target.checked)} />
-                Publish product when saved
-              </label>
-            )}
+        {!isAdmin && (
+          <div className="space-y-3">
+            <label className="flex items-center gap-3 text-sm border border-white/10 rounded-xl p-3">
+              <input type="checkbox" checked={Boolean(form.publish_on_approval)} onChange={(e) => update("publish_on_approval", e.target.checked)} />
+              <span>
+                <span className="font-bold text-white">Publish automatically after approval</span>
+                <span className="block text-xs text-zinc-500 mt-1">If enabled, your product will go live automatically once artwork is approved. If disabled, you can publish it manually after approval.</span>
+              </span>
+            </label>
+            <div className="text-xs text-zinc-500 border border-white/10 rounded-xl p-3">Creator products stay unpublished until artwork review is approved.</div>
+          </div>
+        )}
+      </section>
 
-            {!isAdmin && (
-              <div className="space-y-3">
-                <label className="flex items-center gap-3 text-sm border border-white/10 rounded-xl p-3">
-                  <input type="checkbox" checked={Boolean(form.publish_on_approval)} onChange={(e) => update("publish_on_approval", e.target.checked)} />
-                  <span>
-                    <span className="font-bold text-white">Publish automatically after approval</span>
-                    <span className="block text-xs text-zinc-500 mt-1">If enabled, your product will go live automatically once artwork is approved. If disabled, you can publish it manually after approval.</span>
-                  </span>
-                </label>
-                <div className="text-xs text-zinc-500 border border-white/10 rounded-xl p-3">Creator template products stay unpublished until artwork review is approved.</div>
-              </div>
-            )}
-          </section>
-
-          {selectedTemplate && (
-            <div className="border border-white/10 bg-black/20 p-5 rounded-xl">
-              <div className="overline mb-2">Selected Template</div>
-              <div className="grid md:grid-cols-4 gap-4 text-sm">
-                <Info label="Template" value={selectedTemplate.name} />
-                <Info label="Category" value={selectedTemplate.category} />
-                <Info label="Brand" value={selectedTemplate.brand || "—"} />
-                <Info label="Base product cost" value={money(getCreatorBlankPrice(selectedTemplate))} />
-              </div>
-            </div>
-          )}
-        </>
+      {selectedTemplate && (
+        <div className="border border-white/10 bg-black/20 p-5 rounded-xl">
+          <div className="overline mb-2">Selected product option</div>
+          <div className="grid md:grid-cols-4 gap-4 text-sm">
+            <Info label="Product option" value={selectedTemplate.name} />
+            <Info label="Category" value={selectedTemplate.category} />
+            <Info label="Attribute range" value={getTemplateAttributeRange(selectedTemplate)} />
+            <Info label="Creator cost excl. printing" value={money(getCreatorBlankPrice(selectedTemplate))} />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1198,7 +1300,7 @@ function ReviewStep({
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-5">
         <div className="card space-y-3">
-          <ChecklistItem done={Boolean(selectedTemplate)} label={`Template: ${selectedTemplate?.name || "Missing"}`} />
+          <ChecklistItem done={Boolean(selectedTemplate)} label={`Product option: ${selectedTemplate?.name || "Missing"}`} />
           <ChecklistItem done={Boolean(title.trim())} label={`Title: ${title || "Missing"}`} />
           <ChecklistItem done={safeSelectedVariations.length > 0} label={`${safeSelectedVariations.length} selected variation(s)`} />
           <ChecklistItem done={artworkGroups.length > 0} label={`${artworkGroups.length} artwork group(s)`} />

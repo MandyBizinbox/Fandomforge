@@ -55,6 +55,53 @@ export function getVariationSize(variation) {
   return getAttrValue(variation, ["Size", "size"]) || variation?.size || "One Size";
 }
 
+function uniqCompact(values) {
+  return [...new Set(asArray(values).map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function sortSizeValues(values) {
+  const order = ["XXS", "XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "6XL", "7XL", "8XL"];
+  return [...values].sort((a, b) => {
+    const aIndex = order.indexOf(String(a).toUpperCase());
+    const bIndex = order.indexOf(String(b).toUpperCase());
+    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+    if (aIndex !== -1) return -1;
+    if (bIndex !== -1) return 1;
+    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+export function getTemplateShortDescription(template) {
+  return [template?.description, template?.category, template?.brand]
+    .map((value) => String(value || "").trim())
+    .find(Boolean) || "Product option";
+}
+
+export function getTemplateSizeRange(template) {
+  const sizes = sortSizeValues(uniqCompact(asArray(template?.variations).map(getVariationSize)).filter((size) => size !== "One Size"));
+  if (!sizes.length) return "";
+  if (sizes.length === 1) return `Size ${sizes[0]}`;
+  return `Sizes ${sizes[0]}-${sizes[sizes.length - 1]}`;
+}
+
+export function getTemplateColourCount(template) {
+  const colours = uniqCompact(asArray(template?.variations).map(getVariationColour)).filter((colour) => colour !== "Default");
+  return colours.length;
+}
+
+export function getTemplateAttributeRange(template) {
+  const variations = asArray(template?.variations);
+  const sizeRange = getTemplateSizeRange(template);
+  const colourCount = getTemplateColourCount(template);
+  const parts = [];
+
+  if (sizeRange) parts.push(sizeRange);
+  if (colourCount) parts.push(`${colourCount} ${colourCount === 1 ? "colour" : "colours"}`);
+  if (parts.length) return parts.join(" · ");
+  if (variations.length) return `${variations.length} ${variations.length === 1 ? "variation" : "variations"}`;
+  return "Options pending";
+}
+
 export function getVariationLabel(variation) {
   const attrs = getVariationAttributes(variation);
   const label = Object.entries(attrs)
