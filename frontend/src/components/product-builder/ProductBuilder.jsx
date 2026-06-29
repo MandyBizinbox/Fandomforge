@@ -14,6 +14,8 @@ import {
   flattenArtworkGroups,
   getPrimaryMockupFromGroups,
   getSelectedVariations,
+  getEnabledTemplateVariations,
+  buildStandardProductVariation,
   getTemplateAttributeRange,
   getTemplateAvailableOptionsSummary,
   getTemplateImage,
@@ -180,9 +182,8 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     return templates.filter((template) => templateMatchesProductType(template, selectedProductType));
   }, [isNew, selectedProductType, templates]);
 
-  const availableTemplateVariations = useMemo(() => {
-    return asArray(selectedTemplate?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
-  }, [selectedTemplate]);
+  const availableTemplateVariations = useMemo(() => getEnabledTemplateVariations(selectedTemplate), [selectedTemplate]);
+  const hasTemplateVariations = availableTemplateVariations.length > 0;
 
   const selectedVariations = useMemo(() => {
     return getSelectedVariations(selectedTemplate, form.selected_template_variation_ids);
@@ -432,7 +433,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     if (isAdmin && !form.band_id) return "Select a creator.";
     if (!form.template_id) return "Select a product option.";
     if (!form.title.trim()) return "Enter a product title.";
-    if (!form.selected_template_variation_ids.length) return "Select at least one variation.";
+    if (hasTemplateVariations && !form.selected_template_variation_ids.length) return "Select at least one variation.";
     if (!form.artwork_groups.length) return "Create at least one artwork group.";
     if (!readyArtworkSlots.length) return "Add at least one artwork file and print method.";
     if (!generatedMockups.length) return "Generate at least one mockup.";
@@ -449,11 +450,13 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     }
 
     const primary = primaryArtwork;
-    const variations = buildProductVariations(
-      selectedTemplate,
-      form.selected_template_variation_ids,
-      form.variation_price_overrides
-    );
+    const variations = hasTemplateVariations
+      ? buildProductVariations(
+        selectedTemplate,
+        form.selected_template_variation_ids,
+        form.variation_price_overrides
+      )
+      : [buildStandardProductVariation(selectedTemplate)];
     const mockupImages = generatedMockups;
     const primaryMockup = productPrimaryMockup || mockupImages[0] || "";
     const legacyArtwork = primary?.original_url
@@ -541,7 +544,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
       if (isAdmin && !form.band_id) return "Select a creator.";
       return "Enter a product title.";
     }
-    if (stepKey === "variations" && !form.selected_template_variation_ids.length) return "Select at least one variation.";
+    if (stepKey === "variations" && hasTemplateVariations && !form.selected_template_variation_ids.length) return "Select at least one variation.";
     if (stepKey === "scope" && !form.artwork_groups.length) return "Create at least one artwork group.";
     if (stepKey === "artwork") {
       if (!readyArtworkSlots.length) return "Add at least one artwork file and print method.";
@@ -682,12 +685,14 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               template={selectedTemplate}
               selectedIds={form.selected_template_variation_ids}
               onChange={setSelectedVariationIds}
+              hasTemplateVariations={hasTemplateVariations}
             />
           )}
 
           {activeStep === "scope" && (
             <ArtworkScopeSelector
               selectedVariations={selectedVariations}
+              hasTemplateVariations={hasTemplateVariations}
               groups={form.artwork_groups}
               onChange={setArtworkGroups}
             />
@@ -721,6 +726,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               form={form}
               selectedTemplate={selectedTemplate}
               selectedVariations={selectedVariations}
+              hasTemplateVariations={hasTemplateVariations}
               readyArtworkSlots={readyArtworkSlots}
               uploadedWithoutPrintMethod={uploadedWithoutPrintMethod}
               generatedMockups={generatedMockups}
@@ -753,6 +759,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               canContinueProductType={canContinueProductType}
               canContinueProductOption={canContinueProductOption}
               canContinueDetails={canContinueDetails}
+              hasTemplateVariations={hasTemplateVariations}
               form={form}
               readyArtworkSlots={readyArtworkSlots}
               generatedMockups={generatedMockups}
@@ -775,7 +782,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               <ChecklistItem done={Boolean(canContinueProductType)} label="Product type" />
               <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option" />
               <ChecklistItem done={Boolean(canContinueDetails)} label="Details" />
-              <ChecklistItem done={form.selected_template_variation_ids.length > 0} label={`${form.selected_template_variation_ids.length} variations`} />
+              <ChecklistItem done={!hasTemplateVariations || form.selected_template_variation_ids.length > 0} label={hasTemplateVariations ? `${form.selected_template_variation_ids.length} variations` : "No variations needed"} />
               <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} groups`} />
               <ChecklistItem
                 done={readyArtworkSlots.length > 0}
@@ -799,7 +806,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   );
 }
 
-function BuilderSidebar({ canContinueProductType, canContinueProductOption, canContinueDetails, form, readyArtworkSlots, generatedMockups, pricing, productPrimaryMockup, stepIndex, activeStep, prevStep, nextStep, save, saving, isNew }) {
+function BuilderSidebar({ canContinueProductType, canContinueProductOption, canContinueDetails, hasTemplateVariations, form, readyArtworkSlots, generatedMockups, pricing, productPrimaryMockup, stepIndex, activeStep, prevStep, nextStep, save, saving, isNew }) {
   return (
     <>
       <section className="card">
@@ -807,7 +814,7 @@ function BuilderSidebar({ canContinueProductType, canContinueProductOption, canC
         <ChecklistItem done={Boolean(canContinueProductType)} label="Product type selected" />
         <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option selected" />
         <ChecklistItem done={Boolean(canContinueDetails)} label="Details complete" />
-        <ChecklistItem done={form.selected_template_variation_ids.length > 0} label={`${form.selected_template_variation_ids.length} variation(s) selected`} />
+        <ChecklistItem done={!hasTemplateVariations || form.selected_template_variation_ids.length > 0} label={hasTemplateVariations ? `${form.selected_template_variation_ids.length} variation(s) selected` : "No variations needed"} />
         <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} artwork group(s)`} />
         <ChecklistItem done={readyArtworkSlots.length > 0} label={`${readyArtworkSlots.length} artwork slot(s) ready`} />
         <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockup(s) generated`} />
@@ -1269,6 +1276,7 @@ function ReviewStep({
   form = {},
   selectedTemplate,
   selectedVariations = [],
+  hasTemplateVariations = true,
   readyArtworkSlots = [],
   uploadedWithoutPrintMethod = [],
   generatedMockups = [],
@@ -1289,7 +1297,7 @@ function ReviewStep({
 
   const ready = Boolean(
     selectedTemplate &&
-    safeSelectedVariations.length &&
+    (!hasTemplateVariations || safeSelectedVariations.length) &&
     safeReadyArtworkSlots.length &&
     safeGeneratedMockups.length &&
     pricing?.canPublishProfitably
@@ -1306,7 +1314,7 @@ function ReviewStep({
         <div className="card space-y-3">
           <ChecklistItem done={Boolean(selectedTemplate)} label={`Product option: ${selectedTemplate?.name || "Missing"}`} />
           <ChecklistItem done={Boolean(title.trim())} label={`Title: ${title || "Missing"}`} />
-          <ChecklistItem done={safeSelectedVariations.length > 0} label={`${safeSelectedVariations.length} selected variation(s)`} />
+          <ChecklistItem done={!hasTemplateVariations || safeSelectedVariations.length > 0} label={hasTemplateVariations ? `${safeSelectedVariations.length} selected variation(s)` : "Standard product: no variations needed"} />
           <ChecklistItem done={artworkGroups.length > 0} label={`${artworkGroups.length} artwork group(s)`} />
           <ChecklistItem done={safeReadyArtworkSlots.length > 0} label={`${safeReadyArtworkSlots.length} artwork slot(s) with file + print method`} />
 

@@ -9,7 +9,7 @@ import {
   money,
 } from "./productBuilderUtils";
 
-export default function ProductVariationMatrix({ template, selectedIds, onChange }) {
+export default function ProductVariationMatrix({ template, selectedIds, onChange, hasTemplateVariations = true }) {
   const [filter, setFilter] = useState("");
 
   const variations = useMemo(() => {
@@ -67,18 +67,22 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
             Select the template variations this sellable product will offer. Artwork groups are configured in the next step.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn-secondary" onClick={selectAll}>Select all</button>
-          <button type="button" className="btn-secondary" onClick={clearAll}>Clear</button>
-        </div>
+        {hasTemplateVariations && (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary" onClick={selectAll}>Select all</button>
+            <button type="button" className="btn-secondary" onClick={clearAll}>Clear</button>
+          </div>
+        )}
       </div>
 
-      <input
-        className="input-base max-w-xl"
-        placeholder="Filter colours or sizes"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-      />
+      {hasTemplateVariations && (
+        <input
+          className="input-base max-w-xl"
+          placeholder="Filter colours or sizes"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      )}
 
       <div className="product-variation-scroll rounded-xl border border-white/10 overflow-auto bg-black/30">
         {visibleSections.map((section) => (
@@ -146,7 +150,11 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
         ))}
 
         {variations.length === 0 && (
-          <div className="p-8 text-center text-zinc-500">This template has no enabled variations yet.</div>
+          <div className="p-8 text-center text-zinc-500">
+            {hasTemplateVariations
+              ? "No variations match this filter."
+              : "This product option has no selectable variations. It will be created as a standard/default product."}
+          </div>
         )}
       </div>
     </div>

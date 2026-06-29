@@ -10,14 +10,15 @@ import {
   makeId,
 } from "./productBuilderUtils";
 
-function groupSummary(group, selectedVariations) {
+function groupSummary(group, selectedVariations, hasTemplateVariations = true) {
+  if (!hasTemplateVariations) return "Standard product";
   if (group.scope_type === "all") return `${selectedVariations.length} variation(s)`;
   if (group.scope_type === "attribute") return `${group.attribute_key}: ${group.attribute_value}`;
   if (group.scope_type === "variation") return `${asArray(group.variation_ids).length} exact variation(s)`;
   return `${asArray(group.variation_ids).length || selectedVariations.length} selected variation(s)`;
 }
 
-export default function ArtworkScopeSelector({ selectedVariations, groups, onChange }) {
+export default function ArtworkScopeSelector({ selectedVariations, hasTemplateVariations = true, groups, onChange }) {
   const [customLabel, setCustomLabel] = useState("");
   const matrix = useMemo(() => getVariationMatrix(selectedVariations), [selectedVariations]);
   const safeGroups = asArray(groups);
@@ -85,7 +86,7 @@ export default function ArtworkScopeSelector({ selectedVariations, groups, onCha
       <div>
         <div className="overline mb-1">Artwork Scope</div>
         <p className="text-sm text-zinc-500 max-w-3xl">
-          Decide where artwork must be unique. Most products only need one artwork setup for all variations or one setup per colour.
+          {hasTemplateVariations ? "Decide where artwork must be unique. Most products only need one artwork setup for all variations or one setup per colour." : "This standard product has no variations, so one global artwork setup is enough."}
         </p>
       </div>
 
@@ -94,11 +95,11 @@ export default function ArtworkScopeSelector({ selectedVariations, groups, onCha
           <div className="font-display text-2xl uppercase mb-2">Same for all</div>
           <p className="text-sm text-zinc-500">One set of artwork applies to every selected variation.</p>
         </button>
-        <button type="button" className="card text-left hover:border-[#FF3B30]" onClick={() => applyPreset("colour")}>
+        <button type="button" className="card text-left hover:border-[#FF3B30] disabled:opacity-40 disabled:cursor-not-allowed" disabled={!hasTemplateVariations} onClick={() => applyPreset("colour")}>
           <div className="font-display text-2xl uppercase mb-2">Per colour</div>
           <p className="text-sm text-zinc-500">Best default. Black, white, red, etc. each get their own artwork.</p>
         </button>
-        <button type="button" className="card text-left hover:border-[#FF3B30]" onClick={() => applyPreset("variation")}>
+        <button type="button" className="card text-left hover:border-[#FF3B30] disabled:opacity-40 disabled:cursor-not-allowed" disabled={!hasTemplateVariations} onClick={() => applyPreset("variation")}>
           <div className="font-display text-2xl uppercase mb-2">Per variation</div>
           <p className="text-sm text-zinc-500">Maximum control. Every size/colour can have unique artwork.</p>
         </button>
@@ -123,7 +124,7 @@ export default function ArtworkScopeSelector({ selectedVariations, groups, onCha
                 <div>
                   <label className="label">Group label</label>
                   <input className="input-base" value={group.label || ""} onChange={(e) => patchGroup(group.id, { label: e.target.value })} />
-                  <div className="text-xs text-zinc-500 mt-2">{groupSummary(group, selectedVariations)}</div>
+                  <div className="text-xs text-zinc-500 mt-2">{groupSummary(group, selectedVariations, hasTemplateVariations)}</div>
                 </div>
                 <div>
                   <label className="label">Scope</label>
@@ -133,8 +134,8 @@ export default function ArtworkScopeSelector({ selectedVariations, groups, onCha
                     onChange={(e) => patchGroup(group.id, { scope_type: e.target.value })}
                   >
                     <option value="all">All variations</option>
-                    <option value="attribute">Colour group</option>
-                    <option value="variation">Exact variation</option>
+                    {hasTemplateVariations && <option value="attribute">Colour group</option>}
+                    {hasTemplateVariations && <option value="variation">Exact variation</option>}
                     <option value="custom">Custom</option>
                   </select>
                 </div>

@@ -3499,6 +3499,25 @@ def _variation_submission_keys(row: dict) -> list:
     return [str(key) for key in keys if key is not None and str(key).strip()]
 
 
+def _standard_template_product_variation(template: dict, submitted_variations: list | None = None) -> dict:
+    submitted = next((row for row in submitted_variations or [] if isinstance(row, dict)), {})
+    costing = _resolve_blank_costing(submitted or {}, template or {})
+    return {
+        "id": submitted.get("id") or "standard",
+        "template_variation_id": submitted.get("template_variation_id"),
+        "sku": submitted.get("sku"),
+        "size": submitted.get("size") or "One Size",
+        "color": submitted.get("color") or submitted.get("colour") or "Default",
+        "attribute_values": submitted.get("attribute_values") or submitted.get("attributes") or {},
+        "attributes": submitted.get("attributes") or submitted.get("attribute_values") or {},
+        "stock_status": submitted.get("stock_status") or "made_to_order",
+        "price_override": submitted.get("price_override"),
+        "creator_blank_price": submitted.get("creator_blank_price") or costing["creator_blank_price"],
+        "base_price": submitted.get("base_price") or costing["creator_blank_price"],
+        "label": submitted.get("label") or "Standard",
+    }
+
+
 def _template_product_variations_with_overrides(submitted_variations: list, selected_variations: list) -> list:
     submitted_lookup = {}
 
@@ -3646,7 +3665,7 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
         "category": data.get("category") or template.get("category") or "",
         "attribute_ids": data.get("attribute_ids") or template.get("attribute_ids") or [],
         "selected_template_variation_ids": selected_variation_ids,
-        "variations": _template_product_variations_with_overrides(data.get("variations") or [], selected_variations) or data.get("variations") or [],
+        "variations": _template_product_variations_with_overrides(data.get("variations") or [], selected_variations) or data.get("variations") or ([] if template_variations else [_standard_template_product_variation(template, data.get("variations") or [])]),
         "print_cost": print_cost,
         "mockup_image_url": mockup,
         "primary_mockup_image_url": mockup,
@@ -3804,11 +3823,15 @@ async def create_product(
     slug = slugify(data["title"]) + "-" + uid()[:4]
 
     if not data.get("variations"):
-        data["variations"] = [
-            ProductVariation(size="M", color="Black").model_dump(),
-            ProductVariation(size="L", color="Black").model_dump(),
-            ProductVariation(size="XL", color="Black").model_dump(),
-        ]
+        if data.get("template_id"):
+            template = await db.product_templates.find_one({"id": data.get("template_id")}, {"_id": 0}) or {}
+            data["variations"] = [_standard_template_product_variation(template, [])]
+        else:
+            data["variations"] = [
+                ProductVariation(size="M", color="Black").model_dump(),
+                ProductVariation(size="L", color="Black").model_dump(),
+                ProductVariation(size="XL", color="Black").model_dump(),
+            ]
 
     now = utcnow()
     product = Product(
@@ -8581,10 +8604,14 @@ async def admin_create_product(
         assigned_printer_id = default_printer["id"] if default_printer else None
 
     if not data.get("variations"):
-        data["variations"] = [
-            ProductVariation(size="M", color="Black").model_dump(),
-            ProductVariation(size="L", color="Black").model_dump(),
-        ]
+        if data.get("template_id"):
+            template = await db.product_templates.find_one({"id": data.get("template_id")}, {"_id": 0}) or {}
+            data["variations"] = [_standard_template_product_variation(template, [])]
+        else:
+            data["variations"] = [
+                ProductVariation(size="M", color="Black").model_dump(),
+                ProductVariation(size="L", color="Black").model_dump(),
+            ]
 
     now = utcnow()
     product = Product(

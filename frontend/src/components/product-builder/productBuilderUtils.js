@@ -454,6 +454,32 @@ export function getSelectedVariations(template, selectedIds) {
   return asArray(template?.variations).filter((variation) => ids.has(variation.id));
 }
 
+export function getEnabledTemplateVariations(template) {
+  return asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
+}
+
+export function templateHasSelectableVariations(template) {
+  return getEnabledTemplateVariations(template).length > 0;
+}
+
+export function buildStandardProductVariation(template = {}) {
+  const baseCost = getCreatorBlankPrice(template);
+  return {
+    id: "standard",
+    template_variation_id: null,
+    label: "Standard",
+    sku: template?.blank_sku ? `${template.blank_sku}-STANDARD` : undefined,
+    stock_status: "made_to_order",
+    price_override: null,
+    attribute_values: {},
+    attributes: {},
+    size: "One Size",
+    color: "Default",
+    creator_blank_price: baseCost,
+    base_price: baseCost,
+  };
+}
+
 export function createDefaultArtworkGroup() {
   return {
     id: "default-all",
