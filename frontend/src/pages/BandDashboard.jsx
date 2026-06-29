@@ -57,6 +57,73 @@ function filterBandLinksByModules(modules = {}) {
   });
 }
 
+
+const MAX_CREATOR_UPLOAD_MB = 25;
+const MAX_CREATOR_UPLOAD_BYTES = MAX_CREATOR_UPLOAD_MB * 1024 * 1024;
+
+function formatFileSize(bytes) {
+  if (!bytes && bytes !== 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function CreatorImageField({ label, value, onUpload, hint, requirements, inputId, previewClassName = "aspect-video" }) {
+  const [selectedFile, setSelectedFile] = useState(null);
+
+  const handleChange = (event) => {
+    const file = event.target.files?.[0] || null;
+    setSelectedFile(file);
+    if (file) onUpload(file);
+    event.target.value = "";
+  };
+
+  return (
+    <div className="card">
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <label htmlFor={inputId} className="label">{label}</label>
+          <p className="text-xs text-[var(--ff-muted-text)] mt-1">{hint}</p>
+        </div>
+      </div>
+
+      <div className={`${previewClassName} border border-dashed border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] flex items-center justify-center overflow-hidden mb-4`}>
+        {value ? (
+          <img src={assetUrl(value)} alt={label} className="w-full h-full object-contain p-3" />
+        ) : (
+          <div className="text-center text-xs text-[var(--ff-muted-text)] uppercase tracking-widest px-4">No {label.toLowerCase()} uploaded yet</div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <label className="btn-secondary cursor-pointer justify-center w-full">
+          <Upload size={14} /> {value ? `Replace ${label}` : `Upload ${label}`}
+          <input
+            id={inputId}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            className="hidden"
+            onChange={handleChange}
+          />
+        </label>
+
+        {selectedFile && (
+          <div className="text-xs text-[var(--ff-muted-text)]">
+            Selected: <span className="text-[var(--ff-card-text)]">{selectedFile.name}</span> · {formatFileSize(selectedFile.size)}
+          </div>
+        )}
+
+        <div className="text-xs text-[var(--ff-muted-text)] leading-relaxed">
+          {requirements}
+          <br />
+          Maximum upload size: {MAX_CREATOR_UPLOAD_MB}MB. Accepted: PNG, JPG, WebP or SVG.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function money(value) {
   return `R ${Number(value || 0).toFixed(2)}`;
 }
@@ -522,6 +589,11 @@ function ProductForm() {
   const uploadMockup = async () => {
     if (!mockupFile) return;
 
+    if (mockupFile.size > MAX_CREATOR_UPLOAD_BYTES) {
+      toast.error(`File too large. Maximum upload size is ${MAX_CREATOR_UPLOAD_MB}MB.`);
+      return;
+    }
+
     const fd = new FormData();
     fd.append("file", mockupFile);
     fd.append("subdir", "product-mockups");
@@ -788,17 +860,27 @@ function ProductForm() {
                 </div>
               </div>
 
-              <label className="dropzone block cursor-pointer">
-                <div className="overline mb-2">Print artwork</div>
-                <div className="text-xs text-[var(--ff-muted-text)]">PNG / JPG / SVG / PDF</div>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/svg+xml,application/pdf"
-                  className="hidden"
-                  onChange={(e) => setArtwork(e.target.files?.[0] || null)}
-                />
-                {artwork && <div className="mt-3 text-sm text-[var(--ff-card-text)]">{artwork.name}</div>}
-              </label>
+                <label className="dropzone block cursor-pointer">
+                  <div className="overline mb-2">Print artwork</div>
+                  <div className="text-xs text-[var(--ff-muted-text)]">
+                    Upload production artwork. Maximum upload size: {MAX_CREATOR_UPLOAD_MB}MB.
+                  </div>
+                  <div className="text-xs text-[var(--ff-muted-text)] mt-1">
+                    Accepted: PNG, JPG, SVG or PDF. Recommended: transparent PNG/SVG/PDF where possible.
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/svg+xml,application/pdf"
+                    className="hidden"
+                    onChange={(e) => setArtwork(e.target.files?.[0] || null)}
+                  />
+                  {artwork && (
+                    <div className="mt-3 text-sm text-[var(--ff-card-text)]">
+                      {artwork.name}
+                      <span className="block text-xs text-[var(--ff-muted-text)]">{formatFileSize(artwork.size)}</span>
+                    </div>
+                  )}
+                </label>
 
               <label className="flex items-center gap-3 text-sm">
                 <input
@@ -822,60 +904,69 @@ function ProductForm() {
             </div>
           </div>
 
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <div>
+            <div className="card">
+              <div className="mb-4">
                 <div className="overline mb-1">Mockups</div>
-                <p className="text-xs text-[var(--ff-muted-text)]">Add image URLs or upload a mockup file.</p>
+                <p className="text-xs text-[var(--ff-muted-text)]">
+                  Upload product mockup images. Raw file URLs are stored internally and are not shown to creators.
+                </p>
+                <p className="text-xs text-[var(--ff-muted-text)] mt-1">
+                  Recommended: clear product image, 1200×1200px or larger. Maximum upload size: {MAX_CREATOR_UPLOAD_MB}MB. Accepted: PNG, JPG or WebP.
+                </p>
               </div>
 
-              <button type="button" onClick={addMockupUrl} className="btn-secondary text-xs">
-                Add URL
-              </button>
-            </div>
+              <div className="space-y-3">
+                {form.mockup_images.map((url, index) => (
+                  <div key={index} className="flex items-center gap-3 border border-[var(--ff-card-border)] p-3">
+                    <div className="w-20 h-20 bg-[var(--ff-surface-bg)] border border-[var(--ff-card-border)] flex items-center justify-center overflow-hidden shrink-0">
+                      <img src={assetUrl(url)} alt={`Mockup ${index + 1}`} className="w-full h-full object-contain" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-bold text-[var(--ff-card-text)]">Mockup {index + 1}</div>
+                      <div className="text-xs text-[var(--ff-muted-text)]">Image uploaded</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeMockupUrl(index)}
+                      className="btn-secondary px-3"
+                      title="Remove mockup"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
 
-            <div className="space-y-3">
-              {form.mockup_images.map((url, index) => (
-                <div key={index} className="flex gap-2">
-                  <input
-                    className="input-base"
-                    value={url}
-                    onChange={(e) => updateMockupUrl(index, e.target.value)}
-                    placeholder="/api/uploads/images/product-mockups/file.png"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeMockupUrl(index)}
-                    className="btn-secondary px-3"
-                    title="Remove mockup"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
+                {form.mockup_images.length === 0 && (
+                  <div className="text-xs text-[var(--ff-muted-text)] border border-dashed border-[var(--ff-card-border)] p-4">
+                    No mockups uploaded yet.
+                  </div>
+                )}
+              </div>
 
-              {form.mockup_images.length === 0 && (
-                <div className="text-xs text-[var(--ff-muted-text)]">No mockups added yet.</div>
-              )}
-            </div>
+              <div className="mt-4 space-y-3">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="input-base"
+                  onChange={(e) => setMockupFile(e.target.files?.[0] || null)}
+                />
 
-            <div className="mt-4 flex flex-col sm:flex-row gap-3">
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="input-base"
-                onChange={(e) => setMockupFile(e.target.files?.[0] || null)}
-              />
-              <button
-                type="button"
-                onClick={uploadMockup}
-                className="btn-secondary"
-                disabled={!mockupFile}
-              >
-                <Upload size={14} /> Upload
-              </button>
+                {mockupFile && (
+                  <div className="text-xs text-[var(--ff-muted-text)]">
+                    Selected: <span className="text-[var(--ff-card-text)]">{mockupFile.name}</span> · {formatFileSize(mockupFile.size)}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={uploadMockup}
+                  className="btn-secondary w-full sm:w-auto"
+                  disabled={!mockupFile}
+                >
+                  <Upload size={14} /> Upload Mockup
+                </button>
+              </div>
             </div>
-          </div>
 
           <AttributeVariationEditor
             allAttributes={attributes}
@@ -1409,40 +1500,25 @@ function SettingsPage() {
           </div>
         </div>
 
-        <div>
-          <label htmlFor="creator-logo" className="label">Logo URL</label>
-          <input
-            id="creator-logo"
-            name="logo_url"
-            className="input-base"
+          <CreatorImageField
+            label="Logo"
             value={form.logo_url}
-            onChange={(e) => updateForm("logo_url", e.target.value)}
+            inputId="creator-logo"
+            hint="Shown on your public storefront and creator cards."
+            requirements="Recommended: square or transparent logo, at least 800×800px."
+            previewClassName="aspect-square"
+            onUpload={(file) => uploadStoreImage(file, "logo_url")}
           />
-          <input
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            className="input-base mt-2"
-            onChange={(e) => uploadStoreImage(e.target.files?.[0], "logo_url")}
-          />
-        </div>
 
-        <div>
-          <label htmlFor="creator-banner" className="label">Banner URL</label>
-          <input
-            id="creator-banner"
-            name="banner_url"
-            className="input-base"
+          <CreatorImageField
+            label="Banner"
             value={form.banner_url}
-            onChange={(e) => updateForm("banner_url", e.target.value)}
+            inputId="creator-banner"
+            hint="Shown as the wide header image on your public storefront."
+            requirements="Recommended: wide banner, around 1600×600px or larger."
+            previewClassName="aspect-[16/6]"
+            onUpload={(file) => uploadStoreImage(file, "banner_url")}
           />
-          <input
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            className="input-base mt-2"
-            onChange={(e) => uploadStoreImage(e.target.files?.[0], "banner_url")}
-          />
-        </div>
-
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="creator-instagram" className="label">Instagram</label>
