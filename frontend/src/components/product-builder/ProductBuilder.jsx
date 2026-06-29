@@ -25,7 +25,7 @@ const steps = [
   { key: "variations", label: "2 Variations" },
   { key: "scope", label: "3 Artwork Scope" },
   { key: "artwork", label: "4 Artwork" },
-  { key: "pricing", label: "5 Capabilities" },
+  { key: "pricing", label: "5 Pricing" },
   { key: "review", label: "6 Review" },
 ];
 
@@ -413,7 +413,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     if (!readyArtworkSlots.length) return "Add at least one artwork file and print method.";
     if (!generatedMockups.length) return "Generate at least one mockup.";
     if (Number(form.selling_price || 0) <= 0) return "Enter a selling price.";
-    if (form.published && !pricing.canPublishProfitably) return "Selling price is below the minimum profitable price.";
+    if (form.published && !pricing.canPublishProfitably) return "Selling price is below the minimum price needed to cover production and platform costs.";
     return null;
   };
 
@@ -525,14 +525,15 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
       <div className="product-builder-shell min-h-[calc(100vh-120px)]" data-testid="creator-product-approval-submitted">
         <div className="card max-w-3xl mx-auto mt-10">
           <div className="overline mb-2">Product sent for approval</div>
-          <h1 className="font-display text-5xl uppercase mb-4">Artwork review pending</h1>
+          <h1 className="font-display text-5xl uppercase mb-4">Review pending</h1>
           <p className="text-sm text-zinc-400 leading-relaxed mb-5">
-            Your product has been submitted for artwork review. Approval usually takes 2–3 working days.
+            Your product has been submitted for artwork and pricing review. Final pricing may be checked before the product goes live to make sure production costs are correct.
           </p>
           <div className="grid sm:grid-cols-2 gap-3 text-sm mb-6">
             <Info label="Product" value={submittedProduct.title || "New product"} />
-            <Info label="Review status" value="Pending review" />
-            <Info label="Publishing" value={submittedProduct.publish_on_approval ? "Publish automatically after approval" : "Manual publish after approval"} />
+            <Info label="Review status" value={submittedProduct.artwork_review_status || submittedProduct.creator_pricing_approval_status || "Pending review"} />
+            <Info label="Estimated selling price" value={money(submittedProduct.selling_price ?? form.selling_price)} />
+            <Info label="Estimated creator/fundraising amount" value={money(submittedProduct.estimated_creator_profit ?? pricing.profit)} />
             <Info label="Visibility" value="Unpublished" />
           </div>
           <div className="flex flex-wrap gap-3">
@@ -624,12 +625,12 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           )}
 
           {activeStep === "pricing" && (
-            <CapabilitiesStep
+            <PricingStep
               form={form}
               update={update}
               pricing={pricing}
-              blankCost={blankCost}
-              printCost={printCost}
+              product={product}
+              isAdmin={isAdmin}
               selectedVariations={selectedVariations}
               updateVariationPrice={updateVariationPrice}
             />
@@ -644,6 +645,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               uploadedWithoutPrintMethod={uploadedWithoutPrintMethod}
               generatedMockups={generatedMockups}
               pricing={pricing}
+              product={product}
               isAdmin={isAdmin}
               save={save}
               saving={saving}
@@ -700,7 +702,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
                 }
               />
               <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockups`} />
-              <ChecklistItem done={pricing.canPublishProfitably} label="Profitable" />
+              <ChecklistItem done={pricing.canPublishProfitably} label="Price covers costs" />
             </div>
             <div className="flex gap-2">
               <button type="button" className="btn-secondary" onClick={prevStep}>Previous</button>
@@ -723,7 +725,7 @@ function BuilderSidebar({ canContinueDetails, form, readyArtworkSlots, generated
         <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} artwork group(s)`} />
         <ChecklistItem done={readyArtworkSlots.length > 0} label={`${readyArtworkSlots.length} artwork slot(s) ready`} />
         <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockup(s) generated`} />
-        <ChecklistItem done={pricing.canPublishProfitably} label="Price is profitable" />
+        <ChecklistItem done={pricing.canPublishProfitably} label="Price covers costs" />
       </section>
 
       <section className="card">
@@ -738,15 +740,16 @@ function BuilderSidebar({ canContinueDetails, form, readyArtworkSlots, generated
       </section>
 
       <section className="card">
-        <div className="overline mb-3">Costing</div>
+        <div className="overline mb-3">Pricing estimate</div>
         <table className="w-full text-sm">
           <tbody>
-            <tr><td className="text-zinc-400">Blank price</td><td className="text-right">{money(pricing.blank)}</td></tr>
-            <tr><td className="text-zinc-400">Print cost</td><td className="text-right">{money(pricing.print)}</td></tr>
-            <tr><td className="text-zinc-400">Minimum</td><td className="text-right">{money(pricing.minimumRetail)}</td></tr>
-            <tr className="border-t border-white/15"><td className="font-bold pt-2">Profit</td><td className={`text-right font-bold pt-2 ${pricing.profit >= 0 ? "text-[#34C759]" : "text-[#FF3B30]"}`}>{money(pricing.profit)}</td></tr>
+            <tr><td className="text-zinc-400">Base product cost</td><td className="text-right">{money(pricing.blank)}</td></tr>
+            <tr><td className="text-zinc-400">Estimated print cost</td><td className="text-right">{pricing.print > 0 ? money(pricing.print) : "Pending"}</td></tr>
+            <tr><td className="text-zinc-400">Minimum selling price</td><td className="text-right">{money(pricing.minimumSellingPrice || 0)}</td></tr>
+            <tr className="border-t border-white/15"><td className="font-bold pt-2">Estimated creator/fundraising amount</td><td className={`text-right font-bold pt-2 ${pricing.profit >= 0 ? "text-[#34C759]" : "text-[#FF3B30]"}`}>{money(pricing.profit)}</td></tr>
           </tbody>
         </table>
+        <p className="text-xs text-zinc-500 mt-3">Estimate updates as artwork and print method are selected.</p>
       </section>
 
       <section className="card flex gap-2">
@@ -840,8 +843,9 @@ function DetailsStep({ isAdmin, creators, productTypes = [], selectedProductType
                   )}
                   <div className="flex-1">
                     <div className="font-bold text-white">{template.name}</div>
-                    <div className="text-xs text-zinc-500 mt-1">{template.category} · Blank price {money(getCreatorBlankPrice(template))}</div>
-                    <div className="text-xs text-zinc-600 mt-1">{asArray(template.variations).length} variations · {asArray(template.print_areas).length} print areas</div>
+                    <div className="text-xs text-zinc-400 mt-1">From {money(getCreatorBlankPrice(template))} base product cost</div>
+                    <div className="text-xs text-zinc-500 mt-1">Final selling price depends on print area, print method and your fundraising amount.</div>
+                    <div className="text-xs text-zinc-600 mt-1">Variations: {asArray(template.variations).length} · Print areas: {asArray(template.print_areas).length}</div>
                   </div>
                 </div>
               </button>
@@ -934,7 +938,7 @@ function DetailsStep({ isAdmin, creators, productTypes = [], selectedProductType
                 <Info label="Template" value={selectedTemplate.name} />
                 <Info label="Category" value={selectedTemplate.category} />
                 <Info label="Brand" value={selectedTemplate.brand || "—"} />
-                <Info label="Creator blank price" value={money(getCreatorBlankPrice(selectedTemplate))} />
+                <Info label="Base product cost" value={money(getCreatorBlankPrice(selectedTemplate))} />
               </div>
             </div>
           )}
@@ -970,40 +974,129 @@ function TextFormatToolbar({ field, onFormat }) {
   );
 }
 
-function CapabilitiesStep({ form, update, pricing, selectedVariations = [], updateVariationPrice }) {
+function getPricingReviewMessages(product = {}, isAdmin = false) {
+  const messages = [];
+
+  if (product?.requires_creator_pricing_approval || product?.creator_pricing_approval_status === "pending_creator_approval") {
+    messages.push("Pricing update needs your approval before this product can go live.");
+  }
+
+  if (product?.artwork_review_status && product.artwork_review_status !== "approved") {
+    messages.push("Artwork review pending. Your product will stay unpublished until review is complete.");
+  }
+
+  if (!isAdmin) {
+    messages.push("This product will stay unpublished until artwork and pricing are reviewed.");
+  }
+
+  return [...new Set(messages)];
+}
+
+function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isAdmin = false, compact = false }) {
+  const minimumSellingPrice = pricing.minimumSellingPrice || pricing.minimumRetail || 0;
+  const reviewMessages = getPricingReviewMessages(product, isAdmin);
+  const printCostValue = pricing.print > 0 ? money(pricing.print) : "Pending print method";
+
+  return (
+    <section className={compact ? "border border-white/10 bg-black/20 rounded-xl p-4" : "card"}>
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+        <div>
+          <div className="overline mb-1">Pricing summary</div>
+          <p className="text-sm text-zinc-500 max-w-3xl">
+            Pricing updates as you choose your product, print area and options. Final pricing may be reviewed before the product goes live to make sure production costs are correct.
+          </p>
+        </div>
+        <div className={`text-xs rounded-lg px-3 py-2 border ${pricing.canPublishProfitably ? "border-[#34C759]/40 text-[#A7F3C4] bg-[#34C759]/10" : "border-[#FF3B30]/50 text-[#FFB4B0] bg-[#FF3B30]/10"}`}>
+          {pricing.canPublishProfitably ? "Price covers estimated costs" : "Price may be too low"}
+        </div>
+      </div>
+
+      <p className="text-xs text-zinc-500 mb-4">
+        Base product cost + print cost + platform commission must be covered before creator/fundraising earnings are available.
+      </p>
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+        <Info label="Base product cost" value={money(pricing.blank)} />
+        <Info label="Estimated print cost" value={printCostValue} />
+        <Info label="Estimated production cost" value={money(pricing.production)} />
+        <Info label={`Platform commission ${Math.round((pricing.rate || 0) * 100)}%`} value={money(pricing.commission)} />
+        <Info label="Minimum selling price" value={money(minimumSellingPrice)} />
+        <Info label="Your selling price" value={money(sellingPrice)} />
+        <Info label="Estimated creator/fundraising amount" value={money(pricing.profit)} />
+        <Info label="Pricing review status" value={product?.creator_pricing_approval_status || (isAdmin ? "Admin controlled" : "Review may be required")} />
+      </div>
+
+      {!pricing.canPublishProfitably && Number(sellingPrice || 0) > 0 && (
+        <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg mt-4">
+          This selling price may be too low to cover production and platform costs. Increase the selling price or reduce the fundraising amount.
+        </div>
+      )}
+
+      {reviewMessages.length > 0 && (
+        <div className="space-y-2 mt-4">
+          {reviewMessages.map((message) => (
+            <div key={message} className="border border-white/10 bg-black/20 p-3 text-xs text-zinc-400 rounded-lg">{message}</div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PricingStep({ form, update, pricing, product, isAdmin, selectedVariations = [], updateVariationPrice }) {
   const safeSelectedVariations = asArray(selectedVariations);
   const overrides = form.variation_price_overrides || {};
+  const [desiredFundraisingAmount, setDesiredFundraisingAmount] = useState(() => Math.max(Number(pricing.profit || 0), 0).toFixed(2));
+
+  useEffect(() => {
+    setDesiredFundraisingAmount(Math.max(Number(pricing.profit || 0), 0).toFixed(2));
+  }, [form.selling_price, pricing.production, pricing.rate, pricing.profit]);
+
+  const updateDesiredFundraisingAmount = (value) => {
+    setDesiredFundraisingAmount(value);
+    const desired = Number(value || 0);
+    const rate = Number(pricing.rate || 0);
+    const suggestedPrice = rate >= 1 ? pricing.production + desired : (pricing.production + desired) / (1 - rate);
+    update("selling_price", Number.isFinite(suggestedPrice) ? suggestedPrice.toFixed(2) : "0.00");
+  };
 
   return (
     <div className="space-y-6 max-w-5xl">
       <div>
         <div className="overline mb-1">Pricing</div>
-        <p className="text-sm text-zinc-500">
-          Set a default retail price, then override the selling price per selected variation where supplier costs differ.
+        <p className="text-sm text-zinc-500 max-w-3xl">
+          Set the selling price customers will see. You can also enter a desired fundraising amount per item and the builder will suggest the selling price needed to cover production and commission.
         </p>
       </div>
 
-      <div className="card">
-        <label className="label">Default retail selling price</label>
-        <input
-          className="input-base max-w-xs"
-          type="number"
-          step="0.01"
-          min="0"
-          value={form.selling_price}
-          onChange={(e) => update("selling_price", e.target.value)}
-        />
+      <PricingSummaryPanel pricing={pricing} sellingPrice={form.selling_price} product={product} isAdmin={isAdmin} />
 
-        <table className="w-full text-sm mt-5">
-          <tbody>
-            <tr><td className="text-zinc-400 py-2">Highest selected blank price</td><td className="text-right">{money(pricing.blank)}</td></tr>
-            <tr><td className="text-zinc-400 py-2">Print cost</td><td className="text-right">{money(pricing.print)}</td></tr>
-            <tr><td className="text-zinc-400 py-2">Production cost</td><td className="text-right">{money(pricing.production)}</td></tr>
-            <tr><td className="text-zinc-400 py-2">Commission 15%</td><td className="text-right">{money(pricing.commission)}</td></tr>
-            <tr><td className="text-zinc-400 py-2">Minimum retail price</td><td className="text-right font-bold">{money(pricing.minimumSellingPrice || pricing.minimumRetail)}</td></tr>
-            <tr className="border-t border-white/10"><td className="font-bold py-3">Estimated creator profit at default price</td><td className={`text-right font-bold ${pricing.profit >= 0 ? "text-[#34C759]" : "text-[#FF3B30]"}`}>{money(pricing.profit)}</td></tr>
-          </tbody>
-        </table>
+      <div className="card grid md:grid-cols-2 gap-4">
+        <div>
+          <label className="label">Default retail selling price</label>
+          <input
+            className="input-base"
+            type="number"
+            step="0.01"
+            min="0"
+            value={form.selling_price}
+            onChange={(e) => update("selling_price", e.target.value)}
+          />
+          <p className="text-xs text-zinc-500 mt-2">This is the price saved on the product.</p>
+        </div>
+
+        <div>
+          <label className="label">Desired fundraising amount per item</label>
+          <input
+            className="input-base"
+            type="number"
+            step="0.01"
+            min="0"
+            value={desiredFundraisingAmount}
+            onChange={(e) => updateDesiredFundraisingAmount(e.target.value)}
+          />
+          <p className="text-xs text-zinc-500 mt-2">Changing this updates the selling price suggestion using the current 15% platform commission.</p>
+        </div>
       </div>
 
       <div className="card overflow-x-auto">
@@ -1011,17 +1104,17 @@ function CapabilitiesStep({ form, update, pricing, selectedVariations = [], upda
           <div>
             <div className="font-bold text-white">Variation selling prices</div>
             <p className="text-xs text-zinc-500 mt-1">
-              Leave blank to use the default product price. Enter a value to override that specific variation.
+              Most products can use the default selling price. Only override a variation if that size/colour should sell at a different price.
             </p>
           </div>
         </div>
 
-        <table className="w-full text-sm min-w-[720px]">
+        <table className="w-full text-sm min-w-[760px]">
           <thead>
             <tr className="text-left text-zinc-500 border-b border-white/10">
               <th className="py-2 pr-3">Variation</th>
               <th className="py-2 pr-3">SKU</th>
-              <th className="py-2 pr-3 text-right">Blank price</th>
+              <th className="py-2 pr-3 text-right">Base product cost</th>
               <th className="py-2 pr-3">Selling price override</th>
               <th className="py-2 text-right">Effective price</th>
             </tr>
@@ -1032,9 +1125,12 @@ function CapabilitiesStep({ form, update, pricing, selectedVariations = [], upda
               const effectivePrice = overrideValue === "" || overrideValue === null || overrideValue === undefined
                 ? Number(form.selling_price || 0)
                 : Number(overrideValue || 0);
+              const variationProductionCost = getVariationCost(variation, null) + Number(pricing.print || 0);
+              const variationMinimumPrice = pricing.rate >= 1 ? variationProductionCost : Math.ceil((variationProductionCost / (1 - pricing.rate)) * 100) / 100;
+              const overrideTooLow = effectivePrice > 0 && effectivePrice < variationMinimumPrice;
 
               return (
-                <tr key={variation.id} className="border-b border-white/5">
+                <tr key={variation.id} className="border-b border-white/5 align-top">
                   <td className="py-3 pr-3 text-white">{variation.label || Object.entries(variation.attributes || {}).map(([k, v]) => `${k}: ${v}`).join(" / ") || variation.id}</td>
                   <td className="py-3 pr-3 text-zinc-400">{variation.sku || "—"}</td>
                   <td className="py-3 pr-3 text-right text-zinc-400">{money(getVariationCost(variation, null))}</td>
@@ -1048,8 +1144,11 @@ function CapabilitiesStep({ form, update, pricing, selectedVariations = [], upda
                       onChange={(e) => updateVariationPrice(variation.id, e.target.value)}
                       placeholder={String(form.selling_price || "")}
                     />
+                    {overrideTooLow && (
+                      <div className="text-[11px] text-[#FFB4B0] mt-2">Below the estimated minimum of {money(variationMinimumPrice)}.</div>
+                    )}
                   </td>
-                  <td className="py-3 text-right font-bold">{money(effectivePrice)}</td>
+                  <td className={`py-3 text-right font-bold ${overrideTooLow ? "text-[#FFB4B0]" : "text-white"}`}>{money(effectivePrice)}</td>
                 </tr>
               );
             })}
@@ -1068,6 +1167,8 @@ function ReviewStep({
   uploadedWithoutPrintMethod = [],
   generatedMockups = [],
   pricing = {},
+  product = {},
+  isAdmin = false,
   save,
   saving,
   productPrimaryMockup,
@@ -1110,8 +1211,10 @@ function ReviewStep({
           )}
 
           <ChecklistItem done={safeGeneratedMockups.length > 0} label={`${safeGeneratedMockups.length} generated mockup(s)`} />
-          <ChecklistItem done={Boolean(pricing?.canPublishProfitably)} label={`Profit check: ${money(pricing?.profit || 0)}`} />
+          <ChecklistItem done={Boolean(pricing?.canPublishProfitably)} label={`Pricing check: ${money(pricing?.profit || 0)} estimated creator/fundraising amount`} />
         </div>
+
+        <PricingSummaryPanel pricing={pricing} sellingPrice={form.selling_price} product={product} isAdmin={isAdmin} compact />
 
         <div className="card">
           <div className="overline mb-3">Primary mockup</div>
