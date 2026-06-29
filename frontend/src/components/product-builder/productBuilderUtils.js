@@ -55,20 +55,165 @@ export function getVariationSize(variation) {
   return getAttrValue(variation, ["Size", "size"]) || variation?.size || "One Size";
 }
 
+const ATTRIBUTE_ALIASES = {
+  Size: ["Size", "size", "Sizes", "sizes"],
+  Colour: ["Colour", "Color", "colour", "color"],
+  Capacity: ["Capacity", "capacity", "Volume", "volume", "ml", "ML"],
+  Material: ["Material", "material", "Fabric", "fabric"],
+  Shape: ["Shape", "shape"],
+  Pieces: ["Pieces", "pieces", "Piece Count", "piece_count"],
+  Format: ["Format", "format", "Type", "type"],
+  Finish: ["Finish", "finish"],
+  Style: ["Style", "style"],
+  Fit: ["Fit", "fit", "Cut", "cut"],
+  Closure: ["Closure", "closure"],
+  Dimensions: ["Dimensions", "dimensions", "Dimension", "dimension"],
+  AgeGroup: ["Age Group", "age_group", "Age", "age", "Audience", "audience"],
+};
+
+const DISPLAY_ATTRIBUTE_LABELS = {
+  Size: "Sizes",
+  Colour: "Colours",
+  Capacity: "Capacity",
+  Material: "Material",
+  Shape: "Shapes",
+  Pieces: "Pieces",
+  Format: "Formats",
+  Finish: "Finish",
+  Style: "Styles",
+  Fit: "Fit",
+  Closure: "Closure",
+  Dimensions: "Dimensions",
+  AgeGroup: "Age groups",
+};
+
+const ATTRIBUTE_PRIORITY = ["Size", "Colour", "Capacity", "Material", "Shape", "Pieces", "Format", "Finish", "Style", "Fit", "Closure", "Dimensions", "AgeGroup"];
+const ADULT_SIZE_ORDER = ["XXS", "XS", "S", "SMALL", "M", "MEDIUM", "L", "LARGE", "XL", "XXL", "2XL", "XXXL", "3XL", "XXXXL", "4XL", "5XL", "6XL", "7XL", "8XL"];
+const ADULT_SIZE_LABELS = { SMALL: "Small", MEDIUM: "Medium", LARGE: "Large", XXL: "2XL", XXXL: "3XL", XXXXL: "4XL" };
+
 function uniqCompact(values) {
   return [...new Set(asArray(values).map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
+function normalizeKey(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function canonicalAttributeKey(key) {
+  const normalized = normalizeKey(key);
+  for (const [canonical, aliases] of Object.entries(ATTRIBUTE_ALIASES)) {
+    if (aliases.some((alias) => normalizeKey(alias) === normalized)) return canonical;
+  }
+  return String(key || "").trim();
+}
+
+function getAttributeLabel(key) {
+  const canonical = canonicalAttributeKey(key);
+  return DISPLAY_ATTRIBUTE_LABELS[canonical] || canonical || "Attributes";
+}
+
+function canonicalSizeValue(value) {
+  const raw = String(value || "").trim();
+  const upper = raw.toUpperCase();
+  return ADULT_SIZE_LABELS[upper] || raw;
+}
+
+function adultSizeIndex(value) {
+  const upper = String(value || "").trim().toUpperCase();
+  return ADULT_SIZE_ORDER.indexOf(upper);
+}
+
+function kidsSizeStart(value) {
+  const match = String(value || "").match(/(\d{1,2})\s*[-–]\s*(\d{1,2})/);
+  return match ? Number(match[1]) : null;
+}
+
 function sortSizeValues(values) {
-  const order = ["XXS", "XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "6XL", "7XL", "8XL"];
   return [...values].sort((a, b) => {
-    const aIndex = order.indexOf(String(a).toUpperCase());
-    const bIndex = order.indexOf(String(b).toUpperCase());
+    const aAdult = adultSizeIndex(a);
+    const bAdult = adultSizeIndex(b);
+    if (aAdult !== -1 && bAdult !== -1) return aAdult - bAdult;
+    if (aAdult !== -1) return -1;
+    if (bAdult !== -1) return 1;
+
+    const aKids = kidsSizeStart(a);
+    const bKids = kidsSizeStart(b);
+    if (aKids !== null && bKids !== null) return aKids - bKids;
+    if (aKids !== null) return -1;
+    if (bKids !== null) return 1;
+
+    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+function sortByPriority(keys) {
+  return [...keys].sort((a, b) => {
+    const aIndex = ATTRIBUTE_PRIORITY.indexOf(canonicalAttributeKey(a));
+    const bIndex = ATTRIBUTE_PRIORITY.indexOf(canonicalAttributeKey(b));
     if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
     if (aIndex !== -1) return -1;
     if (bIndex !== -1) return 1;
-    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+    return String(a).localeCompare(String(b));
   });
+}
+
+export function getVariationAttributeValue(variation, aliases) {
+  const candidates = Array.isArray(aliases) ? aliases : ATTRIBUTE_ALIASES[aliases] || [aliases];
+  const fromAttrs = getAttrValue(variation, candidates);
+  if (fromAttrs) return fromAttrs;
+
+  for (const key of candidates) {
+    const direct = variation?.[key];
+    if (direct !== undefined && direct !== null && String(direct).trim() !== "") return String(direct);
+    const normalized = normalizeKey(key);
+    const foundKey = Object.keys(variation || {}).find((item) => normalizeKey(item) === normalized);
+    if (foundKey && variation[foundKey] !== undefined && variation[foundKey] !== null && String(variation[foundKey]).trim() !== "") {
+      return String(variation[foundKey]);
+    }
+  }
+
+  return "";
+}
+
+export function getTemplateVariationAttributeKeys(template) {
+  const keys = [];
+  asArray(template?.variations).forEach((variation) => {
+    Object.keys(getVariationAttributes(variation)).forEach((key) => keys.push(key));
+    ["size", "color", "colour"].forEach((key) => {
+      if (variation?.[key]) keys.push(key);
+    });
+  });
+  return sortByPriority([...new Set(keys)]);
+}
+
+export function classifySizeGroup(size) {
+  const value = String(size || "").trim();
+  const normalized = value.toLowerCase();
+  if (!value || normalized === "one size" || normalized === "default") return "Other";
+  if (/\b(kids?|child|children)\b/.test(normalized) || kidsSizeStart(value) !== null) return "Kids";
+  if (/\b(youth|junior|teen)\b/.test(normalized)) return "Youth / Teen";
+  if (/\b(adult|mens|men's|ladies|women's|unisex)\b/.test(normalized) || adultSizeIndex(value) !== -1) return "Adults";
+  return "Other";
+}
+
+export function sortAttributeValues(values, attributeKey) {
+  const canonical = canonicalAttributeKey(attributeKey);
+  const unique = uniqCompact(values);
+  if (canonical === "Size") return sortSizeValues(unique).map(canonicalSizeValue);
+  if (canonical === "Pieces" || canonical === "Capacity") {
+    return [...unique].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }));
+  }
+  return [...unique].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }));
+}
+
+export function formatAttributeRange(values, attributeKey) {
+  const canonical = canonicalAttributeKey(attributeKey);
+  const sorted = sortAttributeValues(values, canonical);
+  if (!sorted.length) return "";
+  if (canonical === "Size" && sorted.length > 1) return `${sorted[0]}-${sorted[sorted.length - 1]}`;
+  if (["Colour", "Shape", "Format", "Style", "AgeGroup"].includes(canonical) && sorted.length > 3) return String(sorted.length);
+  if (sorted.length <= 4) return sorted.join(", ");
+  return `${sorted.slice(0, 3).join(", ")} +${sorted.length - 3}`;
 }
 
 export function getTemplateShortDescription(template) {
@@ -77,29 +222,117 @@ export function getTemplateShortDescription(template) {
     .find(Boolean) || "Product option";
 }
 
+export function getTemplateSizeSummary(template) {
+  const byGroup = { Adults: [], Kids: [], "Youth / Teen": [], Other: [] };
+  asArray(template?.variations).forEach((variation) => {
+    const size = getVariationAttributeValue(variation, "Size") || getVariationSize(variation);
+    if (!size || size === "One Size") return;
+    byGroup[classifySizeGroup(size)].push(size);
+  });
+
+  const lines = [];
+  Object.entries(byGroup).forEach(([group, values]) => {
+    const sorted = sortAttributeValues(values, "Size");
+    if (!sorted.length) return;
+    if (group === "Other") {
+      lines.push(`Sizes: ${formatAttributeRange(sorted, "Size")}`);
+      return;
+    }
+    lines.push(`${group}: ${formatAttributeRange(sorted, "Size")}`);
+  });
+  return lines;
+}
+
+export function getTemplateColourSummary(template) {
+  const colours = sortAttributeValues(asArray(template?.variations).map((variation) => getVariationAttributeValue(variation, "Colour") || getVariationColour(variation)).filter((value) => value && value !== "Default"), "Colour");
+  if (!colours.length) return "";
+  return colours.length > 3 ? `Colours: ${colours.length}` : `Colours: ${colours.join(", ")}`;
+}
+
+function collectAttributeValues(template) {
+  const valuesByKey = new Map();
+  asArray(template?.variations).forEach((variation) => {
+    Object.entries(getVariationAttributes(variation)).forEach(([key, value]) => {
+      if (value === undefined || value === null || String(value).trim() === "") return;
+      const canonical = canonicalAttributeKey(key);
+      if (!valuesByKey.has(canonical)) valuesByKey.set(canonical, []);
+      valuesByKey.get(canonical).push(String(value));
+    });
+
+    [["Size", getVariationAttributeValue(variation, "Size")], ["Colour", getVariationAttributeValue(variation, "Colour")]].forEach(([key, value]) => {
+      if (!value) return;
+      if (!valuesByKey.has(key)) valuesByKey.set(key, []);
+      valuesByKey.get(key).push(value);
+    });
+  });
+  return valuesByKey;
+}
+
+export function getTemplateAvailableOptionsSummary(template) {
+  const variations = asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
+  const valuesByKey = collectAttributeValues({ ...template, variations });
+  const lines = [];
+
+  getTemplateSizeSummary({ ...template, variations }).forEach((line) => lines.push(line));
+  const colourLine = getTemplateColourSummary({ ...template, variations });
+  if (colourLine) lines.push(colourLine);
+
+  sortByPriority([...valuesByKey.keys()])
+    .filter((key) => !["Size", "Colour"].includes(canonicalAttributeKey(key)))
+    .forEach((key) => {
+      if (lines.length >= 4) return;
+      const label = getAttributeLabel(key);
+      const formatted = formatAttributeRange(valuesByKey.get(key), key);
+      if (formatted) lines.push(`${label}: ${formatted}`);
+    });
+
+  if (variations.length) lines.push(`${variations.length} total ${variations.length === 1 ? "option" : "options"}`);
+
+  if (!lines.length && variations.length) {
+    const keys = getTemplateVariationAttributeKeys(template).map(getAttributeLabel);
+    return [`Options: ${variations.length}`, keys.length ? `Attributes: ${keys.join(", ")}` : "Attribute data incomplete"];
+  }
+
+  if (!lines.length) return ["Options pending", "Attribute data incomplete"];
+  return lines.slice(0, 5);
+}
+
+export function getTemplateOptionSummary(template) {
+  return getTemplateAvailableOptionsSummary(template).join(" · ");
+}
+
 export function getTemplateSizeRange(template) {
-  const sizes = sortSizeValues(uniqCompact(asArray(template?.variations).map(getVariationSize)).filter((size) => size !== "One Size"));
-  if (!sizes.length) return "";
-  if (sizes.length === 1) return `Size ${sizes[0]}`;
-  return `Sizes ${sizes[0]}-${sizes[sizes.length - 1]}`;
+  const firstSizeLine = getTemplateSizeSummary(template)[0];
+  return firstSizeLine ? firstSizeLine.replace(/^[^:]+:\s*/, "Sizes ") : "";
 }
 
 export function getTemplateColourCount(template) {
-  const colours = uniqCompact(asArray(template?.variations).map(getVariationColour)).filter((colour) => colour !== "Default");
+  const colours = uniqCompact(asArray(template?.variations).map((variation) => getVariationAttributeValue(variation, "Colour") || getVariationColour(variation)).filter((colour) => colour !== "Default"));
   return colours.length;
 }
 
 export function getTemplateAttributeRange(template) {
-  const variations = asArray(template?.variations);
-  const sizeRange = getTemplateSizeRange(template);
-  const colourCount = getTemplateColourCount(template);
-  const parts = [];
+  return getTemplateOptionSummary(template);
+}
 
-  if (sizeRange) parts.push(sizeRange);
-  if (colourCount) parts.push(`${colourCount} ${colourCount === 1 ? "colour" : "colours"}`);
-  if (parts.length) return parts.join(" · ");
-  if (variations.length) return `${variations.length} ${variations.length === 1 ? "variation" : "variations"}`;
-  return "Options pending";
+export function getVariationSizeGroupSections(variations) {
+  const groups = [];
+  const byGroup = new Map();
+  asArray(variations).forEach((variation) => {
+    const group = classifySizeGroup(getVariationSize(variation));
+    if (!byGroup.has(group)) byGroup.set(group, []);
+    byGroup.get(group).push(variation);
+  });
+
+  ["Adults", "Kids", "Youth / Teen", "Other"].forEach((group) => {
+    const items = byGroup.get(group) || [];
+    if (!items.length) return;
+    const sizes = sortSizeValues(uniqCompact(items.map(getVariationSize)));
+    const { rows } = getVariationMatrix(items);
+    groups.push({ group, label: group === "Other" ? "Other sizes" : `${group} sizes`, sizes, rows, items });
+  });
+
+  return groups;
 }
 
 export function getVariationLabel(variation) {

@@ -15,6 +15,7 @@ import {
   getPrimaryMockupFromGroups,
   getSelectedVariations,
   getTemplateAttributeRange,
+  getTemplateAvailableOptionsSummary,
   getTemplateImage,
   getTemplateShortDescription,
   getUniquePrintCostFromGroups,
@@ -907,7 +908,7 @@ function ProductOptionStep({ templates = [], selectedProductType, selectedTempla
           <div>Picture</div>
           <div>Name</div>
           <div>Description</div>
-          <div>Attribute range</div>
+          <div>Available options</div>
           <div>Creator cost excl. printing</div>
         </div>
         <div className="grid gap-3 max-h-[680px] overflow-auto pr-1">
@@ -940,12 +941,15 @@ function ProductOptionStep({ templates = [], selectedProductType, selectedTempla
                     <div className="text-xs text-zinc-400 line-clamp-3">{getTemplateShortDescription(template)}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 lg:hidden">Attribute range</div>
-                    <div className="text-xs text-zinc-300">{getTemplateAttributeRange(template)}</div>
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 lg:hidden">Available options</div>
+                    <div className="space-y-1 text-xs text-zinc-300">
+                      {getTemplateAvailableOptionsSummary(template).map((line) => <div key={line}>{line}</div>)}
+                    </div>
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Creator cost excl. printing</div>
                     <div className="font-bold text-white">{money(getCreatorBlankPrice(template))}</div>
+                    <div className="text-[11px] text-zinc-500 mt-1">Final selling price depends on print area, print method and fundraising amount.</div>
                   </div>
                 </div>
               </button>
@@ -1041,7 +1045,7 @@ function ProductDetailsStep({ isAdmin, creators, form, selectedTemplate, product
           <div className="grid md:grid-cols-4 gap-4 text-sm">
             <Info label="Product option" value={selectedTemplate.name} />
             <Info label="Category" value={selectedTemplate.category} />
-            <Info label="Attribute range" value={getTemplateAttributeRange(selectedTemplate)} />
+            <Info label="Available options" value={getTemplateAttributeRange(selectedTemplate)} />
             <Info label="Creator cost excl. printing" value={money(getCreatorBlankPrice(selectedTemplate))} />
           </div>
         </div>
