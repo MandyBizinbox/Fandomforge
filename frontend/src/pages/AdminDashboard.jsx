@@ -254,6 +254,50 @@ function defaultPrintAreaForScreen(screen = {}, areaCount = 0) {
   };
 }
 
+const MIN_PRINT_AREA_PERCENT = 2;
+
+function clampPrintAreaBox(box = {}) {
+  const width = Math.max(MIN_PRINT_AREA_PERCENT, Math.min(100, Number(box.width ?? box.width_pct ?? 0)));
+  const height = Math.max(MIN_PRINT_AREA_PERCENT, Math.min(100, Number(box.height ?? box.height_pct ?? 0)));
+  const x = Math.max(0, Math.min(100 - width, Number(box.x ?? box.x_pct ?? 0)));
+  const y = Math.max(0, Math.min(100 - height, Number(box.y ?? box.y_pct ?? 0)));
+  return { x, y, width, height };
+}
+
+function printAreaBox(area = {}) {
+  return clampPrintAreaBox({
+    x: area.x_pct ?? area.x ?? 0,
+    y: area.y_pct ?? area.y ?? 0,
+    width: area.width_pct ?? area.width ?? 0,
+    height: area.height_pct ?? area.height ?? 0,
+  });
+}
+
+function printAreaBoxPatch(box = {}) {
+  const next = clampPrintAreaBox(box);
+  return {
+    x: next.x,
+    y: next.y,
+    width: next.width,
+    height: next.height,
+    x_pct: next.x,
+    y_pct: next.y,
+    width_pct: next.width,
+    height_pct: next.height,
+  };
+}
+
+function patchWithPrintAreaBox(area = {}, updates = {}) {
+  const shouldMirrorBox = ["x", "y", "width", "height", "x_pct", "y_pct", "width_pct", "height_pct"].some((key) => Object.prototype.hasOwnProperty.call(updates, key));
+  if (!shouldMirrorBox) return updates;
+  return { ...updates, ...printAreaBoxPatch({ ...printAreaBox(area), ...updates }) };
+}
+
+function handleCursorClass(handle) {
+  if (handle === "nw" || handle === "se") return "cursor-nwse-resize";
+  return "cursor-nesw-resize";
+}
+
 function newId(prefix = "id") {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
 }
@@ -1069,30 +1113,38 @@ function PrintAreaCanvas({ screen, areas, selectedAreaId, onSelectArea, onCreate
   const movePointer = (e) => {
     if (drawStart && mode === "draw") {
       const p = pointFromEvent(e);
-      setDraft({ x: Math.min(drawStart.x, p.x), y: Math.min(drawStart.y, p.y), width: Math.abs(p.x - drawStart.x), height: Math.abs(p.y - drawStart.y) });
+      setDraft(printAreaBoxPatch({ x: Math.min(drawStart.x, p.x), y: Math.min(drawStart.y, p.y), width: Math.abs(p.x - drawStart.x), height: Math.abs(p.y - drawStart.y) }));
     }
     if (drag) {
       const p = pointFromEvent(e);
       const dx = p.x - drag.start.x;
       const dy = p.y - drag.start.y;
-      const next = { ...drag.area };
+      const startBox = printAreaBox(drag.area);
+      const next = { ...startBox };
+
       if (drag.kind === "move") {
-        next.x = Math.max(0, Math.min(100 - next.width, drag.area.x + dx));
-        next.y = Math.max(0, Math.min(100 - next.height, drag.area.y + dy));
+        next.x = startBox.x + dx;
+        next.y = startBox.y + dy;
       } else {
-        const minSize = 2;
-        if (drag.kind.includes("e")) next.width = Math.max(minSize, Math.min(100 - next.x, drag.area.width + dx));
-        if (drag.kind.includes("s")) next.height = Math.max(minSize, Math.min(100 - next.y, drag.area.height + dy));
-        if (drag.kind.includes("w")) { const nx = Math.max(0, Math.min(drag.area.x + drag.area.width - minSize, drag.area.x + dx)); next.width = drag.area.x + drag.area.width - nx; next.x = nx; }
-        if (drag.kind.includes("n")) { const ny = Math.max(0, Math.min(drag.area.y + drag.area.height - minSize, drag.area.y + dy)); next.height = drag.area.y + drag.area.height - ny; next.y = ny; }
+        if (drag.kind.includes("e")) next.width = startBox.width + dx;
+        if (drag.kind.includes("s")) next.height = startBox.height + dy;
+        if (drag.kind.includes("w")) {
+          next.x = startBox.x + dx;
+          next.width = startBox.width - dx;
+        }
+        if (drag.kind.includes("n")) {
+          next.y = startBox.y + dy;
+          next.height = startBox.height - dy;
+        }
       }
-      onPatchArea(drag.area.id, next);
+
+      onPatchArea(drag.area.id, printAreaBoxPatch(next));
     }
   };
 
   const endPointer = () => {
     if (draft && draft.width > 1 && draft.height > 1) {
-      onCreateArea({ ...draft, ...defaultPrintAreaForScreen(screen, areas.length) });
+      onCreateArea({ ...printAreaBoxPatch(draft), ...defaultPrintAreaForScreen(screen, areas.length) });
     }
     setDrawStart(null); setDraft(null); setDrag(null); if (mode === "draw") setMode("select");
   };
@@ -1105,15 +1157,16 @@ function PrintAreaCanvas({ screen, areas, selectedAreaId, onSelectArea, onCreate
       </div>
       <div className="flex-1 overflow-auto p-8 flex items-center justify-center">
         {!screen?.image_url ? <div className="text-center text-[var(--ff-muted-text)]"><ImageIcon size={64} className="mx-auto mb-4" /><div className="overline">Upload a product view to start drawing</div></div> : (
-          <div ref={boxRef} className="relative max-w-full max-h-full select-none" onMouseDown={startDraw} onMouseMove={movePointer} onMouseUp={endPointer} onMouseLeave={endPointer}>
+          <div ref={boxRef} className="relative max-w-full max-h-full select-none touch-none" onMouseDown={startDraw} onMouseMove={movePointer} onMouseUp={endPointer} onMouseLeave={endPointer}>
             <img src={assetUrl(screen.image_url)} alt={screen.name} className="max-w-full max-h-[72vh] object-contain pointer-events-none" />
             {areas.map((area) => {
               const selected = area.id === selectedAreaId;
+              const box = printAreaBox(area);
               return (
-                <div key={area.id} onMouseDown={(e) => { e.stopPropagation(); onSelectArea(area.id); setDrag({ kind: "move", start: pointFromEvent(e), area }); }} className={`absolute border-2 ${selected ? "border-[var(--ff-primary)] bg-[var(--ff-primary)]/20" : "border-[#34C759] bg-[#34C759]/10"} cursor-move`} style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.width}%`, height: `${area.height}%` }}>
+                <div key={area.id} onMouseDown={(e) => { e.stopPropagation(); onSelectArea(area.id); setDrag({ kind: "move", start: pointFromEvent(e), area: { ...area, ...box } }); }} className={`absolute border-2 ${selected ? "border-[var(--ff-primary)] bg-[var(--ff-primary)]/20" : "border-[#34C759] bg-[#34C759]/10"} cursor-move`} style={{ left: `${box.x}%`, top: `${box.y}%`, width: `${box.width}%`, height: `${box.height}%` }}>
                   <div className="absolute -top-6 left-0 bg-[var(--ff-card-bg)] border border-[var(--ff-card-border)] text-[10px] uppercase tracking-widest px-2 py-1 whitespace-nowrap">{area.name}</div>
                   {selected && ["nw", "ne", "sw", "se"].map((h) => (
-                    <span key={h} onMouseDown={(e) => { e.stopPropagation(); setDrag({ kind: h, start: pointFromEvent(e), area }); }} className={`absolute w-3 h-3 bg-white border border-black ${h.includes("n") ? "-top-1.5" : "-bottom-1.5"} ${h.includes("w") ? "-left-1.5" : "-right-1.5"} cursor-${h}-resize`} />
+                    <span key={h} onMouseDown={(e) => { e.stopPropagation(); setDrag({ kind: h, start: pointFromEvent(e), area: { ...area, ...box } }); }} className={`absolute w-3 h-3 bg-white border border-black ${h.includes("n") ? "-top-1.5" : "-bottom-1.5"} ${h.includes("w") ? "-left-1.5" : "-right-1.5"} ${handleCursorClass(h)}`} />
                   ))}
                 </div>
               );
@@ -1213,7 +1266,7 @@ function ProductTemplateStudio() {
     patch({ print_areas: [...template.print_areas, next] });
     setSelectedAreaId(next.id);
   };
-  const patchArea = (areaId, updates) => patch({ print_areas: template.print_areas.map((a) => a.id === areaId ? { ...a, ...updates } : a) });
+  const patchArea = (areaId, updates) => patch({ print_areas: template.print_areas.map((a) => a.id === areaId ? { ...a, ...patchWithPrintAreaBox(a, updates) } : a) });
   const deleteArea = (areaId) => { patch({ print_areas: template.print_areas.filter((a) => a.id !== areaId) }); setSelectedAreaId(null); };
 
   const generateVariations = () => {
@@ -1331,6 +1384,7 @@ function ViewUpload({ template, onAdd, onAddCustom, uploading }) {
             {preset.name}
           </button>
         ))}
+        <button type="button" className="border border-[var(--ff-primary)] text-[var(--ff-primary)] px-2 py-2 text-[10px] uppercase tracking-widest font-bold hover:bg-[var(--ff-primary)]/10" onClick={() => setShowCustom((value) => !value)}>+ Add Custom View</button>
       </div>
       <p className="text-[11px] text-[var(--ff-muted-text)] leading-relaxed">Base views are product/mockup views, not colour variants. Colour-specific images belong on template variations.</p>
       <input className="input-base" value={name} onChange={(e) => setName(e.target.value)} placeholder="Front" />
@@ -1341,8 +1395,6 @@ function ViewUpload({ template, onAdd, onAddCustom, uploading }) {
         <ImageIcon size={14} /> {uploading ? "Uploading…" : "Upload Preset View"}
         <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && onAdd(e.target.files[0], name || viewLabel(view), view)} />
       </label>
-
-      <button type="button" className="btn-secondary w-full justify-center" onClick={() => setShowCustom((value) => !value)}>Add Custom View</button>
 
       {showCustom && (
         <div className="border border-[var(--ff-card-border)] bg-black/20 p-3 space-y-3">
@@ -1364,7 +1416,27 @@ function ViewUpload({ template, onAdd, onAddCustom, uploading }) {
 
 function Inspector({ template, patch, screen, selectedArea, patchArea, deleteArea, printOptions, uploadImage, uploading }) {
   if (selectedArea) {
-    return <div className="p-4 space-y-4"><div><div className="overline">Inspector</div><h2 className="font-display text-3xl uppercase">Print Area</h2></div><div><label className="label">Area Name</label><input className="input-base" value={selectedArea.name || ""} onChange={(e) => patchArea(selectedArea.id, { name: e.target.value })} /></div><div><label className="label">Print Size Label</label><input className="input-base" value={selectedArea.print_size || ""} onChange={(e) => patchArea(selectedArea.id, { print_size: e.target.value })} /></div><div className="grid grid-cols-2 gap-2"><div><label className="label">Width mm</label><input type="number" className="input-base" value={selectedArea.width_mm || 0} onChange={(e) => patchArea(selectedArea.id, { width_mm: Number(e.target.value) })} /></div><div><label className="label">Height mm</label><input type="number" className="input-base" value={selectedArea.height_mm || 0} onChange={(e) => patchArea(selectedArea.id, { height_mm: Number(e.target.value) })} /></div></div><div className="card"><div className="overline mb-3">Allowed Pricing Rules for this Area</div>{printOptions.map((o) => <label key={o.id} className="flex gap-2 text-xs mb-2"><input type="checkbox" checked={(selectedArea.allowed_print_option_ids || []).includes(o.id)} onChange={(e) => { const ids = selectedArea.allowed_print_option_ids || []; patchArea(selectedArea.id, { allowed_print_option_ids: e.target.checked ? [...ids, o.id] : ids.filter((id) => id !== o.id) }); }} /> <span><b>{printRuleLabel(o)}</b><span className="block text-[var(--ff-muted-text)]">{printRulePricingSummary(o)}</span></span></label>)}</div><div><label className="label">Notes</label><textarea className="input-base" rows={3} value={selectedArea.notes || ""} onChange={(e) => patchArea(selectedArea.id, { notes: e.target.value })} /></div><button onClick={() => deleteArea(selectedArea.id)} className="w-full border border-[var(--ff-primary)] text-[var(--ff-primary)] py-3 uppercase tracking-widest text-xs font-bold"><Trash2 size={14} className="inline mr-2" /> Delete Area</button></div>;
+    const box = printAreaBox(selectedArea);
+    return (
+      <div className="p-4 space-y-4">
+        <div><div className="overline">Inspector</div><h2 className="font-display text-3xl uppercase">Print Area</h2></div>
+        <div><label className="label">Area Name</label><input className="input-base" value={selectedArea.name || ""} onChange={(e) => patchArea(selectedArea.id, { name: e.target.value })} /></div>
+        <div><label className="label">Print Size Label</label><input className="input-base" value={selectedArea.print_size || ""} onChange={(e) => patchArea(selectedArea.id, { print_size: e.target.value })} /></div>
+        <div className="border border-[var(--ff-card-border)] p-3 space-y-3">
+          <div className="overline">Mockup position %</div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className="label">X %</label><input type="number" step="0.1" className="input-base" value={box.x} onChange={(e) => patchArea(selectedArea.id, { x: Number(e.target.value) })} /></div>
+            <div><label className="label">Y %</label><input type="number" step="0.1" className="input-base" value={box.y} onChange={(e) => patchArea(selectedArea.id, { y: Number(e.target.value) })} /></div>
+            <div><label className="label">Width %</label><input type="number" step="0.1" className="input-base" value={box.width} onChange={(e) => patchArea(selectedArea.id, { width: Number(e.target.value) })} /></div>
+            <div><label className="label">Height %</label><input type="number" step="0.1" className="input-base" value={box.height} onChange={(e) => patchArea(selectedArea.id, { height: Number(e.target.value) })} /></div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2"><div><label className="label">Width mm</label><input type="number" className="input-base" value={selectedArea.width_mm || 0} onChange={(e) => patchArea(selectedArea.id, { width_mm: Number(e.target.value) })} /></div><div><label className="label">Height mm</label><input type="number" className="input-base" value={selectedArea.height_mm || 0} onChange={(e) => patchArea(selectedArea.id, { height_mm: Number(e.target.value) })} /></div></div>
+        <div className="card"><div className="overline mb-3">Allowed Pricing Rules for this Area</div>{printOptions.map((o) => <label key={o.id} className="flex gap-2 text-xs mb-2"><input type="checkbox" checked={(selectedArea.allowed_print_option_ids || []).includes(o.id)} onChange={(e) => { const ids = selectedArea.allowed_print_option_ids || []; patchArea(selectedArea.id, { allowed_print_option_ids: e.target.checked ? [...ids, o.id] : ids.filter((id) => id !== o.id) }); }} /> <span><b>{printRuleLabel(o)}</b><span className="block text-[var(--ff-muted-text)]">{printRulePricingSummary(o)}</span></span></label>)}</div>
+        <div><label className="label">Notes</label><textarea className="input-base" rows={3} value={selectedArea.notes || ""} onChange={(e) => patchArea(selectedArea.id, { notes: e.target.value })} /></div>
+        <button onClick={() => deleteArea(selectedArea.id)} className="w-full border border-[var(--ff-primary)] text-[var(--ff-primary)] py-3 uppercase tracking-widest text-xs font-bold"><Trash2 size={14} className="inline mr-2" /> Delete Area</button>
+      </div>
+    );
   }
   if (screen) {
     const currentKey = screenViewKey(screen);
