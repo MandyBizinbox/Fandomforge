@@ -610,15 +610,22 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     }
 
     setSavingPricingOverride(true);
+    const endpoint = `/admin/products/${product.id}/pricing-override`;
     try {
-      const response = await http.patch(`/admin/products/${product.id}/pricing-override`, {
+      const response = await http.patch(endpoint, {
         approved,
         reason,
       });
-      setProduct(response.data);
+      const refreshed = await http.get(`/admin/products/${product.id}`).catch(() => response);
+      setProduct(refreshed.data || response.data);
       setPricingOverrideReason("");
       toast.success(approved ? "Pricing override approved" : "Pricing override removed");
     } catch (error) {
+      console.error("Pricing override request failed", {
+        status: error.response?.status,
+        path: endpoint,
+        detail: error.response?.data?.detail || error.message,
+      });
       toast.error(error.response?.data?.detail || "Could not update pricing override");
     } finally {
       setSavingPricingOverride(false);
