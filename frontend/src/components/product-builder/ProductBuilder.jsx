@@ -3,6 +3,15 @@ import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeft, Bold, Check, Heading2, List, ListOrdered, Package, Save } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
+import {
+  canPublishCreatorProduct,
+  emitCreatorProductsReadyRefresh,
+  getCreatorProductArtworkStatus,
+  getCreatorProductRejectionReason,
+  isCreatorProductPublished,
+  needsCreatorPricingApproval,
+  setCreatorProductPublished,
+} from "../../lib/creatorProductPublishing";
 import ProductVariationMatrix from "./ProductVariationMatrix";
 import ArtworkScopeSelector from "./ArtworkScopeSelector";
 import ProductArtworkStudio from "./ProductArtworkStudio";
@@ -148,6 +157,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const [printOptions, setPrintOptions] = useState([]);
   const [product, setProduct] = useState(null);
   const [submittedProduct, setSubmittedProduct] = useState(null);
+  const [publishing, setPublishing] = useState(false);
 
   const [form, setForm] = useState({
     band_id: "",
@@ -161,7 +171,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     selling_price: 0,
     variation_price_overrides: {},
     published: false,
-    publish_on_approval: !isAdmin,
+    publish_on_approval: false,
     artwork: emptyArtwork,
     placement: emptyPlacement,
     artworks: [],
@@ -271,7 +281,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
                 ])
             ),
             published: Boolean(existing.published),
-            publish_on_approval: Boolean(existing.publish_on_approval),
+            publish_on_approval: false,
             artwork: existing.artwork || emptyArtwork,
             placement: existing.placement || emptyPlacement,
             artworks: asArray(existing.artworks),
@@ -326,7 +336,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
       mockup_image_url: "",
       primary_mockup_image_url: "",
       published: false,
-      publish_on_approval: !isAdmin,
+      publish_on_approval: false,
       category: type?.category || current.category || "",
     }));
   };
@@ -347,7 +357,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
       mockup_image_url: "",
       primary_mockup_image_url: "",
       published: false,
-      publish_on_approval: !isAdmin,
+      publish_on_approval: false,
       category: template.category || current.category || "",
     }));
   };
@@ -490,7 +500,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
       spec_attributes: {},
       customization_enabled: false,
       published: isAdmin ? Boolean(form.published) : false,
-      publish_on_approval: isAdmin ? Boolean(form.published) : Boolean(form.publish_on_approval),
+      publish_on_approval: false,
       selected_template_variation_ids: form.selected_template_variation_ids,
       selected_print_area_id: primary?.print_area_id || "",
       selected_print_option_id: primary?.print_option_id || "",
@@ -513,6 +523,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         toast.success("Product created");
         if (!isAdmin) {
           setSubmittedProduct(response.data);
+          emitCreatorProductsReadyRefresh();
         } else {
           navigate(`/admin/products/${response.data.id}`, { replace: true });
         }
@@ -527,12 +538,34 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           mockup_image_url: response.data.mockup_image_url || "",
           primary_mockup_image_url: response.data.primary_mockup_image_url || response.data.mockup_image_url || "",
         }));
+        if (!isAdmin) emitCreatorProductsReadyRefresh();
         toast.success("Product saved");
       }
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not save product");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const publishProduct = async () => {
+    if (!product || !canPublishCreatorProduct(product)) return;
+
+    setPublishing(true);
+    try {
+      const updated = await setCreatorProductPublished(http, product, true);
+      setProduct(updated);
+      setForm((current) => ({
+        ...current,
+        published: Boolean(updated.published),
+        publish_on_approval: false,
+      }));
+      emitCreatorProductsReadyRefresh();
+      toast.success("Product published");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Publish update failed");
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -630,6 +663,10 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           <ArrowLeft size={14} /> Back
         </button>
       </div>
+
+      {!isAdmin && !isNew && product && (
+        <CreatorPublishingPanel product={product} publishing={publishing} onPublish={publishProduct} />
+      )}
 
       <div className="mb-6 overflow-auto">
         <div className="flex gap-2 min-w-max">
@@ -1057,15 +1094,8 @@ function ProductDetailsStep({ isAdmin, creators, form, selectedTemplate, product
         )}
 
         {!isAdmin && (
-          <div className="space-y-3">
-            <label className="flex items-center gap-3 text-sm border border-white/10 rounded-xl p-3">
-              <input type="checkbox" checked={Boolean(form.publish_on_approval)} onChange={(e) => update("publish_on_approval", e.target.checked)} />
-              <span>
-                <span className="font-bold text-white">Publish automatically after approval</span>
-                <span className="block text-xs text-zinc-500 mt-1">If enabled, your product will go live automatically once artwork is approved. If disabled, you can publish it manually after approval.</span>
-              </span>
-            </label>
-            <div className="text-xs text-zinc-500 border border-white/10 rounded-xl p-3">Creator products stay unpublished until artwork review is approved.</div>
+          <div className="text-xs text-zinc-500 border border-white/10 rounded-xl p-3">
+            Creator products stay unpublished until artwork review is approved. Once approved, publish the product from this page or the Products list.
           </div>
         )}
       </section>
@@ -1325,7 +1355,7 @@ function ReviewStep({
   const productTypeLabel = selectedTemplate?.product_type || selectedTemplate?.product_type_name || selectedTemplate?.category || selectedTemplate?.product_type_slug || "Product option";
   const publishingMode = isAdmin
     ? (form.published ? "Publish on save" : "Save unpublished")
-    : (form.publish_on_approval ? "Publish after approval" : "Manual publish after approval");
+    : "Manual publish after approval";
 
   const ready = Boolean(
     selectedTemplate &&
@@ -1462,6 +1492,58 @@ function ReviewStep({
         </button>
       </div>
     </div>
+  );
+}
+
+function CreatorPublishingPanel({ product, publishing, onPublish }) {
+  const artworkStatus = getCreatorProductArtworkStatus(product);
+  const published = isCreatorProductPublished(product);
+  const pricingPending = needsCreatorPricingApproval(product);
+  const readyToPublish = canPublishCreatorProduct(product);
+  const rejectionReason = getCreatorProductRejectionReason(product);
+
+  let heading = "Awaiting review";
+  let copy = "This product is still waiting for artwork approval before it can be published.";
+  let tone = "border-white/10 bg-black/25 text-zinc-300";
+
+  if (published) {
+    heading = "Published";
+    copy = "This product is live in your store.";
+    tone = "border-emerald-400/40 bg-emerald-500/10 text-emerald-100";
+  } else if (readyToPublish) {
+    heading = "Ready to publish";
+    copy = artworkStatus === "approved"
+      ? "Your artwork has been approved. Publish this product to make it available in your store."
+      : "This product is ready to publish. Publish it to make it available in your store.";
+    tone = "border-amber-400/60 bg-amber-500/10 text-amber-50";
+  } else if (artworkStatus === "rejected") {
+    heading = "Changes needed";
+    copy = "This product needs changes before it can be published.";
+    tone = "border-[#FF3B30]/50 bg-[#FF3B30]/10 text-[#FFB4B0]";
+  } else if (pricingPending) {
+    heading = "Awaiting review";
+    copy = "This product is still waiting for pricing approval before it can be published.";
+  }
+
+  return (
+    <section className={`mb-6 rounded-xl border p-5 ${tone}`} data-testid="creator-product-publishing-panel">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <div className="overline mb-2">Publishing</div>
+          <h2 className="font-display text-3xl uppercase text-white">{heading}</h2>
+          <p className="text-sm mt-2 max-w-2xl">{copy}</p>
+          {artworkStatus === "rejected" && rejectionReason && (
+            <p className="text-xs mt-3 text-[#FFB4B0]">Reason: {rejectionReason}</p>
+          )}
+        </div>
+
+        {readyToPublish && (
+          <button type="button" className="btn-primary md:self-end" disabled={publishing} onClick={onPublish}>
+            <Package size={14} /> {publishing ? "Publishing..." : "Publish Product"}
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 

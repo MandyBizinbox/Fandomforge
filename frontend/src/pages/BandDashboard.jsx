@@ -4,6 +4,14 @@ import DashboardLayout from "../components/DashboardLayout";
 import ProductBuilder from "../components/product-builder/ProductBuilder";
 import { http, assetUrl } from "../lib/api";
 import {
+  CREATOR_PRODUCTS_READY_REFRESH_EVENT,
+  canPublishCreatorProduct,
+  countCreatorProductsReadyToPublish,
+  emitCreatorProductsReadyRefresh,
+  needsCreatorPricingApproval,
+  setCreatorProductPublished,
+} from "../lib/creatorProductPublishing";
+import {
   BarChart3,
   Package,
   ShoppingBag,
@@ -153,7 +161,7 @@ function artworkStatusLabel(status) {
 }
 
 function creatorProductStatusText(product) {
-  if (product.requires_creator_pricing_approval || product.creator_pricing_approval_status === "pending_creator_approval") {
+  if (needsCreatorPricingApproval(product)) {
     return "Pricing update needs approval";
   }
   if (product.artwork_review_status === "pending_review") return "Pending artwork review";
@@ -254,10 +262,15 @@ function Overview() {
 function ProductsList() {
   const [products, setProducts] = useState([]);
   const [q, setQ] = useState("");
+  const [publishingProductId, setPublishingProductId] = useState("");
   const navigate = useNavigate();
 
   const load = () => {
-    http.get("/products/mine").then((r) => setProducts(r.data || [])).catch(() => {
+    http.get("/products/mine").then((r) => {
+      const rows = r.data || [];
+      setProducts(rows);
+      emitCreatorProductsReadyRefresh({ readyToPublishCount: countCreatorProductsReadyToPublish(rows) });
+    }).catch(() => {
       toast.error("Could not load products");
     });
   };
@@ -276,12 +289,19 @@ function ProductsList() {
   });
 
   const togglePublish = async (product) => {
+    const nextPublished = !product.published;
+    if (nextPublished && !canPublishCreatorProduct(product)) return;
+
+    setPublishingProductId(product.id);
     try {
-      await http.patch(`/products/${product.id}`, { published: !product.published });
+      const updated = await setCreatorProductPublished(http, product, nextPublished);
+      setProducts((current) => current.map((row) => (row.id === updated.id ? updated : row)));
       toast.success(product.published ? "Product unpublished" : "Product published");
       load();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Publish update failed");
+    } finally {
+      setPublishingProductId("");
     }
   };
 
@@ -394,7 +414,7 @@ function ProductsList() {
                     Edit
                   </button>
 
-                  {(product.requires_creator_pricing_approval || product.creator_pricing_approval_status === "pending_creator_approval") ? (
+                  {needsCreatorPricingApproval(product) ? (
                     <button
                       type="button"
                       onClick={() => approvePricingUpdate(product)}
@@ -406,10 +426,10 @@ function ProductsList() {
                     <button
                       type="button"
                       onClick={() => togglePublish(product)}
-                      disabled={!product.published && product.artwork_review_status && product.artwork_review_status !== "approved" && product.artwork_review_status !== "not_required"}
+                      disabled={publishingProductId === product.id || (!product.published && !canPublishCreatorProduct(product))}
                       className="text-xs uppercase tracking-widest hover:text-[var(--ff-primary)] font-bold mr-3 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {product.published ? "Unpublish" : "Publish"}
+                      {publishingProductId === product.id ? "Saving..." : product.published ? "Unpublish" : "Publish"}
                     </button>
                   )}
 
@@ -1650,12 +1670,42 @@ function BandActivity() {
 
 export default function BandDashboard() {
   const [platformConfig, setPlatformConfig] = useState({ modules: {} });
+  const [readyToPublishCount, setReadyToPublishCount] = useState(0);
 
   useEffect(() => {
     http.get("/orders/platform-config").then((r) => setPlatformConfig(r.data || { modules: {} })).catch(() => {});
   }, []);
 
-  const visibleLinks = filterBandLinksByModules(platformConfig.modules || {});
+  useEffect(() => {
+    let mounted = true;
+
+    const loadReadyToPublishCount = () => {
+      http.get("/products/mine").then((r) => {
+        if (mounted) setReadyToPublishCount(countCreatorProductsReadyToPublish(r.data || []));
+      }).catch(() => {});
+    };
+
+    const handleRefresh = (event) => {
+      if (Number.isFinite(event.detail?.readyToPublishCount)) {
+        setReadyToPublishCount(Number(event.detail.readyToPublishCount));
+        return;
+      }
+      loadReadyToPublishCount();
+    };
+
+    loadReadyToPublishCount();
+    window.addEventListener(CREATOR_PRODUCTS_READY_REFRESH_EVENT, handleRefresh);
+    return () => {
+      mounted = false;
+      window.removeEventListener(CREATOR_PRODUCTS_READY_REFRESH_EVENT, handleRefresh);
+    };
+  }, []);
+
+  const visibleLinks = useMemo(() => (
+    filterBandLinksByModules(platformConfig.modules || {}).map((link) => (
+      link.key === "products" ? { ...link, badgeCount: readyToPublishCount } : link
+    ))
+  ), [platformConfig.modules, readyToPublishCount]);
 
   return (
     <Routes>

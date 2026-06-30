@@ -3985,9 +3985,6 @@ async def approve_product_pricing_update(
         "updated_at": now,
     }
 
-    if product.get("artwork_review_status") == "approved" and product.get("publish_on_approval"):
-        updates["published"] = True
-
     await db.products.update_one({"id": product_id}, {"$set": updates})
     doc = await db.products.find_one({"id": product_id}, {"_id": 0})
     return Product(**doc)
@@ -6887,9 +6884,7 @@ def _product_requires_creator_pricing_approval(product: dict) -> bool:
 
 
 def _apply_auto_publish_after_artwork_review(product: dict) -> dict:
-    if product.get("artwork_review_status") == "approved" and product.get("publish_on_approval") and not _product_requires_creator_pricing_approval(product):
-        product["published"] = True
-    elif product.get("artwork_review_status") == "rejected" or _product_requires_creator_pricing_approval(product):
+    if product.get("artwork_review_status") == "rejected" or _product_requires_creator_pricing_approval(product):
         product["published"] = False
     return product
 
