@@ -379,7 +379,19 @@ const emptyCreatorForm = {
   subscription_status: "inactive",
   status: "active",
   user_id: "",
+  visibility: "unlisted",
+  show_on_platform_gallery: false,
+  gallery_display_name: "",
+  gallery_logo_url: "",
+  gallery_banner_url: "",
+  allow_search_indexing: false,
 };
+
+const CREATOR_VISIBILITY_OPTIONS = [
+  { value: "unlisted", label: "Unlisted" },
+  { value: "public", label: "Public" },
+  { value: "private", label: "Private" },
+];
 
 const PRINTER_PRODUCT_CAPABILITIES = ["Apparel", "Mugs & drinkware", "Caps", "Paper Printing"];
 const PRINTER_METHOD_OPTIONS = [
@@ -577,6 +589,12 @@ function BandsAdmin() {
       subscription_status: row.subscription_status || "inactive",
       status: row.status || "active",
       user_id: row.user_id || "",
+      visibility: row.visibility || "unlisted",
+      show_on_platform_gallery: Boolean(row.show_on_platform_gallery),
+      gallery_display_name: row.gallery_display_name || "",
+      gallery_logo_url: row.gallery_logo_url || "",
+      gallery_banner_url: row.gallery_banner_url || "",
+      allow_search_indexing: Boolean(row.allow_search_indexing),
     });
   };
 
@@ -597,6 +615,12 @@ function BandsAdmin() {
     subscription_status: form.subscription_status,
     status: form.status,
     user_id: form.user_id || null,
+    visibility: form.visibility || "unlisted",
+    show_on_platform_gallery: Boolean(form.show_on_platform_gallery),
+    gallery_display_name: form.gallery_display_name || null,
+    gallery_logo_url: form.gallery_logo_url || null,
+    gallery_banner_url: form.gallery_banner_url || null,
+    allow_search_indexing: Boolean(form.allow_search_indexing),
   });
 
   const save = async (event) => {
@@ -679,6 +703,56 @@ function BandsAdmin() {
           <AssetUploadField label="Profile image" value={form.profile_image_url} subdir="account-assets/creators" onChange={(value) => setForm({ ...form, profile_image_url: value })} />
         </div>
 
+        <div className="lg:col-span-3 border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-4 space-y-4">
+          <div>
+            <div className="overline mb-2">Publishing & Visibility</div>
+            <h3 className="font-display text-3xl uppercase">Platform publishing controls</h3>
+            <p className="text-sm text-[var(--ff-muted-text)] mt-1">Unlisted is recommended for Scout groups, schools, churches, clubs, and private fundraising campaigns.</p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <label>
+              <span className="label">Store Visibility</span>
+              <select className="input-base" value={form.visibility} onChange={(e) => setForm({ ...form, visibility: e.target.value })}>
+                {CREATOR_VISIBILITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              {form.visibility === "private" && (
+                <p className="text-xs text-[var(--ff-muted-text)] mt-1">Private stores are reserved for future restricted-access workflows.</p>
+              )}
+            </label>
+
+            <label className="md:col-span-2">
+              <span className="label">Gallery Display Name</span>
+              <input className="input-base" value={form.gallery_display_name} onChange={(e) => setForm({ ...form, gallery_display_name: e.target.value })} placeholder="Falls back to creator name" />
+            </label>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <AssetUploadField label="Gallery logo" value={form.gallery_logo_url} subdir="account-assets/creator-gallery" onChange={(value) => setForm({ ...form, gallery_logo_url: value })} />
+            <AssetUploadField label="Gallery banner" value={form.gallery_banner_url} subdir="account-assets/creator-gallery" onChange={(value) => setForm({ ...form, gallery_banner_url: value })} />
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <label className="flex items-start gap-3 border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-3 cursor-pointer">
+              <input type="checkbox" className="mt-1" checked={Boolean(form.show_on_platform_gallery)} onChange={(e) => setForm({ ...form, show_on_platform_gallery: e.target.checked })} />
+              <span>
+                <span className="block text-sm font-bold">Show on Homepage Creator Gallery</span>
+                <span className="block text-xs text-[var(--ff-muted-text)] mt-1">Homepage gallery display is social proof only. Logos/banners are not linked to creator stores.</span>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-3 border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-3 cursor-pointer">
+              <input type="checkbox" className="mt-1" checked={Boolean(form.allow_search_indexing)} onChange={(e) => setForm({ ...form, allow_search_indexing: e.target.checked })} />
+              <span>
+                <span className="block text-sm font-bold">Allow Search Indexing</span>
+                <span className="block text-xs text-[var(--ff-muted-text)] mt-1">Unlisted and private store pages remain noindex unless this is explicitly enabled for a public store.</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
         <label><span className="label">Commission rate</span><input className="input-base" type="number" step="0.01" value={form.commission_rate} onChange={(e) => setForm({ ...form, commission_rate: e.target.value })} /></label>
         <label><span className="label">Monthly fee</span><input className="input-base" type="number" step="0.01" value={form.monthly_fee} onChange={(e) => setForm({ ...form, monthly_fee: e.target.value })} /></label>
         <label><span className="label">Linked owner user</span><select className="input-base" value={form.user_id} onChange={(e) => setForm({ ...form, user_id: e.target.value })}><option value="">No linked user</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name || u.email} · {u.email}</option>)}</select></label>
@@ -695,7 +769,7 @@ function BandsAdmin() {
 
       <div className="border border-[var(--ff-card-border)] overflow-x-auto">
         <table className="table-brutal min-w-[1100px]">
-          <thead><tr><th>Profile</th><th>Slug</th><th>Owner</th><th>Status</th><th>Subscription</th><th>Commission</th><th>Link user</th><th></th></tr></thead>
+          <thead><tr><th>Profile</th><th>Slug</th><th>Owner</th><th>Status</th><th>Publishing</th><th>Subscription</th><th>Commission</th><th>Link user</th><th></th></tr></thead>
           <tbody>
             {rows.map((b) => (
               <tr key={b.id} data-testid={`admin-creator-row-${b.id}`}>
@@ -703,13 +777,18 @@ function BandsAdmin() {
                 <td className="text-[var(--ff-muted-text)]">/{b.slug}</td>
                 <td className="text-xs text-[var(--ff-muted-text)]">{b.user_id || "No linked owner"}</td>
                 <td><StatusBadge status={b.status} /></td>
+                <td className="text-xs text-[var(--ff-muted-text)]">
+                  <div>Visibility: <span className="text-[var(--ff-card-text)]">{b.visibility || "unlisted"}</span></div>
+                  <div>Gallery: <span className="text-[var(--ff-card-text)]">{b.show_on_platform_gallery ? "Yes" : "No"}</span></div>
+                  <div>Indexing: <span className="text-[var(--ff-card-text)]">{b.allow_search_indexing ? "Yes" : "No"}</span></div>
+                </td>
                 <td><StatusBadge status={b.subscription_status} /></td>
                 <td>{Number(b.commission_rate || 0).toFixed(2)}</td>
                 <td><select className="input-base py-1 text-xs" defaultValue="" onChange={(e) => linkUser(b, e.target.value)}><option value="">Link user</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}</select></td>
                 <td className="text-right whitespace-nowrap"><button type="button" onClick={() => edit(b)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] font-bold mr-4">Edit</button><button type="button" onClick={() => remove(b)} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)] font-bold">Delete</button></td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={8} className="p-10 text-center text-[var(--ff-muted-text)] overline">No creators yet</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={9} className="p-10 text-center text-[var(--ff-muted-text)] overline">No creators yet</td></tr>}
           </tbody>
         </table>
       </div>

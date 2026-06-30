@@ -33,7 +33,7 @@ export default function BandStorefront() {
     document.querySelector(selector)?.remove();
 
     const visibility = (creator?.visibility || "unlisted").toLowerCase();
-    if (visibility === "public") return undefined;
+    if (visibility === "public" && creator?.allow_search_indexing) return undefined;
 
     const meta = document.createElement("meta");
     meta.name = "robots";

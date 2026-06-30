@@ -1,14 +1,16 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Navbar from "../components/Navbar";
+import { http, assetUrl } from "../lib/api";
 import { ArrowRight, BadgeCheck, Boxes, CreditCard, HeartHandshake, Link as LinkIcon, PackageCheck, Paintbrush, ShieldCheck, Shirt, Store, Truck } from "lucide-react";
 
 const trustTags = ["Print-on-demand", "Secure payments", "South African production", "No inventory required"];
 
 const communityCards = [
-  { title: "Schools", text: "Spirit wear, event shirts, leavers gear and campaign merch for school communities." },
   { title: "Scout Groups", text: "A simple direct-link store for group kit, fundraising drops and supporter merchandise." },
-  { title: "Clubs & Communities", text: "Branded products for members, supporters and local audiences without stock admin." },
+  { title: "Schools", text: "Spirit wear, event shirts, leavers gear and campaign merch for school communities." },
+  { title: "Clubs", text: "Branded products for members, supporters and local audiences without stock admin." },
+  { title: "Community Organisations", text: "Merchandise campaigns for causes, groups, and local audiences without marketplace listing." },
 ];
 
 const flow = ["Join", "Create Store", "Share Store Link", "Customers Order", "FandomForge Prints & Ships", "Creator Earns"];
@@ -61,7 +63,69 @@ function IconForFeature({ title }) {
   return <Icon size={28} className="text-[var(--ff-primary)] mb-4" />;
 }
 
+function GalleryCreatorCard({ creator }) {
+  const banner = assetUrl(creator.banner_url);
+  const logo = assetUrl(creator.logo_url);
+  const displayName = creator.display_name || "FandomForge Creator";
+
+  return (
+    <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] min-w-[260px] sm:min-w-0 overflow-hidden">
+      <div className="h-28 bg-[var(--ff-surface-bg)] border-b border-[var(--ff-card-border)] relative flex items-center justify-center">
+        {banner ? (
+          <img src={banner} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        ) : (
+          <Store size={34} className="text-[var(--ff-primary)]" />
+        )}
+        <div className="absolute inset-0 bg-black/25" />
+      </div>
+      <div className="p-5">
+        <div className="h-16 w-16 border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] flex items-center justify-center -mt-12 mb-4 relative z-10 overflow-hidden">
+          {logo ? (
+            <img src={logo} alt="" className="w-full h-full object-contain" />
+          ) : (
+            <Store className="text-[var(--ff-primary)]" />
+          )}
+        </div>
+        <h3 className="font-display text-3xl uppercase leading-none">{displayName}</h3>
+      </div>
+    </div>
+  );
+}
+
+function CommunityFallbackCard({ card }) {
+  return (
+    <div className="card min-h-[190px] min-w-[260px] sm:min-w-0">
+      <div className="h-16 w-16 border border-[var(--ff-card-border)] bg-[var(--ff-primary)]/10 flex items-center justify-center mb-5">
+        <Store className="text-[var(--ff-primary)]" />
+      </div>
+      <h3 className="font-display text-3xl uppercase mb-2">{card.title}</h3>
+      <p className="text-[var(--ff-muted-text)] text-sm">{card.text}</p>
+    </div>
+  );
+}
+
 export default function Home() {
+  const [galleryCreators, setGalleryCreators] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    http.get("/public/creators/gallery")
+      .then((response) => {
+        if (!mounted) return;
+        setGalleryCreators(Array.isArray(response.data) ? response.data : []);
+      })
+      .catch(() => {
+        if (mounted) setGalleryCreators([]);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const hasGalleryCreators = galleryCreators.length > 0;
+
   return (
     <div className="min-h-screen page-shell">
       <Navbar />
@@ -108,16 +172,10 @@ export default function Home() {
           <SectionHeading eyebrow="Social proof" title="Communities using FandomForge">
             FandomForge supports groups, organisations, and creators who want a simple way to offer branded merchandise to their own communities.
           </SectionHeading>
-          <div className="grid md:grid-cols-3 gap-6">
-            {communityCards.map((card) => (
-              <div key={card.title} className="card min-h-[190px]">
-                <div className="h-16 w-16 border border-[var(--ff-card-border)] bg-[var(--ff-primary)]/10 flex items-center justify-center mb-5">
-                  <Store className="text-[var(--ff-primary)]" />
-                </div>
-                <h3 className="font-display text-3xl uppercase mb-2">{card.title}</h3>
-                <p className="text-[var(--ff-muted-text)] text-sm">{card.text}</p>
-              </div>
-            ))}
+          <div className="grid md:grid-cols-4 gap-6 overflow-x-auto sm:overflow-visible pb-2">
+            {hasGalleryCreators
+              ? galleryCreators.map((creator) => <GalleryCreatorCard key={creator.id || creator.display_name} creator={creator} />)
+              : communityCards.map((card) => <CommunityFallbackCard key={card.title} card={card} />)}
           </div>
         </div>
       </section>

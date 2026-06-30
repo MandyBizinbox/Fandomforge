@@ -14,6 +14,7 @@ import {
   Trash2,
   Save,
   Eye,
+  Copy,
   Clock3,
   Bell,
 } from "lucide-react";
@@ -121,6 +122,22 @@ function CreatorImageField({ label, value, onUpload, hint, requirements, inputId
       </div>
     </div>
   );
+}
+
+function creatorVisibilityLabel(value) {
+  const visibility = String(value || "unlisted").toLowerCase();
+  return visibility.charAt(0).toUpperCase() + visibility.slice(1);
+}
+
+function creatorVisibilityDescription(value) {
+  const visibility = String(value || "unlisted").toLowerCase();
+  if (visibility === "public") {
+    return "Your store may be eligible for public visibility according to platform settings.";
+  }
+  if (visibility === "private") {
+    return "Private store access is restricted. Some private-store features may depend on future access-control settings.";
+  }
+  return "Your store is accessible by direct link. It is not shown in a public creator directory or product marketplace.";
 }
 
 
@@ -1342,10 +1359,61 @@ function SettingsPage() {
 
   if (!creator) return <div className="overline">Loading…</div>;
 
+  const directStoreLink = typeof window !== "undefined" && creator?.slug
+    ? `${window.location.origin}/creators/${creator.slug}`
+    : "";
+
+  const copyDirectStoreLink = async () => {
+    if (!directStoreLink) return;
+
+    try {
+      await navigator.clipboard.writeText(directStoreLink);
+      toast.success("Store link copied");
+    } catch {
+      toast.error("Could not copy store link");
+    }
+  };
+
   return (
     <div data-testid="creator-settings-page">
       <div className="overline mb-2">Settings</div>
       <h1 className="font-display text-5xl uppercase mb-8">Storefront</h1>
+
+      <div className="card max-w-2xl mb-8" data-testid="creator-publishing-panel">
+        <div className="overline mb-2">Publishing & Visibility</div>
+        <h2 className="font-display text-3xl uppercase mb-4">Current store status</h2>
+
+        <div className="grid sm:grid-cols-3 gap-3 mb-5">
+          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
+            <div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mb-1">Store visibility</div>
+            <div className="font-bold">{creatorVisibilityLabel(creator.visibility)}</div>
+          </div>
+          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
+            <div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mb-1">Homepage gallery</div>
+            <div className="font-bold">{creator.show_on_platform_gallery ? "Enabled" : "Disabled"}</div>
+          </div>
+          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
+            <div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mb-1">Search indexing</div>
+            <div className="font-bold">{creator.allow_search_indexing ? "Enabled" : "Disabled"}</div>
+          </div>
+        </div>
+
+        <p className="text-sm text-[var(--ff-muted-text)] mb-4">{creatorVisibilityDescription(creator.visibility)}</p>
+
+        <div>
+          <label className="label">Direct store link</label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input className="input-base font-mono text-sm" readOnly value={directStoreLink} />
+            <button type="button" className="btn-secondary shrink-0" onClick={copyDirectStoreLink}>
+              <Copy size={14} /> Copy
+            </button>
+          </div>
+        </div>
+
+        <p className="text-xs text-[var(--ff-muted-text)] mt-4">
+          Need to change publishing settings? Contact FandomForge support.
+        </p>
+      </div>
 
       <form onSubmit={save} className="max-w-2xl space-y-4">
         <div>

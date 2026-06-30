@@ -2477,6 +2477,14 @@ async def _profile_for_owner(db, owner_type: str, owner_id: str) -> Optional[dic
 
 
 CREATOR_VISIBILITIES = {"public", "unlisted", "private"}
+ADMIN_CONTROLLED_CREATOR_PUBLISHING_FIELDS = {
+    "visibility",
+    "show_on_platform_gallery",
+    "gallery_logo_url",
+    "gallery_banner_url",
+    "gallery_display_name",
+    "allow_search_indexing",
+}
 
 
 def normalize_creator_visibility(value: Optional[str]) -> str:
@@ -2497,6 +2505,48 @@ def apply_creator_visibility_defaults(data: Dict[str, Any]) -> Dict[str, Any]:
     data["show_on_platform_gallery"] = bool(data.get("show_on_platform_gallery", False))
     data["allow_search_indexing"] = bool(data.get("allow_search_indexing", False))
     return data
+
+
+def creator_gallery_item(doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    creator = apply_creator_visibility_defaults(dict(doc or {}))
+    if creator.get("visibility") == "private" or not creator.get("show_on_platform_gallery"):
+        return None
+
+    return {
+        "id": creator.get("id"),
+        "display_name": creator.get("gallery_display_name") or creator.get("name") or "FandomForge creator",
+        "logo_url": creator.get("gallery_logo_url") or creator.get("logo_url"),
+        "banner_url": creator.get("gallery_banner_url") or creator.get("banner_url"),
+    }
+
+
+@public_router.get("/creators/gallery")
+async def public_creator_gallery(request: Request):
+    db = request.app.state.db
+    docs = await db.creators.find(
+        {
+            "status": "active",
+            "show_on_platform_gallery": True,
+            "$or": [
+                {"visibility": {"$ne": "private"}},
+                {"visibility": {"$exists": False}},
+            ],
+        },
+        {
+            "_id": 0,
+            "id": 1,
+            "name": 1,
+            "logo_url": 1,
+            "banner_url": 1,
+            "visibility": 1,
+            "show_on_platform_gallery": 1,
+            "gallery_display_name": 1,
+            "gallery_logo_url": 1,
+            "gallery_banner_url": 1,
+        },
+    ).sort("created_at", -1).to_list(24)
+
+    return [item for item in (creator_gallery_item(doc) for doc in docs) if item]
 
 
 bands_router = APIRouter(prefix="/creators")
@@ -2573,6 +2623,9 @@ async def update_my_band(
     creator = await get_creator_account_for_user(db, user, permission="manage_settings")
 
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    for key in ADMIN_CONTROLLED_CREATOR_PUBLISHING_FIELDS:
+        updates.pop(key, None)
+
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
 
