@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import Navbar from "../components/Navbar";
-import { ArrowRight, CheckCircle2, ClipboardCheck, CreditCard, PackageCheck, Send, Settings, ShieldCheck, Store, Truck, UserCheck } from "lucide-react";
+import { ArrowRight, CheckCircle2, CreditCard, FileCheck2, Paintbrush, Send, Settings, ShieldCheck, Store, Truck, UserPlus } from "lucide-react";
 
 const problemPoints = [
   "You have to guess sizes before people order.",
@@ -16,35 +16,38 @@ const problemPoints = [
 ];
 
 const audiences = ["Scout Groups", "Schools", "Churches", "Sports Clubs", "Charities", "Community Organisations", "Fan Communities", "Small Businesses", "Event Organisers"];
-const benefits = ["No inventory", "No upfront stock purchases", "Print-on-demand", "Secure payments", "Nationwide shipping", "Local production", "Professional storefront", "Fundraising opportunities", "Time savings", "Reduced administration"];
+const benefits = ["Free store access", "No inventory", "No upfront stock purchases", "Print-on-demand", "Secure payments", "Nationwide shipping", "Local production", "Professional storefront", "Fundraising opportunities", "Reduced administration"];
 
 const visibilityModes = [
-  ["Public", "For brands or creators who want discoverability."],
-  ["Unlisted", "For groups, schools, churches, clubs, and fundraisers. Recommended default."],
-  ["Private", "Future option for invitation-only or restricted-access stores."],
+  ["Direct-link stores", "Share your store URL with your own audience without being listed in a public catalogue."],
+  ["Merch review", "Products are reviewed before going live so customers can order with confidence."],
+  ["Seller dashboard", "Track products, orders, store activity, and earnings from one place."],
 ];
 
 const steps = [
-  ["Apply", "Tell us about your organisation, group, brand, or campaign."],
-  ["Get Approved", "We review your application and activate your creator account."],
-  ["Build Your Store", "Add branding, products, prices, and campaign details."],
-  ["Share Your Link", "Send your store link to your members, supporters, customers, or fans."],
+  ["Start Your Free Store", "Create your seller account and set up your store. Store access is free, with platform terms and conditions applying."],
+  ["Add Your Branding", "Upload your logo, banner, organisation details, and store information."],
+  ["Add Your Merch", "Choose products, add designs, set details, and prepare your merchandise for review."],
+  ["Merch Gets Reviewed", "Products are checked before going live so customers can order with confidence."],
+  ["Share Your Store Link", "Send your direct store link to your members, supporters, customers, or fans."],
   ["Customers Order Online", "Customers choose products, add to cart, and pay securely."],
   ["FandomForge Prints & Ships", "Orders move through production and fulfilment."],
-  ["You Track Sales", "View orders, performance, and earnings from your dashboard."],
+  ["You Track Sales", "View orders, store activity, and earnings from your dashboard."],
 ];
 
 const faqs = [
-  ["Will my products be visible to everyone?", "No. The recommended default is an Unlisted store. Your store can be accessed by direct link without being shown in a public catalogue."],
-  ["Do I need to buy stock upfront?", "No. FandomForge is designed around print-on-demand, so products can be produced when customers order."],
-  ["Who handles payments?", "Customers pay through the platform, reducing manual payment tracking for your organisation."],
-  ["Who prints the products?", "FandomForge manages the production workflow through approved production partners and platform fulfilment processes."],
-  ["Can this be used for fundraising?", "Yes. FandomForge is suitable for fundraising campaigns, group merchandise, school spirit wear, event products, and community merchandise."],
-  ["Can my organisation have its own branding?", "Yes. Creator stores should support logos, banners, organisation branding, and product presentation."],
-  ["Can I share the store only with my members?", "Yes. Use an Unlisted store and share the direct link only with your intended audience."],
-  ["Can a store be password-protected?", "This should be supported as a future Private visibility mode. The immediate priority is Public and Unlisted."],
-  ["Do customers need an account to buy?", "The current checkout flow should be preserved unless account creation becomes required for specific payment or fulfilment features."],
-  ["What products can we sell?", "Start with launch-ready product types and approved templates. Expand once product templates and print methods are properly seeded and tested."],
+  ["Is it free to open a FandomForge store?", "Yes. Sellers can create a store for free. Platform terms and conditions apply, and product/merch approval is required before items go live."],
+  ["Do my products go live immediately?", "Your store access is instant, but merchandise is reviewed before it goes live. This helps protect quality, pricing accuracy, and customer confidence."],
+  ["Will my store be public?", "By default, stores are designed for direct-link sharing. You can send your store link to your own audience without your products being promoted in a public catalogue."],
+  ["Do I need to buy stock upfront?", "No. FandomForge is built around print-on-demand, so you do not need to buy boxes of stock before selling."],
+  ["Who handles payments?", "Customers pay online through the platform. This reduces manual payment tracking for sellers and organisations."],
+  ["Who handles printing and fulfilment?", "FandomForge manages the print and fulfilment workflow through the platform."],
+  ["Can I use FandomForge for fundraising?", "Yes. FandomForge is ideal for groups, schools, Scout groups, clubs, churches, charities, events, and community fundraising."],
+  ["Can I brand my own store?", "Yes. You can add your organisation or creator branding, including your store name, logo, banner, and product presentation."],
+  ["How do customers find my store?", "You share your direct store link with your audience through WhatsApp, email, social media, newsletters, events, or your own website."],
+  ["Can customers order from anywhere in South Africa?", "The platform is designed for South African sellers and customers, with fulfilment and delivery handled through the available platform options."],
+  ["What kind of products can I sell?", "You can sell approved merchandise products supported by the platform, such as apparel, mugs, and other available print-on-demand items."],
+  ["What happens after a customer orders?", "The order is processed through the platform, then moves into production and fulfilment. You can track activity from your seller dashboard."],
 ];
 
 function SectionHeading({ eyebrow, title, children }) {
@@ -58,7 +61,7 @@ function SectionHeading({ eyebrow, title, children }) {
 }
 
 function StepIcon({ index }) {
-  const icons = [ClipboardCheck, UserCheck, Store, Send, CreditCard, Truck, Settings];
+  const icons = [UserPlus, Paintbrush, Store, FileCheck2, Send, CreditCard, Truck, Settings];
   const Icon = icons[index] || CheckCircle2;
   return <Icon className="text-[var(--ff-primary)] mb-4" size={28} />;
 }
@@ -73,21 +76,21 @@ export default function Sell() {
           <div>
             <p className="overline mb-4">Sell online with FandomForge</p>
             <h1 className="font-display text-5xl md:text-7xl lg:text-8xl uppercase leading-[0.9] mb-6">
-              Sell branded merchandise online without buying stock upfront.
+              Create a free merch store and sell without buying stock upfront.
             </h1>
             <p className="text-[var(--ff-muted-text)] text-lg max-w-3xl mb-8">
-              FandomForge gives your organisation a branded online store. You share the link with your community, customers order online, and we handle the printing, payments, and fulfilment.
+              FandomForge gives your organisation instant access to a branded online store. Store access is free, platform terms apply, and merchandise is reviewed before it goes live.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
-              <Link to="/register/creator" className="btn-primary">Apply to Start a Store <ArrowRight size={18} /></Link>
-              <a href="#how-it-works" className="btn-secondary">See How It Works</a>
+              <Link to="/register/creator" className="btn-primary">Start Your Free Store <ArrowRight size={18} /></Link>
+              <a href="#how-it-works" className="btn-secondary">Learn More</a>
             </div>
           </div>
           <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-8">
-            <p className="overline mb-5">Operational promise</p>
+            <p className="overline mb-5">How it works now</p>
             <Store size={44} className="text-[var(--ff-primary)] mb-6" />
-            <h2 className="font-display text-4xl uppercase leading-none mb-4">You promote the store. We handle the operational heavy lifting.</h2>
-            <p className="text-[var(--ff-muted-text)]">A focused storefront, online payment flow, production process and fulfilment workflow for your branded merchandise.</p>
+            <h2 className="font-display text-4xl uppercase leading-none mb-4">Free store access. Merch reviewed before it goes live.</h2>
+            <p className="text-[var(--ff-muted-text)]">Set up your store, add branding, prepare products for review, then share your direct store link once your merchandise is ready.</p>
           </div>
         </div>
       </section>
@@ -109,10 +112,10 @@ export default function Sell() {
       <section className="py-16 border-b border-[var(--ff-card-border)]">
         <div className="max-w-7xl mx-auto px-6 md:px-10">
           <SectionHeading eyebrow="The solution" title="FandomForge removes the stock, payment, and fulfilment burden.">
-            Your organisation gets a branded online store. You choose the products, set up your store, and share the link with your audience. Customers order and pay online. FandomForge manages the production and fulfilment process so you can focus on your community.
+            Your organisation gets a branded online store at no store-access cost. You add branding and prepare merchandise, products are reviewed before going live, and your customers order through your direct store link.
           </SectionHeading>
           <div className="border border-[var(--ff-primary)] bg-[var(--ff-primary)]/10 p-6 font-display text-3xl uppercase leading-none">
-            You promote the store. We handle the operational heavy lifting.
+            You share the store. We handle the operational heavy lifting.
           </div>
         </div>
       </section>
@@ -128,7 +131,7 @@ export default function Sell() {
 
       <section className="py-16 border-b border-[var(--ff-card-border)]">
         <div className="max-w-7xl mx-auto px-6 md:px-10">
-          <SectionHeading eyebrow="Benefits" title="Less stock risk, fewer spreadsheets, cleaner fulfilment" />
+          <SectionHeading eyebrow="Benefits" title="Free store access, no stock risk, cleaner fulfilment" />
           <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
             {benefits.map((benefit) => <div key={benefit} className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-5 text-sm font-bold uppercase tracking-widest">{benefit}</div>)}
           </div>
@@ -137,12 +140,12 @@ export default function Sell() {
 
       <section id="store-visibility" className="py-16 border-b border-[var(--ff-card-border)]">
         <div className="max-w-7xl mx-auto px-6 md:px-10">
-          <SectionHeading eyebrow="Store privacy" title="Your store does not have to be public.">
-            Many organisations only want their own community to access their merchandise. FandomForge supports direct-link stores, which means your products do not need to appear in a public marketplace.
+          <SectionHeading eyebrow="Store privacy" title="Your store is built for direct-link sharing.">
+            Send your store link to your own audience through WhatsApp, email, social media, newsletters, events, or your own website. Your products do not need to be promoted in a public catalogue.
           </SectionHeading>
           <div className="grid md:grid-cols-3 gap-6">
             {visibilityModes.map(([mode, text]) => (
-              <div key={mode} className={`card ${mode === "Unlisted" ? "border-[var(--ff-primary)]" : ""}`}>
+              <div key={mode} className="card">
                 <ShieldCheck className="text-[var(--ff-primary)] mb-4" />
                 <h3 className="font-display text-3xl uppercase mb-2">{mode}</h3>
                 <p className="text-[var(--ff-muted-text)] text-sm">{text}</p>
@@ -154,10 +157,10 @@ export default function Sell() {
 
       <section id="how-it-works" className="py-16 border-b border-[var(--ff-card-border)]">
         <div className="max-w-7xl mx-auto px-6 md:px-10">
-          <SectionHeading eyebrow="How it works" title="Launch without the merch admin spiral" />
+          <SectionHeading eyebrow="How it works" title="From free store setup to fulfilled orders" />
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
             {steps.map(([title, text], index) => (
-              <div key={title} className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-6 min-h-[210px]">
+              <div key={title} className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-6 min-h-[220px]">
                 <p className="text-[var(--ff-primary)] font-display text-5xl mb-3">{index + 1}</p>
                 <StepIcon index={index} />
                 <h3 className="font-display text-2xl uppercase mb-2">{title}</h3>
@@ -170,7 +173,7 @@ export default function Sell() {
 
       <section className="py-16 border-b border-[var(--ff-card-border)]">
         <div className="max-w-5xl mx-auto px-6 md:px-10">
-          <SectionHeading eyebrow="FAQ" title="Common creator questions" />
+          <SectionHeading eyebrow="FAQ" title="Common seller questions" />
           <div className="space-y-3">
             {faqs.map(([question, answer]) => (
               <details key={question} className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-5">
@@ -184,11 +187,11 @@ export default function Sell() {
 
       <section className="py-16">
         <div className="max-w-4xl mx-auto px-6 md:px-10 text-center">
-          <p className="overline mb-2">Apply today</p>
+          <p className="overline mb-2">Start free</p>
           <h2 className="font-display text-5xl md:text-6xl uppercase leading-none mb-5">Ready to launch your own merch store?</h2>
-          <p className="text-[var(--ff-muted-text)] mb-8">Start selling branded merchandise to your community without managing stock, manual payments, or fulfilment admin.</p>
+          <p className="text-[var(--ff-muted-text)] mb-8">Create your free store, prepare your merchandise for review, and start sharing your direct store link with your community.</p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/register/creator" className="btn-primary">Apply to Start a Store <ArrowRight size={18} /></Link>
+            <Link to="/register/creator" className="btn-primary">Start Your Free Store <ArrowRight size={18} /></Link>
             <Link to="/contact" className="btn-secondary">Contact Us</Link>
           </div>
         </div>

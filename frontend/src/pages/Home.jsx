@@ -172,7 +172,7 @@ export default function Home() {
             <p className="overline mb-2">Direct-link stores</p>
             <h2 className="font-display text-4xl md:text-5xl uppercase leading-none mb-4">Your store can stay private to your community.</h2>
             <p className="text-[var(--ff-muted-text)] mb-6">
-              FandomForge does not need to publicly list your merchandise. You can share your store directly with your audience, and your products do not have to appear in a public marketplace.
+              FandomForge does not need to publicly list your merchandise. You can share your store directly with your audience, and your products do not have to appear in a public catalogue.
             </p>
             <Link to="/sell#store-visibility" className="btn-secondary">Learn how store visibility works</Link>
           </div>

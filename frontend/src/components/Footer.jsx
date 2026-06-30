@@ -41,7 +41,7 @@ export default function Footer() {
           ]} />
 
           <FooterColumn title="For Creators" links={[
-            ["Apply to Start a Store", "/register/creator"],
+            ["Start Your Free Store", "/register/creator"],
             ["Login", "/login"],
             ["How It Works", "/sell#how-it-works"],
             ["Store Privacy", "/sell#store-visibility"],
