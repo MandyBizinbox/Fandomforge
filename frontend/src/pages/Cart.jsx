@@ -5,10 +5,12 @@ import { useCart } from "../context/CartContext";
 import { assetUrl } from "../lib/api";
 import { Trash2 } from "lucide-react";
 import { getCartImage, getCartVariationLabel } from "../components/product/productDisplayUtils";
+import { creatorStorePath, getCreatorStoreFromItems, getLastCreatorStore } from "../lib/creatorStoreContext";
 
 export default function Cart() {
   const { items, removeItem, updateQuantity, subtotal } = useCart();
   const navigate = useNavigate();
+  const creatorStore = getCreatorStoreFromItems(items) || getLastCreatorStore();
 
   return (
     <div className="min-h-screen page-shell">
@@ -16,7 +18,13 @@ export default function Cart() {
       <div className="pt-24 pb-16">
         <div className="max-w-5xl mx-auto px-6 md:px-10">
           <div className="overline mb-2">Your bag</div>
-          <h1 className="font-display text-3xl sm:text-6xl uppercase mb-8 sm:mb-10">Cart</h1>
+          <h1 className="font-display text-3xl sm:text-6xl uppercase mb-4 sm:mb-6">Cart</h1>
+
+          {creatorStore && (
+            <Link to={creatorStorePath(creatorStore)} className="btn-secondary mb-6">
+              Continue shopping at {creatorStore.name}
+            </Link>
+          )}
 
           {items.length === 0 ? (
             <div className="card text-center py-20" data-testid="cart-empty">

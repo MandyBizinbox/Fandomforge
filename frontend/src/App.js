@@ -185,6 +185,8 @@ function AppRoutes() {
 
       <Route path="/about" element={<StaticContentPage pageKey="about" />} />
       <Route path="/contact" element={<StaticContentPage pageKey="contact" />} />
+      <Route path="/help/orders" element={<StaticContentPage pageKey="help-orders" />} />
+      <Route path="/help/creators" element={<StaticContentPage pageKey="help-creators" />} />
       <Route path="/privacy-policy" element={<StaticContentPage pageKey="privacy-policy" />} />
       <Route path="/delivery-terms" element={<StaticContentPage pageKey="delivery-terms" />} />
       <Route path="/shop-terms" element={<StaticContentPage pageKey="shop-terms" />} />

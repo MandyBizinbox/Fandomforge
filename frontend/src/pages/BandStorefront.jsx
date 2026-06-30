@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { http, assetUrl } from "../lib/api";
 import Navbar from "../components/Navbar";
 import ProductCard from "../components/ProductCard";
+import { saveLastCreatorStore } from "../lib/creatorStoreContext";
 
 export default function BandStorefront() {
   const { slug } = useParams();
@@ -20,6 +21,12 @@ export default function BandStorefront() {
       })
       .finally(() => setLoading(false));
   }, [slug]);
+
+  useEffect(() => {
+    if (creator?.slug) {
+      saveLastCreatorStore({ slug: creator.slug, name: creator.name });
+    }
+  }, [creator]);
 
   useEffect(() => {
     const selector = 'meta[name="robots"][data-creator-store="true"]';
@@ -50,7 +57,7 @@ export default function BandStorefront() {
           <div className="absolute inset-0 flex items-end">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-10 pb-6 sm:pb-12 w-full min-w-0">
               {creator.logo_url && <img src={assetUrl(creator.logo_url)} alt="" className="w-14 h-14 sm:w-20 sm:h-20 object-cover border border-[var(--ff-card-border)] mb-3 sm:mb-4" />}
-              <div className="overline mb-2">Creator Store</div>
+              <div className="overline mb-2 flex flex-wrap gap-2 text-white/90"><Link to="/">FandomForge</Link><span>/</span><span>{creator.name}</span></div>
               <h1 className="font-display text-[clamp(2.1rem,11vw,4.75rem)] sm:text-7xl md:text-9xl uppercase leading-[0.92] sm:leading-[0.85] max-w-full" style={{ overflowWrap: "anywhere" }} data-testid="creator-name">{creator.name}</h1>
               <p className="text-white/90 text-sm sm:text-lg mt-3 sm:mt-4 max-w-2xl line-clamp-3" data-testid="creator-bio">{creator.bio}</p>
               {creator.socials && Object.keys(creator.socials).length > 0 && (

@@ -49,8 +49,8 @@ export default function Footer() {
 
           <FooterColumn title="Support" links={[
             ["Contact Us", "/contact"],
-            ["Order Help", "/contact"],
-            ["Creator Help", "/contact"],
+             ["Order Help", "/help/orders"],
+             ["Creator Help", "/help/creators"],
           ]} />
 
           <FooterColumn title="Legal" links={[

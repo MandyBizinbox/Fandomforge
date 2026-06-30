@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { useCart } from "../context/CartContext";
 import { http, assetUrl } from "../lib/api";
@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { getCartImage, getCartVariationLabel } from "../components/product/productDisplayUtils";
 import PaymentMethodSelector from "../components/checkout/PaymentMethodSelector";
 import ShippingMethodSelector from "../components/checkout/ShippingMethodSelector";
+import { creatorStorePath, getCreatorStoreFromItems, getLastCreatorStore } from "../lib/creatorStoreContext";
 
 export default function Checkout() {
   const { items, subtotal, clear } = useCart();
@@ -22,6 +23,7 @@ export default function Checkout() {
     full_name: "", email: "", phone: "", line1: "", line2: "",
     city: "", state: "", postal_code: "", country: "ZA",
   });
+  const creatorStore = getCreatorStoreFromItems(items) || getLastCreatorStore();
 
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
@@ -113,7 +115,12 @@ export default function Checkout() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 md:px-10 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-6 lg:gap-8">
           <div>
             <div className="overline mb-2">Checkout</div>
-            <h1 className="font-display text-3xl sm:text-5xl uppercase mb-6 sm:mb-8">Finish your order</h1>
+            <h1 className="font-display text-3xl sm:text-5xl uppercase mb-4 sm:mb-6">Finish your order</h1>
+            {creatorStore && (
+              <Link to={creatorStorePath(creatorStore)} className="btn-secondary mb-6">
+                Back to {creatorStore.name}
+              </Link>
+            )}
             <form onSubmit={submit} className="space-y-8" data-testid="checkout-form">
               <div className="card space-y-4">
                 <div>

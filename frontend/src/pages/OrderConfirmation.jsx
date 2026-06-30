@@ -4,6 +4,7 @@ import Navbar from "../components/Navbar";
 import { http, assetUrl } from "../lib/api";
 import StatusBadge from "../components/StatusBadge";
 import { Copy, ExternalLink } from "lucide-react";
+import { creatorStorePath, getCreatorStoreFromItems, getLastCreatorStore } from "../lib/creatorStoreContext";
 import { toast } from "sonner";
 
 function safeMoney(value) {
@@ -109,6 +110,7 @@ export default function OrderConfirmation() {
   }, [id, location.search]);
 
   const items = useMemo(() => (Array.isArray(order?.items) ? order.items : []), [order]);
+  const creatorStore = getCreatorStoreFromItems(items) || getLastCreatorStore();
   const trackingUrl = order?.tracking_token ? `${window.location.origin}/order-tracking/${order.tracking_token}` : "";
 
   const copyTrackingUrl = async () => {
@@ -254,9 +256,15 @@ export default function OrderConfirmation() {
             </div>
           </div>
 
-          <Link to="/" className="btn-secondary mt-10" data-testid="oc-continue">
-            Return home
-          </Link>
+          {creatorStore ? (
+            <Link to={creatorStorePath(creatorStore)} className="btn-secondary mt-10" data-testid="oc-continue">
+              Back to {creatorStore.name}
+            </Link>
+          ) : (
+            <Link to="/" className="btn-secondary mt-10" data-testid="oc-continue">
+              Return home
+            </Link>
+          )}
         </div>
       </div>
     </div>

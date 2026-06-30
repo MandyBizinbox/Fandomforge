@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Navbar from "../components/Navbar";
+import { Link } from "react-router-dom";
 import { http } from "../lib/api";
 import { Mail, MessageCircle, Send } from "lucide-react";
 import { toast } from "sonner";
@@ -347,6 +348,31 @@ function PrivacyPolicyPage() {
   );
 }
 
+function HelpPage({ type }) {
+  const isOrders = type === "orders";
+
+  return (
+    <>
+      <PageHero
+        overline={isOrders ? "Order Help" : "Creator Help"}
+        title={isOrders ? "Need help with an order from a FandomForge creator store?" : "Need help setting up or managing your FandomForge store?"}
+        subtitle={isOrders ? "Use your order number, email address, and the creator/store name when contacting support." : "We can help with store setup, product setup, orders, fulfilment questions, and visibility settings."}
+      />
+
+      <Section title={isOrders ? "What to include" : "How we can help"}>
+        {isOrders ? (
+          <BulletList items={["Your order number", "The email address used at checkout", "The creator or store name", "A short description of what you need help with"]} />
+        ) : (
+          <BulletList items={["Store setup and branding", "Product setup and approved templates", "Order and fulfilment questions", "Visibility settings including Unlisted stores"]} />
+        )}
+        <div className="pt-3">
+          <Link to="/contact" className="btn-primary">Contact Us</Link>
+        </div>
+      </Section>
+    </>
+  );
+}
+
 function PageHero({ overline, title, subtitle }) {
   return (
     <header className="mb-8">
@@ -358,12 +384,29 @@ function PageHero({ overline, title, subtitle }) {
 }
 
 export default function StaticContentPage({ pageKey }) {
+  useEffect(() => {
+    const selector = 'meta[name="robots"][data-static-help="true"]';
+    document.querySelector(selector)?.remove();
+
+    if (!String(pageKey || "").startsWith("help-")) return undefined;
+
+    const meta = document.createElement("meta");
+    meta.name = "robots";
+    meta.content = "noindex,nofollow";
+    meta.setAttribute("data-static-help", "true");
+    document.head.appendChild(meta);
+
+    return () => document.querySelector(selector)?.remove();
+  }, [pageKey]);
+
   const page = useMemo(() => {
     if (pageKey === "about") return <AboutPage />;
     if (pageKey === "contact") return <ContactPage />;
     if (pageKey === "delivery-terms") return <DeliveryTermsPage />;
     if (pageKey === "shop-terms") return <ShopTermsPage />;
     if (pageKey === "privacy-policy") return <PrivacyPolicyPage />;
+    if (pageKey === "help-orders") return <HelpPage type="orders" />;
+    if (pageKey === "help-creators") return <HelpPage type="creators" />;
     return <ContactPage />;
   }, [pageKey]);
 

@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { http } from "../lib/api";
 import Navbar from "../components/Navbar";
 import Customizer from "../components/Customizer";
 import { useCart } from "../context/CartContext";
 import { toast } from "sonner";
+import { creatorStorePath, getLastCreatorStore, saveLastCreatorStore } from "../lib/creatorStoreContext";
 import ProductGallery from "../components/product/ProductGallery";
 import VariationSelector from "../components/product/VariationSelector";
 import {
@@ -44,9 +45,16 @@ export default function ProductDetail() {
         setProduct(loadedProduct);
         setSelected(buildInitialSelection(loadedProduct));
 
+        const storedCreator = getLastCreatorStore();
+        if (storedCreator) setBand(storedCreator);
+
         const bandsResponse = await http.get("/creators").catch(() => ({ data: [] }));
         if (!mounted) return;
-        setBand((bandsResponse.data || []).find((creator) => creator.id === loadedProduct.band_id) || null);
+        const listedCreator = (bandsResponse.data || []).find((creator) => creator.id === loadedProduct.band_id) || null;
+        if (listedCreator) {
+          setBand(listedCreator);
+          saveLastCreatorStore({ slug: listedCreator.slug, name: listedCreator.name });
+        }
       } catch (error) {
         toast.error(error.response?.data?.detail || "Product could not be loaded");
       } finally {
@@ -107,6 +115,8 @@ export default function ProductDetail() {
       product_id: product.id,
       product_title: product.title,
       band_id: product.band_id,
+      creator_slug: creator?.slug || getLastCreatorStore()?.slug || null,
+      creator_name: creator?.name || getLastCreatorStore()?.name || null,
       variation_id: variation.id,
       size: getVariationSize(variation),
       color: getVariationColour(variation),
@@ -157,7 +167,16 @@ export default function ProductDetail() {
               </div>
 
               <div>
-                {creator && (<div className="overline mb-3" data-testid="product-creator-name">{creator.name}</div>)}
+                {creator && (
+                  <div className="mb-5" data-testid="product-creator-name">
+                    <div className="overline mb-2 flex flex-wrap gap-2">
+                      <Link to={creatorStorePath(creator)}>{creator.name}</Link>
+                      <span>/</span>
+                      <span>Product</span>
+                    </div>
+                    <Link to={creatorStorePath(creator)} className="btn-secondary text-xs py-2 px-3">Back to {creator.name}</Link>
+                  </div>
+                )}
                 <h1 className="font-display text-3xl sm:text-5xl md:text-6xl uppercase leading-none mb-4 max-w-full" style={{ overflowWrap: "anywhere" }} data-testid="product-title">{product.title}</h1>
                 <div className="text-2xl sm:text-3xl font-bold mb-6" data-testid="product-price">R {Number(unitPrice).toFixed(2)}</div>
                 <FormattedText text={product.description} className="text-[var(--ff-muted-text)] leading-relaxed mb-8" data-testid="product-description" />
