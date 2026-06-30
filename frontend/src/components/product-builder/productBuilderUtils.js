@@ -426,6 +426,7 @@ export function calculatePricing({ sellingPrice = 0, blankCost = 0, printCost = 
   const minimumSellingPrice = rate >= 1 ? production : Math.ceil((production / (1 - rate)) * 100) / 100;
 
   return {
+    price,
     blank: blankPayout,
     blankSupplierCost: blankPayout,
     print: printPayout,

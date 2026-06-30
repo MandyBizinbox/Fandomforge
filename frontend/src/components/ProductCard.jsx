@@ -1,12 +1,13 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { assetUrl } from "../lib/api";
-import { getProductPrimaryImage } from "./product/productDisplayUtils";
+import { getEffectiveSellingPrice, getProductPrimaryImage } from "./product/productDisplayUtils";
 
 export default function ProductCard({ product }) {
   const img = getProductPrimaryImage(product);
   const creatorName = product.creator_name || product.band_name || product.creatorName;
   const hasGroupedArtwork = (product.artwork_groups || []).length > 0;
+  const displayPrice = getEffectiveSellingPrice(product);
 
   return (
     <Link
@@ -43,7 +44,7 @@ export default function ProductCard({ product }) {
 
       <div className="flex items-center justify-between gap-3">
         <span className="font-bold">
-          R {Number(product.selling_price || 0).toFixed(2)}
+          R {Number(displayPrice || 0).toFixed(2)}
         </span>
 
         <div className="flex items-center gap-2">

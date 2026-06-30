@@ -879,6 +879,9 @@ class ProductVariation(BaseModel):
     sku: str = Field(default_factory=lambda: uid()[:8].upper())
     stock_status: Literal["in_stock", "limited_stock", "out_of_stock", "made_to_order"] = "made_to_order"
     price_override: Optional[float] = None
+    effective_selling_price: Optional[float] = None
+    effective_creator_amount: Optional[float] = None
+    manual_pricing_override_active: bool = False
     attribute_values: Dict[str, str] = Field(default_factory=dict)
     size: Optional[str] = ""
     color: Optional[str] = ""
@@ -1026,6 +1029,7 @@ class ProductBase(BaseModel):
     pricing_override_by: Optional[str] = None
     pricing_override_at: Optional[str] = None
     pricing_override_role: Optional[str] = None
+    manual_pricing_overrides: Dict[str, Any] = Field(default_factory=dict, exclude=True)
     artwork_review_status: Literal["not_required", "pending_review", "approved", "rejected"] = "not_required"
     artwork_review_notes: Optional[str] = None
 
@@ -1059,6 +1063,9 @@ class ProductBase(BaseModel):
     commission_rate: float = 0.15
     estimated_commission: float = 0
     estimated_creator_profit: float = 0
+    effective_selling_price: Optional[float] = None
+    effective_creator_amount: Optional[float] = None
+    manual_pricing_override_active: bool = False
 
 
 class ProductCreate(ProductBase):
@@ -1093,6 +1100,7 @@ class ProductUpdate(BaseModel):
     pricing_override_by: Optional[str] = None
     pricing_override_at: Optional[str] = None
     pricing_override_role: Optional[str] = None
+    manual_pricing_overrides: Optional[Dict[str, Any]] = None
     artwork_review_status: Optional[Literal["not_required", "pending_review", "approved", "rejected"]] = None
     artwork_review_notes: Optional[str] = None
 

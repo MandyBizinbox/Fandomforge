@@ -168,6 +168,9 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const [creatorAccount, setCreatorAccount] = useState(null);
   const [pricingOverrideReason, setPricingOverrideReason] = useState("");
   const [savingPricingOverride, setSavingPricingOverride] = useState(false);
+  const [pricingControl, setPricingControl] = useState(null);
+  const [pricingControlLoading, setPricingControlLoading] = useState(false);
+  const [savingManualPricing, setSavingManualPricing] = useState(false);
 
   const [form, setForm] = useState({
     band_id: "",
@@ -240,10 +243,17 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     return resolveCreatorCommissionSource(source);
   }, [product, selectedCreatorAccount]);
 
+  const primaryManualPricingRow = useMemo(() => {
+    const rows = asArray(pricingControl?.variations);
+    return rows.find((row) => row.variation_key === "default" && row.manual_override_active)
+      || rows.find((row) => row.manual_override_active)
+      || null;
+  }, [pricingControl]);
+
   const pricing = calculatePricing({
-    sellingPrice: form.selling_price,
-    blankCost,
-    printCost,
+    sellingPrice: primaryManualPricingRow?.effective_selling_price ?? form.selling_price,
+    blankCost: primaryManualPricingRow?.effective_base_product_cost ?? blankCost,
+    printCost: primaryManualPricingRow?.effective_print_cost ?? printCost,
     commissionRate,
     commissionSource,
     pricingOverrideApproved: Boolean(product?.pricing_override_approved),
@@ -332,6 +342,29 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
 
     load();
   }, [isAdmin, isNew, routeId]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadPricingControl() {
+      if (!isAdmin || isNew || user?.role !== "super_admin" || !product?.id) {
+        setPricingControl(null);
+        return;
+      }
+      setPricingControlLoading(true);
+      try {
+        const response = await http.get(`/admin/products/${product.id}/pricing-control`);
+        if (mounted) setPricingControl(response.data);
+      } catch (error) {
+        console.warn("Could not load admin pricing control", error);
+      } finally {
+        if (mounted) setPricingControlLoading(false);
+      }
+    }
+    loadPricingControl();
+    return () => {
+      mounted = false;
+    };
+  }, [isAdmin, isNew, product?.id, user?.role]);
 
   useEffect(() => {
     if (!selectedTemplate || selectedProductTypeId || !productTypes.length) return;
@@ -632,6 +665,31 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     }
   };
 
+  const saveManualPricingOverrides = async (overrides) => {
+    if (!isAdmin || user?.role !== "super_admin" || !product?.id) return;
+    setSavingManualPricing(true);
+    const endpoint = `/admin/products/${product.id}/pricing-control`;
+    try {
+      const response = await http.patch(endpoint, { overrides });
+      setPricingControl(response.data);
+      setProduct(response.data.product);
+      setForm((current) => ({
+        ...current,
+        selling_price: response.data.product?.selling_price ?? current.selling_price,
+      }));
+      toast.success("Manual pricing override saved");
+    } catch (error) {
+      console.error("Manual pricing override request failed", {
+        status: error.response?.status,
+        path: endpoint,
+        detail: error.response?.data?.detail || error.message,
+      });
+      toast.error(error.response?.data?.detail || "Could not save manual pricing override");
+    } finally {
+      setSavingManualPricing(false);
+    }
+  };
+
   const canContinueProductType = Boolean(selectedProductTypeId || (!isNew && selectedTemplate));
   const canContinueProductOption = Boolean(selectedTemplate);
   const canContinueDetails = Boolean(selectedTemplate && form.title.trim() && (!isAdmin || form.band_id));
@@ -740,6 +798,15 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           setReason={setPricingOverrideReason}
           saving={savingPricingOverride}
           onUpdate={updatePricingOverride}
+        />
+      )}
+
+      {isAdmin && !isNew && product && user?.role === "super_admin" && (
+        <AdminPricingControlPanel
+          pricingControl={pricingControl}
+          loading={pricingControlLoading}
+          saving={savingManualPricing}
+          onSave={saveManualPricingOverrides}
         />
       )}
 
@@ -1245,6 +1312,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
   const reviewMessages = getPricingReviewMessages(product, isAdmin, pricing);
   const printCostValue = pricing.print > 0 ? money(pricing.print) : "Pending print method";
   const overrideActive = Boolean(product?.pricing_override_approved || pricing.pricingOverrideApproved);
+  const manualPricingActive = Boolean(product?.manual_pricing_override_active);
   const effectivePricingStatus = getEffectivePricingStatus(product, pricing);
   const priceResolved = !hasEffectivePricingBlocker(product, pricing);
   const sourceLabel = pricing.commissionSource === "default"
@@ -1277,10 +1345,20 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         <Info label="Estimated production cost" value={money(pricing.production)} />
         <Info label={`Platform commission ${Number((pricing.rate || 0) * 100).toFixed(2)}% ${sourceLabel}`} value={money(pricing.commission)} />
         <Info label="Minimum selling price" value={money(minimumSellingPrice)} />
-        <Info label="Your selling price" value={money(sellingPrice)} />
+        <Info label="Your selling price" value={money(manualPricingActive ? pricing.price : sellingPrice)} />
         <Info label="Estimated creator/fundraising amount" value={money(pricing.profit)} />
         <Info label="Effective pricing status" value={effectivePricingStatus === "override_approved" ? "override_approved" : effectivePricingStatusLabel(product, pricing)} />
+        {manualPricingActive && <Info label="Manual pricing override" value="Active" />}
       </div>
+
+      {manualPricingActive && (
+        <div className="border border-amber-400/50 bg-amber-500/10 p-3 text-xs text-amber-100 rounded-lg mt-4">
+          <div className="font-bold uppercase tracking-widest text-[11px] mb-1">Manual pricing override active</div>
+          {isAdmin
+            ? "Manual pricing override values are being used for this product's effective pricing. This is separate from the pricing blocker override."
+            : "FandomForge has adjusted pricing for this product."}
+        </div>
+      )}
 
       {overrideActive && (
         <div className="border border-amber-400/50 bg-amber-500/10 p-3 text-xs text-amber-100 rounded-lg mt-4">
@@ -1656,6 +1734,163 @@ function PricingOverridePanel({ product, pricing, user, reason, setReason, savin
   );
 }
 
+function AdminPricingControlPanel({ pricingControl, loading, saving, onSave }) {
+  const rows = asArray(pricingControl?.variations);
+  const [drafts, setDrafts] = useState({});
+
+  useEffect(() => {
+    const next = {};
+    asArray(pricingControl?.variations).forEach((row) => {
+      const manual = row.manual_override || {};
+      next[row.variation_key] = {
+        enabled: Boolean(row.manual_override_active),
+        base_product_cost: manual.base_product_cost ?? "",
+        print_cost: manual.print_cost ?? "",
+        selling_price: manual.selling_price ?? "",
+        creator_amount: manual.creator_amount ?? "",
+        reason: row.manual_override_reason || "",
+      };
+    });
+    setDrafts(next);
+  }, [pricingControl]);
+
+  const updateDraft = (key, patch) => {
+    setDrafts((current) => ({
+      ...current,
+      [key]: {
+        ...(current[key] || {}),
+        ...patch,
+      },
+    }));
+  };
+
+  const saveRow = (row) => {
+    const draft = drafts[row.variation_key] || {};
+    onSave([
+      {
+        variation_key: row.variation_key,
+        enabled: Boolean(draft.enabled),
+        base_product_cost: draft.enabled ? Number(draft.base_product_cost || row.effective_base_product_cost || 0) : null,
+        print_cost: draft.enabled ? Number(draft.print_cost || row.effective_print_cost || 0) : null,
+        selling_price: draft.enabled ? Number(draft.selling_price || row.effective_selling_price || 0) : null,
+        creator_amount: draft.enabled && draft.creator_amount !== "" ? Number(draft.creator_amount || 0) : null,
+        reason: draft.reason || "",
+      },
+    ]);
+  };
+
+  return (
+    <section className="mb-6 rounded-xl border border-white/10 bg-black/30 p-5" data-testid="admin-pricing-control-panel">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+        <div>
+          <div className="overline mb-2">Admin Pricing Control</div>
+          <h2 className="font-display text-3xl uppercase text-white">Variation pricing</h2>
+          <p className="text-sm text-zinc-400 mt-2 max-w-4xl">
+            Manual pricing overrides affect storefront, cart, checkout, and creator earnings. Use only for approved exceptions.
+          </p>
+        </div>
+        {rows.some((row) => row.manual_override_active) && (
+          <span className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-amber-100">
+            Manual pricing override active
+          </span>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="overline text-zinc-500">Loading pricing control...</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[1180px]">
+            <thead>
+              <tr className="text-left text-zinc-500 border-b border-white/10">
+                <th className="py-2 pr-3">Variation</th>
+                <th className="py-2 pr-3 text-right">Calculated base cost</th>
+                <th className="py-2 pr-3">Override base cost</th>
+                <th className="py-2 pr-3 text-right">Calculated print cost</th>
+                <th className="py-2 pr-3">Override print cost</th>
+                <th className="py-2 pr-3 text-right">Calculated selling price</th>
+                <th className="py-2 pr-3">Selling price override</th>
+                <th className="py-2 pr-3 text-right">Effective selling price</th>
+                <th className="py-2 pr-3 text-right">Effective creator amount</th>
+                <th className="py-2 pr-3">Override active</th>
+                <th className="py-2 pr-3">Reason</th>
+                <th className="py-2 text-right">Save</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const draft = drafts[row.variation_key] || {};
+                return (
+                  <tr key={row.variation_key} className="border-b border-white/5 align-top">
+                    <td className="py-3 pr-3 text-white">
+                      <div className="font-bold">{row.variation_label || row.variation_key}</div>
+                      <div className="text-[11px] text-zinc-500">{row.variation_key}</div>
+                      {row.manual_override_updated_at && (
+                        <div className="text-[11px] text-zinc-500 mt-1">
+                          Updated {new Date(row.manual_override_updated_at).toLocaleString()}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3 pr-3 text-right text-zinc-400">{money(row.calculated_base_product_cost)}</td>
+                    <td className="py-3 pr-3"><PriceInput value={draft.base_product_cost} onChange={(value) => updateDraft(row.variation_key, { base_product_cost: value })} disabled={!draft.enabled} /></td>
+                    <td className="py-3 pr-3 text-right text-zinc-400">{money(row.calculated_print_cost)}</td>
+                    <td className="py-3 pr-3"><PriceInput value={draft.print_cost} onChange={(value) => updateDraft(row.variation_key, { print_cost: value })} disabled={!draft.enabled} /></td>
+                    <td className="py-3 pr-3 text-right text-zinc-400">{money(row.calculated_selling_price)}</td>
+                    <td className="py-3 pr-3"><PriceInput value={draft.selling_price} onChange={(value) => updateDraft(row.variation_key, { selling_price: value })} disabled={!draft.enabled} /></td>
+                    <td className="py-3 pr-3 text-right font-bold text-white">{money(row.effective_selling_price)}</td>
+                    <td className={`py-3 pr-3 text-right font-bold ${Number(row.effective_creator_amount || 0) < 0 ? "text-[#FFB4B0]" : "text-[#A7F3C4]"}`}>{money(row.effective_creator_amount)}</td>
+                    <td className="py-3 pr-3">
+                      <label className="inline-flex items-center gap-2 text-xs text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(draft.enabled)}
+                          onChange={(event) => updateDraft(row.variation_key, { enabled: event.target.checked })}
+                        />
+                        Active
+                      </label>
+                    </td>
+                    <td className="py-3 pr-3">
+                      <textarea
+                        className="input-base min-w-[220px]"
+                        rows={2}
+                        value={draft.reason || ""}
+                        onChange={(event) => updateDraft(row.variation_key, { reason: event.target.value })}
+                        placeholder="Required for audit trail"
+                      />
+                    </td>
+                    <td className="py-3 text-right">
+                      <button type="button" className="btn-secondary text-xs" disabled={saving} onClick={() => saveRow(row)}>
+                        {saving ? "Saving..." : "Save"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!rows.length && (
+                <tr><td colSpan={12} className="py-8 text-center overline text-zinc-500">No pricing rows available</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PriceInput({ value, onChange, disabled = false }) {
+  return (
+    <input
+      className="input-base max-w-[140px]"
+      type="number"
+      min="0"
+      step="0.01"
+      value={value ?? ""}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
 function CreatorPublishingPanel({ product, publishing, onPublish }) {
   const artworkStatus = getCreatorProductArtworkStatus(product);
   const published = isCreatorProductPublished(product);
@@ -1663,6 +1898,7 @@ function CreatorPublishingPanel({ product, publishing, onPublish }) {
   const readyToPublish = canPublishCreatorProduct(product);
   const rejectionReason = getCreatorProductRejectionReason(product);
   const pricingOverrideActive = Boolean(product?.pricing_override_approved);
+  const manualPricingActive = Boolean(product?.manual_pricing_override_active);
 
   let heading = "Awaiting review";
   let copy = "This product is still waiting for artwork approval before it can be published.";
@@ -1700,6 +1936,11 @@ function CreatorPublishingPanel({ product, publishing, onPublish }) {
           {pricingOverrideActive && (
             <p className="text-xs mt-3 text-amber-100">
               Pricing approved by FandomForge. This product has a pricing override approved by the platform.
+            </p>
+          )}
+          {manualPricingActive && (
+            <p className="text-xs mt-3 text-amber-100">
+              FandomForge has adjusted pricing for this product. Effective selling price: {money(product.effective_selling_price || product.selling_price)}.
             </p>
           )}
         </div>

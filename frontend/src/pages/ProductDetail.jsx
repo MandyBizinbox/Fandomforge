@@ -13,6 +13,7 @@ import {
   findSelectedVariation,
   getProductGalleryImages,
   getProductPrimaryImage,
+  getEffectiveSellingPrice,
   getVariationColour,
   getVariationLabel,
   getVariationSize,
@@ -91,7 +92,7 @@ export default function ProductDetail() {
     loadProductTemplate();
   }, [product?.template_id]);
 
-  const unitPrice = variation?.price_override ?? product?.selling_price ?? 0;
+  const unitPrice = getEffectiveSellingPrice(product, variation);
   const variationLabel = variation ? getVariationLabel(variation) : "";
 
   if (loading || !product) {
@@ -382,4 +383,3 @@ function SizeChartDisplay({ sizeChart }) {
     </section>
   );
 }
-

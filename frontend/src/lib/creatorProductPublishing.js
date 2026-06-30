@@ -18,6 +18,11 @@ export function needsCreatorPricingApproval(product = {}) {
 
 export function effectiveCreatorPricingStatus(product = {}) {
   if (product?.pricing_override_approved) return "override_approved";
+  if (product?.manual_pricing_override_active) {
+    return Number(product?.effective_creator_amount ?? product?.estimated_creator_profit ?? 0) < 0
+      ? "price_below_minimum"
+      : "not_required";
+  }
   if (Number(product?.estimated_creator_profit || 0) < 0) return "price_below_minimum";
   if (product?.requires_creator_pricing_approval || product?.creator_pricing_approval_status === "pending_creator_approval") {
     return "pending_creator_approval";

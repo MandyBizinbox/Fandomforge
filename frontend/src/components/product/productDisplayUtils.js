@@ -52,6 +52,15 @@ export function getVariationSize(variation = {}) {
   return entry?.[1] || variation.size || "";
 }
 
+export function getEffectiveSellingPrice(product = {}, variation = null) {
+  const variationPrice = variation?.effective_selling_price;
+  if (variationPrice !== undefined && variationPrice !== null && variationPrice !== "") return Number(variationPrice || 0);
+  const productPrice = product?.effective_selling_price;
+  if (productPrice !== undefined && productPrice !== null && productPrice !== "") return Number(productPrice || 0);
+  if (variation?.price_override !== undefined && variation?.price_override !== null && variation?.price_override !== "") return Number(variation.price_override || 0);
+  return Number(product?.selling_price || 0);
+}
+
 export function uniqueValues(values = []) {
   return Array.from(new Set(values.filter((value) => value !== undefined && value !== null && String(value).trim() !== "")));
 }

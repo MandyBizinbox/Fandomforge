@@ -2917,7 +2917,7 @@ async def band_products(
         q["published"] = True
 
     docs = await db.products.find(q, {"_id": 0}).to_list(500)
-    return [Product(**d) for d in docs]
+    return [Product(**_decorate_product_effective_pricing(d)) for d in docs]
 
 
 # =============================================================================
@@ -3834,6 +3834,7 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
         "pricing_override_by": data.get("pricing_override_by"),
         "pricing_override_at": data.get("pricing_override_at"),
         "pricing_override_role": data.get("pricing_override_role"),
+        "manual_pricing_overrides": data.get("manual_pricing_overrides") or {},
         "costing_breakdown": {
             "blank_supplier_cost": costing["blank_supplier_cost"],
             "platform_blank_cost": costing["platform_blank_cost"],
@@ -3874,7 +3875,9 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
             raise HTTPException(status_code=400, detail="Artwork is required before publishing")
         if review_status != "approved":
             raise HTTPException(status_code=400, detail="Artwork must be approved before publishing")
-        if creator_profit < 0 and not pricing_override_approved:
+        effective_rows = _product_variation_pricing_rows(data, template, commission_rate)
+        pricing_below_minimum = any(float(row.get("effective_creator_amount") or 0) < 0 for row in effective_rows)
+        if pricing_below_minimum and not pricing_override_approved:
             raise HTTPException(status_code=400, detail="Selling price is below the minimum profitable price")
 
     artwork = data.get("artwork") or {}
@@ -4022,7 +4025,7 @@ async def list_products(
         q["band_id"] = {"$in": public_creator_ids}
 
     docs = await db.products.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
-    return [Product(**d) for d in docs]
+    return [Product(**_decorate_product_effective_pricing(d)) for d in docs]
 
 
 @products_router.get("/mine", response_model=List[Product])
@@ -4033,7 +4036,7 @@ async def my_products(
     db = request.app.state.db
     creator = await get_creator_account_for_user(db, user, permission="manage_products")
     docs = await db.products.find({"band_id": creator["id"]}, {"_id": 0}).to_list(500)
-    return [Product(**d) for d in docs]
+    return [Product(**_decorate_product_effective_pricing(d)) for d in docs]
 
 
 @products_router.post("/{product_id}/approve-pricing", response_model=Product)
@@ -4060,7 +4063,10 @@ async def approve_product_pricing_update(
 
     await db.products.update_one({"id": product_id}, {"$set": updates})
     doc = await db.products.find_one({"id": product_id}, {"_id": 0})
-    return Product(**doc)
+    template = None
+    if doc.get("template_id"):
+        template = await db.product_templates.find_one({"id": doc.get("template_id")}, {"_id": 0})
+    return Product(**_decorate_product_effective_pricing(doc, template=template))
 
 
 @products_router.get("/{product_id}", response_model=Product)
@@ -4074,7 +4080,10 @@ async def get_product(
     if not doc:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    return Product(**doc)
+    template = None
+    if doc.get("template_id"):
+        template = await db.product_templates.find_one({"id": doc.get("template_id")}, {"_id": 0})
+    return Product(**_decorate_product_effective_pricing(doc, template=template))
 
 
 @products_router.patch("/{product_id}", response_model=Product)
@@ -4113,7 +4122,10 @@ async def update_product(
 
     await db.products.update_one({"id": product_id}, {"$set": update_doc})
     doc = await db.products.find_one({"id": product_id}, {"_id": 0})
-    return Product(**doc)
+    template = None
+    if doc.get("template_id"):
+        template = await db.product_templates.find_one({"id": doc.get("template_id")}, {"_id": 0})
+    return Product(**_decorate_product_effective_pricing(doc, template=template))
 
 
 @products_router.delete("/{product_id}")
@@ -4659,6 +4671,171 @@ def _variation_label(variation: dict) -> str:
         return " / ".join(f"{k}: {v}" for k, v in attrs.items() if str(v).strip())
     parts = [variation.get("size"), variation.get("color"), variation.get("sku")]
     return " / ".join(str(p) for p in parts if p) or "Variation"
+
+
+def _manual_pricing_key(variation: Optional[dict] = None) -> str:
+    if not variation:
+        return "default"
+    for key in ("id", "template_variation_id", "sku"):
+        value = variation.get(key)
+        if value:
+            return str(value)
+    return "default"
+
+
+def _manual_pricing_overrides(product: Optional[dict] = None) -> dict:
+    overrides = (product or {}).get("manual_pricing_overrides") or {}
+    return overrides if isinstance(overrides, dict) else {}
+
+
+def _active_manual_pricing_override(product: dict, variation: Optional[dict] = None) -> tuple[str, Optional[dict]]:
+    overrides = _manual_pricing_overrides(product)
+    exact_key = _manual_pricing_key(variation)
+    for key in (exact_key, "default"):
+        override = overrides.get(key)
+        if isinstance(override, dict) and override.get("enabled") is True:
+            return key, override
+    return exact_key, None
+
+
+def _safe_non_negative_number(value: Any, field_name: str, allow_none: bool = True) -> Optional[float]:
+    if value is None or value == "":
+        if allow_none:
+            return None
+        raise HTTPException(status_code=400, detail=f"{field_name} is required")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be numeric")
+    if number < 0:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be zero or greater")
+    return _money_round(number)
+
+
+def _effective_product_pricing(
+    product: dict,
+    variation: Optional[dict] = None,
+    template: Optional[dict] = None,
+    commission_rate: Optional[float] = None,
+    quantity: int = 1,
+) -> dict:
+    variation_key, override = _active_manual_pricing_override(product, variation)
+    template_variation = None
+    if template and variation:
+        template_variation = (
+            _find_by_id((template or {}).get("variations") or [], variation.get("template_variation_id"))
+            or _find_by_id((template or {}).get("variations") or [], variation.get("id"))
+        )
+
+    blank_costing = _resolve_blank_costing(template_variation or variation, template)
+    calculated_base_cost = _money_round(blank_costing.get("creator_blank_price") or product.get("creator_blank_price") or product.get("estimated_blank_cost") or 0)
+    calculated_platform_blank_cost = _money_round(blank_costing.get("platform_blank_cost") or product.get("platform_blank_cost") or 0)
+    calculated_print_cost = _money_round(product.get("creator_print_price") or product.get("print_cost") or product.get("estimated_print_cost") or 0)
+    calculated_platform_print_cost = _money_round(product.get("platform_print_cost") or calculated_print_cost)
+    calculated_selling_price = _money_round(
+        (variation or {}).get("price_override")
+        if (variation or {}).get("price_override") is not None
+        else product.get("selling_price") or product.get("customer_selling_price") or 0
+    )
+
+    manual_active = bool(override)
+    effective_base_cost = _money_round(override.get("base_product_cost") if manual_active and override.get("base_product_cost") is not None else calculated_base_cost)
+    effective_print_cost = _money_round(override.get("print_cost") if manual_active and override.get("print_cost") is not None else calculated_print_cost)
+    effective_selling_price = _money_round(override.get("selling_price") if manual_active and override.get("selling_price") is not None else calculated_selling_price)
+    rate = float(commission_rate if commission_rate is not None else product.get("commission_rate") or 0.15)
+
+    costing = _platform_costing_breakdown(
+        calculated_platform_blank_cost,
+        calculated_platform_print_cost,
+        rate,
+        effective_selling_price,
+        quantity,
+        creator_blank_price=effective_base_cost,
+        creator_print_price=effective_print_cost,
+    )
+    creator_amount = _money_round(
+        override.get("creator_amount")
+        if manual_active and override.get("creator_amount") is not None
+        else costing["creator_profit_unit"]
+    )
+
+    return {
+        "variation_key": variation_key,
+        "variation_label": _variation_label(variation or {}) if variation else "Default product pricing",
+        "calculated_base_product_cost": calculated_base_cost,
+        "calculated_print_cost": calculated_print_cost,
+        "calculated_selling_price": calculated_selling_price,
+        "calculated_minimum_selling_price": _minimum_selling_price_for_cost(calculated_base_cost + calculated_print_cost, rate),
+        "calculated_creator_amount": _money_round(calculated_selling_price - (calculated_base_cost + calculated_print_cost) - (calculated_selling_price * rate)),
+        "effective_base_product_cost": effective_base_cost,
+        "effective_print_cost": effective_print_cost,
+        "effective_selling_price": effective_selling_price,
+        "effective_platform_commission_amount": _money_round(effective_selling_price * rate),
+        "effective_creator_amount": creator_amount,
+        "effective_minimum_selling_price": costing["minimum_selling_price"],
+        "manual_override_active": manual_active,
+        "manual_override_reason": override.get("reason") if manual_active else None,
+        "manual_override_updated_by": override.get("updated_by") if manual_active else None,
+        "manual_override_updated_by_role": override.get("updated_by_role") if manual_active else None,
+        "manual_override_updated_at": override.get("updated_at") if manual_active else None,
+        "manual_override": override if manual_active else None,
+        "costing": costing,
+    }
+
+
+def _product_variation_pricing_rows(product: dict, template: Optional[dict] = None, commission_rate: Optional[float] = None) -> List[dict]:
+    variations = product.get("variations") or []
+    if not variations:
+        variations = [{"id": "default", "attribute_values": {}, "size": "Default", "color": ""}]
+    return [
+        _effective_product_pricing(product, variation, template, commission_rate, quantity=1)
+        for variation in variations
+    ]
+
+
+def _decorate_product_effective_pricing(product: dict, *, template: Optional[dict] = None, expose_manual_overrides: bool = False) -> dict:
+    doc = {**(product or {})}
+    rows = _product_variation_pricing_rows(doc, template, doc.get("commission_rate"))
+    rows_by_key = {row["variation_key"]: row for row in rows}
+    default_row = rows_by_key.get("default") or (rows[0] if rows else _effective_product_pricing(doc, None, template, doc.get("commission_rate")))
+
+    doc["effective_selling_price"] = default_row["effective_selling_price"]
+    doc["effective_creator_amount"] = default_row["effective_creator_amount"]
+    doc["manual_pricing_override_active"] = any(row["manual_override_active"] for row in rows)
+    decorated_variations = []
+    for variation in doc.get("variations") or []:
+        key = _manual_pricing_key(variation)
+        row = rows_by_key.get(key) or rows_by_key.get("default") or default_row
+        decorated_variations.append({
+            **variation,
+            "effective_selling_price": row["effective_selling_price"],
+            "effective_creator_amount": row["effective_creator_amount"],
+            "manual_pricing_override_active": row["manual_override_active"],
+        })
+    doc["variations"] = decorated_variations
+    if not expose_manual_overrides:
+        doc.pop("manual_pricing_overrides", None)
+    return doc
+
+
+async def _product_pricing_control_response(db, product: dict) -> dict:
+    template = None
+    if product.get("template_id"):
+        template = await db.product_templates.find_one({"id": product.get("template_id")}, {"_id": 0})
+    creator = await db.creators.find_one({"id": product.get("band_id")}, {"_id": 0})
+    rate = float(product.get("commission_rate") or _creator_platform_commission_rate(creator, DEFAULT_PLATFORM_COMMISSION_RATE))
+    rows = _product_variation_pricing_rows(product, template, rate)
+    return {
+        "product": _decorate_product_effective_pricing(product, template=template, expose_manual_overrides=True),
+        "creator": {
+            "id": (creator or {}).get("id"),
+            "name": (creator or {}).get("name") or (creator or {}).get("display_name"),
+            "commission_rate": rate,
+        },
+        "commission_rate": rate,
+        "manual_pricing_overrides": _manual_pricing_overrides(product),
+        "variations": rows,
+    }
 
 
 
@@ -5462,6 +5639,10 @@ async def _manual_order_cart_items_for_products(db, lines: List[ManualOrderCreat
         if not variation:
             raise HTTPException(status_code=400, detail=f"Variation not found for product: {product.get('title')}")
 
+        template = None
+        if product.get("template_id"):
+            template = await db.product_templates.find_one({"id": product.get("template_id")}, {"_id": 0})
+        effective_pricing = _effective_product_pricing(product, variation, template, product.get("commission_rate"), line.quantity)
         attrs = variation.get("attribute_values") or {}
         cart_items.append(CartItem(
             product_id=product["id"],
@@ -5470,7 +5651,7 @@ async def _manual_order_cart_items_for_products(db, lines: List[ManualOrderCreat
             variation_id=variation["id"],
             size=variation.get("size") or attrs.get("Size") or attrs.get("size") or "",
             color=variation.get("color") or attrs.get("Colour") or attrs.get("Color") or attrs.get("colour") or attrs.get("color") or "",
-            unit_price=float(product.get("selling_price") or 0),
+            unit_price=float(effective_pricing["effective_selling_price"] or 0),
             quantity=line.quantity,
             mockup_url=(product.get("mockup_images") or [None])[0],
         ))
@@ -5542,13 +5723,10 @@ async def _build_order_items(db, items: List[CartItem], shipping_address: Option
         creator = await db.creators.find_one({"id": product["band_id"]}, {"_id": 0})
         rate = _creator_platform_commission_rate(creator, default_rate)
 
-        unit_price = float(product["selling_price"])
         product_variation = None
         for v in product.get("variations", []) or []:
             if v.get("id") == ci.variation_id:
                 product_variation = v
-                if v.get("price_override") is not None:
-                    unit_price = float(v["price_override"])
                 break
 
         template = None
@@ -5594,18 +5772,8 @@ async def _build_order_items(db, items: List[CartItem], shipping_address: Option
             template,
         )
 
-        platform_blank_cost = float(
-            product.get("platform_blank_cost")
-            or blank_costing["platform_blank_cost"]
-            or product.get("estimated_blank_supplier_cost")
-            or product.get("blank_supplier_cost")
-            or 0
-        )
-        creator_blank_price = float(
-            product.get("creator_blank_price")
-            or blank_costing["creator_blank_price"]
-            or 0
-        )
+        platform_blank_cost = float(product.get("platform_blank_cost") or blank_costing["platform_blank_cost"] or product.get("estimated_blank_supplier_cost") or product.get("blank_supplier_cost") or 0)
+        creator_blank_price = float(product.get("creator_blank_price") or blank_costing["creator_blank_price"] or 0)
 
         primary_slot = _primary_priced_artwork_slot_for_product(product)
         primary_print_option = {}
@@ -5633,20 +5801,14 @@ async def _build_order_items(db, items: List[CartItem], shipping_address: Option
             or 0
         )
 
-        costing = _platform_costing_breakdown(
-            platform_blank_cost,
-            platform_print_cost,
-            rate,
-            unit_price,
-            ci.quantity,
-            creator_blank_price=creator_blank_price,
-            creator_print_price=creator_print_price,
-        )
+        effective_pricing = _effective_product_pricing(product, product_variation, template, rate, ci.quantity)
+        unit_price = float(effective_pricing["effective_selling_price"])
+        costing = effective_pricing["costing"]
 
         print_cost = costing["print_payout_unit"]
         production_unit_cost = costing["production_unit_cost"]
         commission_amount = costing["commission_unit"]
-        band_earnings = costing["creator_profit_unit"]
+        band_earnings = float(effective_pricing["effective_creator_amount"])
         printer_payout = costing["production_unit_cost"]
 
         production_snapshot = _build_production_snapshot(product, template, product_variation, ci.quantity)
@@ -5667,11 +5829,13 @@ async def _build_order_items(db, items: List[CartItem], shipping_address: Option
             "print_payout_unit": costing["print_payout_unit"],
             "production_unit_cost": costing["production_unit_cost"],
             "minimum_selling_price": costing["minimum_selling_price"],
+            "manual_pricing_override_active": effective_pricing["manual_override_active"],
+            "manual_pricing_override_reason": effective_pricing["manual_override_reason"],
         }
         production_snapshot["production_cost"] = costing["production_cost"]
         production_snapshot["printer_payout"] = costing["printer_payout"]
         production_snapshot["platform_commission"] = costing["platform_commission"]
-        production_snapshot["creator_profit"] = costing["creator_profit"]
+        production_snapshot["creator_profit"] = _money_round(band_earnings * ci.quantity)
         production_snapshot["platform_blank_profit"] = costing["platform_blank_profit"]
         production_snapshot["platform_print_profit"] = costing["platform_print_profit"]
         production_snapshot["estimated_platform_profit"] = costing["estimated_platform_profit"]
@@ -6732,6 +6896,20 @@ class AdminProductPricingOverrideUpdate(BaseModel):
     reason: str
 
 
+class AdminManualPricingOverrideRow(BaseModel):
+    variation_key: str = "default"
+    enabled: bool = True
+    base_product_cost: Optional[float] = None
+    print_cost: Optional[float] = None
+    selling_price: Optional[float] = None
+    creator_amount: Optional[float] = None
+    reason: Optional[str] = None
+
+
+class AdminProductPricingControlUpdate(BaseModel):
+    overrides: List[AdminManualPricingOverrideRow] = Field(default_factory=list)
+
+
 class AdminCreatorCreate(BaseModel):
     name: str
     slug: Optional[str] = None
@@ -6967,6 +7145,15 @@ async def _build_artwork_review_rows(db, status: Optional[str] = None, product_i
 def _product_requires_creator_pricing_approval(product: dict) -> bool:
     if product.get("pricing_override_approved"):
         return False
+    try:
+        rows = _product_variation_pricing_rows(product, None, product.get("commission_rate"))
+        if rows:
+            below_minimum = any(float(row.get("effective_creator_amount") or 0) < 0 for row in rows)
+            if not below_minimum:
+                return False
+            return True
+    except Exception:
+        pass
     return bool(product.get("requires_creator_pricing_approval") or product.get("creator_pricing_approval_status") == "pending_creator_approval")
 
 
@@ -8796,7 +8983,7 @@ async def admin_products(
     _require_manager_permission(user, "manage_products")
     db = request.app.state.db
     docs = await db.products.find({}, {"_id": 0}).to_list(500)
-    return [Product(**d) for d in docs]
+    return [Product(**_decorate_product_effective_pricing(d, expose_manual_overrides=True)) for d in docs]
 
 
 @admin_router.post("/products", response_model=Product)
@@ -8869,7 +9056,10 @@ async def admin_get_product(
     if not doc:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    return Product(**doc)
+    template = None
+    if doc.get("template_id"):
+        template = await db.product_templates.find_one({"id": doc.get("template_id")}, {"_id": 0})
+    return Product(**_decorate_product_effective_pricing(doc, template=template, expose_manual_overrides=True))
 
 
 @admin_router.patch("/products/{product_id}/pricing-override", response_model=Product)
@@ -8919,6 +9109,102 @@ async def admin_update_product_pricing_override(
     await db.order_events.insert_one(order_event_doc(event))
 
     return Product(**doc)
+
+
+@admin_router.get("/products/{product_id}/pricing-control")
+async def admin_get_product_pricing_control(
+    product_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return await _product_pricing_control_response(db, product)
+
+
+@admin_router.patch("/products/{product_id}/pricing-control")
+async def admin_update_product_pricing_control(
+    product_id: str,
+    payload: AdminProductPricingControlUpdate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    db = request.app.state.db
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    variations = product.get("variations") or []
+    valid_keys = {"default"}
+    for variation in variations:
+        valid_keys.add(_manual_pricing_key(variation))
+        if variation.get("template_variation_id"):
+            valid_keys.add(str(variation.get("template_variation_id")))
+        if variation.get("sku"):
+            valid_keys.add(str(variation.get("sku")))
+
+    overrides = _manual_pricing_overrides(product).copy()
+    now = utcnow().isoformat()
+    changed = False
+
+    for row in payload.overrides:
+        variation_key = (row.variation_key or "default").strip() or "default"
+        if variation_key not in valid_keys:
+            raise HTTPException(status_code=400, detail=f"Unknown variation key: {variation_key}")
+
+        reason = (row.reason or "").strip()
+        if not reason:
+            raise HTTPException(status_code=400, detail=f"Reason is required for {variation_key}")
+
+        if row.enabled:
+            overrides[variation_key] = {
+                "enabled": True,
+                "base_product_cost": _safe_non_negative_number(row.base_product_cost, "base_product_cost"),
+                "print_cost": _safe_non_negative_number(row.print_cost, "print_cost"),
+                "selling_price": _safe_non_negative_number(row.selling_price, "selling_price", allow_none=False),
+                "creator_amount": _safe_non_negative_number(row.creator_amount, "creator_amount"),
+                "reason": reason,
+                "updated_by": user.id,
+                "updated_by_role": user.role,
+                "updated_at": now,
+            }
+        else:
+            overrides[variation_key] = {
+                **(overrides.get(variation_key) or {}),
+                "enabled": False,
+                "reason": reason,
+                "updated_by": user.id,
+                "updated_by_role": user.role,
+                "updated_at": now,
+            }
+        changed = True
+
+    if not changed:
+        raise HTTPException(status_code=400, detail="No pricing overrides supplied")
+
+    await db.products.update_one(
+        {"id": product_id},
+        {"$set": {"manual_pricing_overrides": overrides, "updated_at": now}},
+    )
+    updated = await db.products.find_one({"id": product_id}, {"_id": 0})
+
+    event = OrderEvent(
+        product_id=updated.get("id"),
+        product_title=updated.get("title"),
+        band_id=updated.get("band_id"),
+        actor_user_id=user.id,
+        actor_role=user.role,
+        audience=["admin"],
+        kind="system",
+        title="Manual pricing override updated",
+        message="Admin Pricing Control manual pricing override updated.",
+        metadata={"variation_keys": [row.variation_key for row in payload.overrides]},
+    )
+    await db.order_events.insert_one(order_event_doc(event))
+
+    return await _product_pricing_control_response(db, updated)
 
 
 @admin_router.patch("/products/{product_id}", response_model=Product)
