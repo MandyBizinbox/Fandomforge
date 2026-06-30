@@ -1815,6 +1815,19 @@ html[data-theme-bg-tone] .admin-workspace .sidebar-link:hover {
   overflow: hidden !important;
 }
 
+.admin-workspace .pricing-step-full-width {
+  width: 100%;
+  max-width: none !important;
+  min-width: 0;
+  grid-column: 1 / -1;
+  align-self: stretch;
+}
+
+.admin-workspace .pricing-step-full-width > * {
+  width: 100%;
+  max-width: none;
+}
+
 .admin-workspace .product-builder-aside {
   width: 340px;
   max-width: 340px;

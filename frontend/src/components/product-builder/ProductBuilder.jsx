@@ -1342,7 +1342,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
     : "Price below minimum";
 
   return (
-    <section className={compact ? "border border-white/10 bg-black/20 rounded-xl p-4" : "card"}>
+    <section className={compact ? "border border-white/10 bg-black/20 rounded-xl p-4 w-full" : "card w-full"}>
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-5">
         <div>
           <div className="overline mb-1">Pricing Summary</div>
@@ -1355,7 +1355,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-4 text-sm">
+      <div className="grid lg:grid-cols-2 2xl:grid-cols-4 gap-4 text-sm">
         <PricingSummaryGroup title="Cost inputs">
           <PricingSummaryMetric label="Base product cost" value={money(pricing.blank)} />
           <PricingSummaryMetric label="Estimated print cost" value={printCostValue} />
@@ -1473,7 +1473,7 @@ function PricingStep({
   };
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="pricing-step-full-width w-full max-w-none space-y-6">
       <div>
         <div className="overline mb-1">Pricing</div>
         <p className="text-sm text-zinc-500 max-w-3xl">
@@ -1483,7 +1483,7 @@ function PricingStep({
 
       <PricingSummaryPanel pricing={pricing} sellingPrice={form.selling_price} product={product} isAdmin={isAdmin} />
 
-      <section className="card">
+      <section className="card w-full">
         <div className="mb-4">
           <div className="overline mb-1">Retail Pricing</div>
           <h2 className="font-display text-2xl uppercase text-white">Default Retail Selling Price</h2>
@@ -1916,7 +1916,7 @@ function VariationPricingMatrix({
   if (!rows.length) return null;
 
   return (
-    <section className="card" data-testid="variation-pricing-matrix">
+    <section className="card w-full" data-testid="variation-pricing-matrix">
       <div className="p-5">
         <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-5">
           <div>
@@ -1952,7 +1952,7 @@ function VariationPricingMatrix({
         {loadingPricingControl && canManagePricingControl ? (
           <div className="overline text-zinc-500">Loading pricing control...</div>
         ) : (
-          <div className="overflow-x-auto border border-white/10 rounded-xl">
+          <div className="w-full overflow-x-auto border border-white/10 rounded-xl">
           <table className={`w-full text-xs ${canManagePricingControl ? "min-w-[1680px]" : "min-w-[920px]"}`}>
             <colgroup>
               <col className={canManagePricingControl ? "w-[280px]" : "w-[260px]"} />
