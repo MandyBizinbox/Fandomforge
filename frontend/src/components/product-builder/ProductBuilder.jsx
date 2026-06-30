@@ -1302,41 +1302,62 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
   const overrideActive = Boolean(product?.pricing_override_approved || pricing.pricingOverrideApproved);
   const manualPricingActive = Boolean(product?.manual_pricing_override_active);
   const effectivePricingStatus = getEffectivePricingStatus(product, pricing);
-  const priceResolved = !hasEffectivePricingBlocker(product, pricing);
   const sourceLabel = pricing.commissionSource === "default"
     ? "default"
     : pricing.commissionSource === "monthly_package"
     ? "monthly package"
     : "creator rate";
+  const statusTone = pricing.canPublishProfitably
+    ? "border-[#34C759]/40 text-[#A7F3C4] bg-[#34C759]/10"
+    : overrideActive || manualPricingActive
+    ? "border-amber-400/50 text-amber-100 bg-amber-500/10"
+    : "border-[#FF3B30]/50 text-[#FFB4B0] bg-[#FF3B30]/10";
+  const statusLabel = pricing.canPublishProfitably
+    ? "Price covers estimated costs"
+    : overrideActive
+    ? "Pricing override approved"
+    : manualPricingActive
+    ? "Manual override active"
+    : "Price below minimum";
 
   return (
     <section className={compact ? "border border-white/10 bg-black/20 rounded-xl p-4" : "card"}>
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-5">
         <div>
-          <div className="overline mb-1">Pricing summary</div>
+          <div className="overline mb-1">Pricing Summary</div>
           <p className="text-sm text-zinc-500 max-w-3xl">
-            Pricing updates as you choose your product, print area and options. Final pricing may be reviewed before the product goes live to make sure production costs are correct.
+            Pricing updates as product, artwork, print method, and variation settings change.
           </p>
         </div>
-        <div className={`text-xs rounded-lg px-3 py-2 border ${priceResolved ? "border-[#34C759]/40 text-[#A7F3C4] bg-[#34C759]/10" : "border-[#FF3B30]/50 text-[#FFB4B0] bg-[#FF3B30]/10"}`}>
-          {pricing.canPublishProfitably ? "Price covers estimated costs" : overrideActive ? "Below minimum — override approved" : "Price may be too low"}
+        <div className={`text-xs rounded-lg px-3 py-2 border font-bold uppercase tracking-widest ${statusTone}`}>
+          {statusLabel}
         </div>
       </div>
 
-      <p className="text-xs text-zinc-500 mb-4">
-        Base product cost + print cost + platform commission must be covered before creator/fundraising earnings are available.
-      </p>
+      <div className="grid lg:grid-cols-2 gap-4 text-sm">
+        <PricingSummaryGroup title="Cost inputs">
+          <PricingSummaryMetric label="Base product cost" value={money(pricing.blank)} />
+          <PricingSummaryMetric label="Estimated print cost" value={printCostValue} />
+          <PricingSummaryMetric label="Estimated production cost" value={money(pricing.production)} />
+        </PricingSummaryGroup>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-        <Info label="Base product cost" value={money(pricing.blank)} />
-        <Info label="Estimated print cost" value={printCostValue} />
-        <Info label="Estimated production cost" value={money(pricing.production)} />
-        <Info label={`Platform commission ${Number((pricing.rate || 0) * 100).toFixed(2)}% ${sourceLabel}`} value={money(pricing.commission)} />
-        <Info label="Minimum selling price" value={money(minimumSellingPrice)} />
-        <Info label="Your selling price" value={money(manualPricingActive ? pricing.price : sellingPrice)} />
-        <Info label="Estimated creator/fundraising amount" value={money(pricing.profit)} />
-        <Info label="Effective pricing status" value={effectivePricingStatus === "override_approved" ? "override_approved" : effectivePricingStatusLabel(product, pricing)} />
-        {manualPricingActive && <Info label="Manual pricing override" value="Active" />}
+        <PricingSummaryGroup title="Platform fees">
+          <PricingSummaryMetric label="Commission rate" value={`${Number((pricing.rate || 0) * 100).toFixed(2)}%`} />
+          <PricingSummaryMetric label="Commission source" value={sourceLabel} />
+          <PricingSummaryMetric label="Commission amount" value={money(pricing.commission)} />
+        </PricingSummaryGroup>
+
+        <PricingSummaryGroup title="Selling outcome">
+          <PricingSummaryMetric label="Minimum selling price" value={money(minimumSellingPrice)} />
+          <PricingSummaryMetric label="Current selling price" value={money(manualPricingActive ? pricing.price : sellingPrice)} />
+          <PricingSummaryMetric label="Creator/fundraising amount" value={money(pricing.profit)} valueClassName={Number(pricing.profit || 0) < 0 ? "text-[#FFB4B0]" : "text-white"} />
+        </PricingSummaryGroup>
+
+        <PricingSummaryGroup title="Status">
+          <PricingSummaryMetric label="Effective pricing status" value={effectivePricingStatus === "override_approved" ? "override_approved" : effectivePricingStatusLabel(product, pricing)} />
+          <PricingSummaryMetric label="Manual override" value={manualPricingActive ? "Active" : "Not active"} valueClassName={manualPricingActive ? "text-amber-100" : "text-zinc-300"} />
+          <PricingSummaryMetric label="Pricing blocker override" value={overrideActive ? "Approved" : "Not approved"} valueClassName={overrideActive ? "text-amber-100" : "text-zinc-300"} />
+        </PricingSummaryGroup>
       </div>
 
       {manualPricingActive && (
@@ -1374,6 +1395,24 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         </div>
       )}
     </section>
+  );
+}
+
+function PricingSummaryGroup({ title, children }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+      <div className="overline mb-3">{title}</div>
+      <div className="grid gap-3">{children}</div>
+    </div>
+  );
+}
+
+function PricingSummaryMetric({ label, value, valueClassName = "text-white" }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-white/5 pb-2 last:border-b-0 last:pb-0">
+      <span className="text-xs uppercase tracking-widest text-zinc-500">{label}</span>
+      <span className={`font-bold text-right ${valueClassName}`}>{value}</span>
+    </div>
   );
 }
 
@@ -1427,7 +1466,7 @@ function PricingStep({
         <div className="mb-4">
           <div className="overline mb-1">Retail Pricing</div>
           <h2 className="font-display text-2xl uppercase text-white">Default Retail Selling Price</h2>
-          <p className="text-xs text-zinc-500 mt-1">Set the selling price customers will see.</p>
+          <p className="text-xs text-zinc-500 mt-1">Set the default selling price customers will see. Variation prices can override this below.</p>
         </div>
 
         <div className="grid md:grid-cols-2 gap-4">
@@ -1459,77 +1498,18 @@ function PricingStep({
         </div>
       </section>
 
-      {safeSelectedVariations.length > 0 && (
-      <section className="card">
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <div className="overline mb-1">Variation Selling Prices</div>
-            <h2 className="font-display text-2xl uppercase text-white">Retail price per variation</h2>
-            <p className="text-xs text-zinc-500 mt-1">
-              Most products can use the default selling price. Override a variation only when that size, colour, or option should sell at a different price.
-            </p>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[760px]">
-            <thead>
-              <tr className="text-left text-zinc-500 border-b border-white/10">
-                <th className="py-2 pr-3">Variation</th>
-                <th className="py-2 pr-3">SKU</th>
-                <th className="py-2 pr-3 text-right">Base product cost</th>
-                <th className="py-2 pr-3">Selling price override</th>
-                <th className="py-2 text-right">Effective price</th>
-              </tr>
-            </thead>
-            <tbody>
-              {safeSelectedVariations.map((variation) => {
-                const overrideValue = overrides[variation.id] ?? "";
-                const effectivePrice = overrideValue === "" || overrideValue === null || overrideValue === undefined
-                  ? Number(form.selling_price || 0)
-                  : Number(overrideValue || 0);
-                const variationProductionCost = getVariationCost(variation, null) + Number(pricing.print || 0);
-                const variationMinimumPrice = pricing.rate >= 1 ? variationProductionCost : Math.ceil((variationProductionCost / (1 - pricing.rate)) * 100) / 100;
-                const overrideTooLow = effectivePrice > 0 && effectivePrice < variationMinimumPrice;
-
-                return (
-                  <tr key={variation.id} className="border-b border-white/5 align-top">
-                    <td className="py-3 pr-3 text-white">{variation.label || Object.entries(variation.attributes || {}).map(([k, v]) => `${k}: ${v}`).join(" / ") || variation.id}</td>
-                    <td className="py-3 pr-3 text-zinc-400">{variation.sku || "—"}</td>
-                    <td className="py-3 pr-3 text-right text-zinc-400">{money(getVariationCost(variation, null))}</td>
-                    <td className="py-3 pr-3">
-                      <input
-                        className="input-base max-w-[150px]"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={overrideValue}
-                        onChange={(e) => updateVariationPrice(variation.id, e.target.value)}
-                        placeholder={String(form.selling_price || "")}
-                      />
-                      {overrideTooLow && (
-                        <div className="text-[11px] text-[#FFB4B0] mt-2">Below the estimated minimum of {money(variationMinimumPrice)}.</div>
-                      )}
-                    </td>
-                    <td className={`py-3 text-right font-bold ${overrideTooLow ? "text-[#FFB4B0]" : "text-white"}`}>{money(effectivePrice)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      )}
-
-      {canUseAdminPricingControl && (
-        <AdminPricingControlPanel
-          pricingControl={pricingControl}
-          loading={pricingControlLoading}
-          saving={savingManualPricing}
-          onSave={onSaveManualPricing}
-          pricing={pricing}
-        />
-      )}
+      <VariationPricingMatrix
+        variations={safeSelectedVariations}
+        defaultSellingPrice={form.selling_price}
+        retailOverrides={overrides}
+        updateVariationPrice={updateVariationPrice}
+        pricing={pricing}
+        pricingControl={pricingControl}
+        loadingPricingControl={pricingControlLoading}
+        canManagePricingControl={canUseAdminPricingControl}
+        savingManualPricing={savingManualPricing}
+        onSaveManualPricing={onSaveManualPricing}
+      />
 
       {isAdmin && product && (
         <PricingOverridePanel
@@ -1775,16 +1755,90 @@ function PricingOverridePanel({ product, pricing, user, reason, setReason, savin
   );
 }
 
-function AdminPricingControlPanel({ pricingControl, loading, saving, onSave, pricing = {} }) {
-  const rows = asArray(pricingControl?.variations);
+function VariationPricingMatrix({
+  variations = [],
+  defaultSellingPrice = 0,
+  retailOverrides = {},
+  updateVariationPrice,
+  pricing = {},
+  pricingControl,
+  loadingPricingControl = false,
+  canManagePricingControl = false,
+  savingManualPricing = false,
+  onSaveManualPricing,
+}) {
+  const selectedVariations = asArray(variations);
+  const adminRows = asArray(pricingControl?.variations);
+  const rows = useMemo(() => {
+    const findAdminRow = (variation = {}) => {
+      const keys = [variation.id, variation.template_variation_id, variation.sku, "default"].filter(Boolean).map(String);
+      return adminRows.find((row) => keys.includes(String(row.variation_key || ""))) || null;
+    };
+
+    if (selectedVariations.length) {
+      return selectedVariations.map((variation) => {
+        const adminRow = findAdminRow(variation);
+        const key = variation.id || variation.template_variation_id || variation.sku;
+        const retailOverride = retailOverrides[key] ?? retailOverrides[variation.template_variation_id] ?? "";
+        const retailPrice = retailOverride === "" || retailOverride === null || retailOverride === undefined
+          ? Number(defaultSellingPrice || 0)
+          : Number(retailOverride || 0);
+        const calculatedBaseCost = adminRow?.calculated_base_product_cost ?? getVariationCost(variation, null);
+        const calculatedPrintCost = adminRow?.calculated_print_cost ?? Number(pricing.print || 0);
+        const effectiveSellingPrice = adminRow?.effective_selling_price ?? retailPrice;
+        const effectiveCreatorAmount = adminRow?.effective_creator_amount ?? Math.round((effectiveSellingPrice - calculatedBaseCost - calculatedPrintCost - (effectiveSellingPrice * Number(pricing.rate || 0))) * 100) / 100;
+
+        return {
+          key,
+          variation,
+          adminRow,
+          label: variation.label || Object.entries(variation.attributes || {}).map(([attr, value]) => `${attr}: ${value}`).join(" / ") || adminRow?.variation_label || key || "Default product pricing",
+          sublabel: variation.sku || variation.template_variation_id || key || "",
+          retailOverride,
+          retailPrice,
+          calculatedBaseCost,
+          calculatedPrintCost,
+          calculatedSellingPrice: adminRow?.calculated_selling_price ?? retailPrice,
+          effectiveSellingPrice,
+          effectiveCreatorAmount,
+          manualOverrideActive: Boolean(adminRow?.manual_override_active),
+          manualOverrideUpdatedAt: adminRow?.manual_override_updated_at,
+          variationMinimumPrice: Number(pricing.rate || 0) >= 1 ? calculatedBaseCost + calculatedPrintCost : Math.ceil(((calculatedBaseCost + calculatedPrintCost) / (1 - Number(pricing.rate || 0))) * 100) / 100,
+        };
+      });
+    }
+
+    if (canManagePricingControl && adminRows.length) {
+      return adminRows.map((adminRow) => ({
+        key: adminRow.variation_key || "default",
+        variation: null,
+        adminRow,
+        label: adminRow.variation_label || "Default product pricing",
+        sublabel: adminRow.variation_key || "default",
+        retailOverride: "",
+        retailPrice: adminRow.calculated_selling_price ?? Number(defaultSellingPrice || 0),
+        calculatedBaseCost: adminRow.calculated_base_product_cost ?? 0,
+        calculatedPrintCost: adminRow.calculated_print_cost ?? Number(pricing.print || 0),
+        calculatedSellingPrice: adminRow.calculated_selling_price ?? Number(defaultSellingPrice || 0),
+        effectiveSellingPrice: adminRow.effective_selling_price ?? Number(defaultSellingPrice || 0),
+        effectiveCreatorAmount: adminRow.effective_creator_amount ?? Number(pricing.profit || 0),
+        manualOverrideActive: Boolean(adminRow.manual_override_active),
+        manualOverrideUpdatedAt: adminRow.manual_override_updated_at,
+        variationMinimumPrice: adminRow.effective_minimum_selling_price ?? pricing.minimumSellingPrice ?? 0,
+      }));
+    }
+
+    return [];
+  }, [adminRows, canManagePricingControl, defaultSellingPrice, pricing.minimumSellingPrice, pricing.print, pricing.profit, pricing.rate, retailOverrides, selectedVariations]);
+
   const [drafts, setDrafts] = useState({});
-  const hasActiveOverride = rows.some((row) => row.manual_override_active);
+  const hasActiveOverride = rows.some((row) => row.manualOverrideActive);
   const hasPricingBlocker = hasEffectivePricingBlocker(pricingControl?.product || {}, pricing);
-  const defaultOpen = loading || hasActiveOverride || hasPricingBlocker;
+  const defaultOpen = loadingPricingControl || hasActiveOverride || hasPricingBlocker;
 
   useEffect(() => {
     const next = {};
-    asArray(pricingControl?.variations).forEach((row) => {
+    adminRows.forEach((row) => {
       const manual = row.manual_override || {};
       next[row.variation_key] = {
         enabled: Boolean(row.manual_override_active),
@@ -1796,7 +1850,7 @@ function AdminPricingControlPanel({ pricingControl, loading, saving, onSave, pri
       };
     });
     setDrafts(next);
-  }, [pricingControl]);
+  }, [adminRows]);
 
   const updateDraft = (key, patch) => {
     setDrafts((current) => ({
@@ -1809,42 +1863,46 @@ function AdminPricingControlPanel({ pricingControl, loading, saving, onSave, pri
   };
 
   const saveRow = (row) => {
-    const draft = drafts[row.variation_key] || {};
-    onSave([
+    const adminRow = row.adminRow || {};
+    const variationKey = adminRow.variation_key || row.key || "default";
+    const draft = drafts[variationKey] || {};
+    onSaveManualPricing?.([
       {
-        variation_key: row.variation_key,
+        variation_key: variationKey,
         enabled: Boolean(draft.enabled),
-        base_product_cost: draft.enabled ? Number(draft.base_product_cost || row.effective_base_product_cost || 0) : null,
-        print_cost: draft.enabled ? Number(draft.print_cost || row.effective_print_cost || 0) : null,
-        selling_price: draft.enabled ? Number(draft.selling_price || row.effective_selling_price || 0) : null,
+        base_product_cost: draft.enabled ? Number(draft.base_product_cost || adminRow.effective_base_product_cost || row.calculatedBaseCost || 0) : null,
+        print_cost: draft.enabled ? Number(draft.print_cost || adminRow.effective_print_cost || row.calculatedPrintCost || 0) : null,
+        selling_price: draft.enabled ? Number(draft.selling_price || adminRow.effective_selling_price || row.effectiveSellingPrice || 0) : null,
         creator_amount: draft.enabled && draft.creator_amount !== "" ? Number(draft.creator_amount || 0) : null,
         reason: draft.reason || "",
       },
     ]);
   };
 
+  if (!rows.length) return null;
+
   return (
-    <section className="rounded-xl border border-amber-400/25 bg-black/30" data-testid="admin-pricing-control-panel">
-      <details open={defaultOpen} className="group">
+    <section className="card" data-testid="variation-pricing-matrix">
+      <details open={canManagePricingControl ? defaultOpen : true} className="group">
         <summary className="cursor-pointer list-none p-5">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
             <div>
-              <div className="overline mb-2">Admin Pricing Control</div>
-              <h2 className="font-display text-3xl uppercase text-white">Manual pricing override</h2>
+              <div className="overline mb-2">Variation Pricing Matrix</div>
+              <h2 className="font-display text-3xl uppercase text-white">Retail and effective pricing</h2>
               <p className="text-sm text-zinc-400 mt-2 max-w-4xl">
-                Super Admin only. Manual cost and selling-price overrides affect storefront, cart, checkout, and creator earnings.
+                Retail selling price controls what customers see. Super Admin override fields are manual corrections for effective costs and prices.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {hasActiveOverride ? (
+              {canManagePricingControl && hasActiveOverride ? (
                 <span className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-amber-100">
                   Manual override active
                 </span>
-              ) : (
+              ) : canManagePricingControl ? (
                 <span className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-zinc-500">
                   Normal pricing
                 </span>
-              )}
+              ) : null}
               <span className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-zinc-400">
                 <span className="group-open:hidden">Expand</span><span className="hidden group-open:inline">Collapse</span>
               </span>
@@ -1853,78 +1911,97 @@ function AdminPricingControlPanel({ pricingControl, loading, saving, onSave, pri
         </summary>
 
         <div className="px-5 pb-5">
-          {loading ? (
+          {loadingPricingControl && canManagePricingControl ? (
             <div className="overline text-zinc-500">Loading pricing control...</div>
           ) : (
           <div className="overflow-x-auto border border-white/10 rounded-xl">
-          <table className="w-full text-xs min-w-[1180px]">
+          <table className={`w-full text-xs ${canManagePricingControl ? "min-w-[1380px]" : "min-w-[760px]"}`}>
             <thead>
               <tr className="text-left text-zinc-500 border-b border-white/10">
                 <th className="py-2 px-3 sticky left-0 z-10 bg-[#080808]">Variation</th>
-                <th className="py-2 pr-3 text-right">Calculated base cost</th>
-                <th className="py-2 pr-3">Override base cost</th>
-                <th className="py-2 pr-3 text-right">Calculated print cost</th>
-                <th className="py-2 pr-3">Override print cost</th>
-                <th className="py-2 pr-3 text-right">Calculated selling price</th>
-                <th className="py-2 pr-3">Selling price override</th>
+                <th className="py-2 pr-3 text-right">Base cost</th>
+                <th className="py-2 pr-3 text-right">Print cost</th>
+                <th className="py-2 pr-3">Retail selling price</th>
+                {canManagePricingControl && <th className="py-2 pr-3">Override base cost</th>}
+                {canManagePricingControl && <th className="py-2 pr-3">Override print cost</th>}
+                {canManagePricingControl && <th className="py-2 pr-3">Admin selling price override</th>}
+                {canManagePricingControl && <th className="py-2 pr-3">Manual override active</th>}
+                {canManagePricingControl && <th className="py-2 pr-3">Reason</th>}
+                {canManagePricingControl && <th className="py-2 pr-3">Save</th>}
                 <th className="py-2 pr-3 text-right">Effective selling price</th>
-                <th className="py-2 pr-3 text-right">Effective creator amount</th>
-                <th className="py-2 pr-3">Override active</th>
-                <th className="py-2 pr-3">Reason</th>
-                <th className="py-2 text-right">Save</th>
+                <th className="py-2 pr-3 text-right">Creator/fundraising amount</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
-                const draft = drafts[row.variation_key] || {};
+                const adminRow = row.adminRow || {};
+                const variationKey = adminRow.variation_key || row.key || "default";
+                const draft = drafts[variationKey] || {};
+                const retailOverride = row.retailOverride ?? "";
+                const retailTooLow = row.retailPrice > 0 && row.retailPrice < row.variationMinimumPrice;
                 return (
-                  <tr key={row.variation_key} className="border-b border-white/5 align-top">
+                  <tr key={variationKey} className={`border-b border-white/5 align-top ${row.manualOverrideActive ? "bg-amber-500/[0.04]" : ""}`}>
                     <td className="py-2 px-3 text-white sticky left-0 z-10 bg-[#080808]">
-                      <div className="font-bold">{row.variation_label || row.variation_key}</div>
-                      <div className="text-[11px] text-zinc-500">{row.variation_key}</div>
-                      {row.manual_override_updated_at && (
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold">{row.label}</span>
+                        {row.manualOverrideActive && <span className="rounded border border-amber-400/50 bg-amber-500/10 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-amber-100">Manual</span>}
+                      </div>
+                      <div className="text-[11px] text-zinc-500">{row.sublabel || variationKey}</div>
+                      {row.manualOverrideUpdatedAt && (
                         <div className="text-[11px] text-zinc-500 mt-1">
-                          Updated {new Date(row.manual_override_updated_at).toLocaleString()}
+                          Updated {new Date(row.manualOverrideUpdatedAt).toLocaleString()}
                         </div>
                       )}
                     </td>
-                    <td className="py-2 pr-3 text-right text-zinc-400">{money(row.calculated_base_product_cost)}</td>
-                    <td className="py-2 pr-3"><PriceInput value={draft.base_product_cost} onChange={(value) => updateDraft(row.variation_key, { base_product_cost: value })} disabled={!draft.enabled} /></td>
-                    <td className="py-2 pr-3 text-right text-zinc-400">{money(row.calculated_print_cost)}</td>
-                    <td className="py-2 pr-3"><PriceInput value={draft.print_cost} onChange={(value) => updateDraft(row.variation_key, { print_cost: value })} disabled={!draft.enabled} /></td>
-                    <td className="py-2 pr-3 text-right text-zinc-400">{money(row.calculated_selling_price)}</td>
-                    <td className="py-2 pr-3"><PriceInput value={draft.selling_price} onChange={(value) => updateDraft(row.variation_key, { selling_price: value })} disabled={!draft.enabled} /></td>
-                    <td className="py-2 pr-3 text-right font-bold text-white">{money(row.effective_selling_price)}</td>
-                    <td className={`py-2 pr-3 text-right font-bold ${Number(row.effective_creator_amount || 0) < 0 ? "text-[#FFB4B0]" : "text-[#A7F3C4]"}`}>{money(row.effective_creator_amount)}</td>
+                    <td className="py-2 pr-3 text-right text-zinc-400">{money(row.calculatedBaseCost)}</td>
+                    <td className="py-2 pr-3 text-right text-zinc-400">{money(row.calculatedPrintCost)}</td>
                     <td className="py-2 pr-3">
+                      <input
+                        className="input-base w-[130px] text-xs"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={retailOverride}
+                        onChange={(event) => updateVariationPrice?.(variationKey, event.target.value)}
+                        placeholder={String(defaultSellingPrice || "")}
+                        disabled={!row.variation}
+                      />
+                      {retailTooLow && <div className="text-[10px] text-[#FFB4B0] mt-1">Below {money(row.variationMinimumPrice)}</div>}
+                    </td>
+                    {canManagePricingControl && <td className="py-2 pr-3"><PriceInput value={draft.base_product_cost} onChange={(value) => updateDraft(variationKey, { base_product_cost: value })} disabled={!draft.enabled} /></td>}
+                    {canManagePricingControl && <td className="py-2 pr-3"><PriceInput value={draft.print_cost} onChange={(value) => updateDraft(variationKey, { print_cost: value })} disabled={!draft.enabled} /></td>}
+                    {canManagePricingControl && <td className="py-2 pr-3"><PriceInput value={draft.selling_price} onChange={(value) => updateDraft(variationKey, { selling_price: value })} disabled={!draft.enabled} /></td>}
+                    {canManagePricingControl && <td className="py-2 pr-3">
                       <label className="inline-flex items-center gap-2 text-xs text-zinc-300">
                         <input
                           type="checkbox"
                           checked={Boolean(draft.enabled)}
-                          onChange={(event) => updateDraft(row.variation_key, { enabled: event.target.checked })}
+                          onChange={(event) => updateDraft(variationKey, { enabled: event.target.checked })}
                         />
                         Active
                       </label>
-                    </td>
-                    <td className="py-2 pr-3">
+                    </td>}
+                    {canManagePricingControl && <td className="py-2 pr-3">
                       <textarea
                         className="input-base min-w-[180px] text-xs"
                         rows={1}
                         value={draft.reason || ""}
-                        onChange={(event) => updateDraft(row.variation_key, { reason: event.target.value })}
+                        onChange={(event) => updateDraft(variationKey, { reason: event.target.value })}
                         placeholder="Required for audit trail"
                       />
-                    </td>
-                    <td className="py-2 pr-3 text-right">
-                      <button type="button" className="btn-secondary text-xs" disabled={saving} onClick={() => saveRow(row)}>
-                        {saving ? "Saving..." : "Save"}
+                    </td>}
+                    {canManagePricingControl && <td className="py-2 pr-3 text-right">
+                      <button type="button" className="btn-secondary text-xs" disabled={savingManualPricing} onClick={() => saveRow(row)}>
+                        {savingManualPricing ? "Saving..." : "Save"}
                       </button>
-                    </td>
+                    </td>}
+                    <td className="py-2 pr-3 text-right font-bold text-white">{money(row.effectiveSellingPrice)}</td>
+                    <td className={`py-2 pr-3 text-right font-bold ${Number(row.effectiveCreatorAmount || 0) < 0 ? "text-[#FFB4B0]" : "text-[#A7F3C4]"}`}>{money(row.effectiveCreatorAmount)}</td>
                   </tr>
                 );
               })}
               {!rows.length && (
-                <tr><td colSpan={12} className="py-8 text-center overline text-zinc-500">No pricing rows available</td></tr>
+                <tr><td colSpan={canManagePricingControl ? 12 : 6} className="py-8 text-center overline text-zinc-500">No pricing rows available</td></tr>
               )}
             </tbody>
           </table>
