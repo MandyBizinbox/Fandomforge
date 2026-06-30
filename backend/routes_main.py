@@ -193,6 +193,68 @@ def _require_admin_or_manager_permission(user: User, permission: str) -> None:
 def _require_adminish_or_owner(user: User) -> None:
     _require_adminish_user(user)
 
+DEFAULT_PLATFORM_COMMISSION_RATE = 0.15
+
+
+def _coerce_commission_rate(value: Any, fallback: float = DEFAULT_PLATFORM_COMMISSION_RATE) -> float:
+    if value is None or value == "":
+        return float(fallback)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return float(fallback)
+    if number > 1:
+        number = number / 100
+    return max(0.0, min(number, 1.0))
+
+
+def _commission_percent_to_rate(value: Any, *, strict: bool = True) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        if strict:
+            raise HTTPException(status_code=400, detail="Platform commission percent must be a number")
+        return None
+    if percent < 0 or percent > 100:
+        if strict:
+            raise HTTPException(status_code=400, detail="Platform commission percent must be between 0 and 100")
+        percent = max(0.0, min(percent, 100.0))
+    return percent / 100
+
+
+async def _default_platform_commission_rate(db) -> float:
+    doc = await db.settings.find_one({"id": "platform"}, {"_id": 0, "default_commission_rate": 1})
+    return _coerce_commission_rate((doc or {}).get("default_commission_rate"), DEFAULT_PLATFORM_COMMISSION_RATE)
+
+
+def _creator_platform_commission_rate(creator: Optional[dict], default_rate: float = DEFAULT_PLATFORM_COMMISSION_RATE) -> float:
+    creator = creator or {}
+    percent_rate = _commission_percent_to_rate(creator.get("platform_commission_rate_percent"), strict=False)
+    if percent_rate is not None:
+        return percent_rate
+    if creator.get("commission_rate") is not None:
+        return _coerce_commission_rate(creator.get("commission_rate"), default_rate)
+    return _coerce_commission_rate(default_rate, DEFAULT_PLATFORM_COMMISSION_RATE)
+
+
+def _creator_platform_commission_source(creator: Optional[dict], default_rate: float = DEFAULT_PLATFORM_COMMISSION_RATE) -> str:
+    creator = creator or {}
+    if creator.get("platform_commission_rate_percent") is not None:
+        return creator.get("platform_commission_source") or "creator_override"
+    if creator.get("commission_rate") is not None:
+        rate = _coerce_commission_rate(creator.get("commission_rate"), default_rate)
+        return "creator_override" if abs(rate - _coerce_commission_rate(default_rate)) >= 0.0001 else "default"
+    return "default"
+
+
+def _normalize_platform_commission_source(value: Any, *, has_custom_rate: bool = False) -> str:
+    source = str(value or "").strip()
+    if source in {"default", "creator_override", "monthly_package"}:
+        return source
+    return "creator_override" if has_custom_rate else "default"
+
 def _normalize_manager_permissions(value: Optional[Dict[str, bool]]) -> Dict[str, bool]:
     base = ManagerPermissions().model_dump()
     if value:
@@ -3705,7 +3767,9 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
     print_cost = creator_print_price
 
     retail = float(data.get("selling_price") or 0)
-    commission_rate = float(data.get("commission_rate") or creator.get("commission_rate") or 0.15)
+    default_commission_rate = await _default_platform_commission_rate(db)
+    commission_rate = _creator_platform_commission_rate(creator, default_commission_rate)
+    commission_source = _creator_platform_commission_source(creator, default_commission_rate)
     costing = _platform_costing_breakdown(
         blank_cost,
         platform_print_cost,
@@ -3765,6 +3829,11 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
         "commission_rate": commission_rate,
         "estimated_commission": commission,
         "estimated_creator_profit": creator_profit,
+        "pricing_override_approved": bool(data.get("pricing_override_approved") or False),
+        "pricing_override_reason": data.get("pricing_override_reason"),
+        "pricing_override_by": data.get("pricing_override_by"),
+        "pricing_override_at": data.get("pricing_override_at"),
+        "pricing_override_role": data.get("pricing_override_role"),
         "costing_breakdown": {
             "blank_supplier_cost": costing["blank_supplier_cost"],
             "platform_blank_cost": costing["platform_blank_cost"],
@@ -3780,6 +3849,8 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
             "print_payout_unit": costing["print_payout_unit"],
             "production_unit_cost": costing["production_unit_cost"],
             "minimum_selling_price": costing["minimum_selling_price"],
+            "platform_commission_rate_percent": round(commission_rate * 100, 4),
+            "platform_commission_source": commission_source,
         },
         "artwork_review_status": data.get("artwork_review_status") or "not_required",
         "publish_on_approval": bool(data.get("publish_on_approval") or False),
@@ -3795,13 +3866,15 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
         if review_status != "approved":
             data["published"] = False
 
-    if data.get("published") and not allow_admin_publish:
+    pricing_override_approved = bool(data.get("pricing_override_approved"))
+
+    if data.get("published"):
         review_status = data.get("artwork_review_status") or _derive_artwork_review_status(data)
         if review_status == "not_required":
             raise HTTPException(status_code=400, detail="Artwork is required before publishing")
         if review_status != "approved":
             raise HTTPException(status_code=400, detail="Artwork must be approved before publishing")
-        if creator_profit < 0:
+        if creator_profit < 0 and not pricing_override_approved:
             raise HTTPException(status_code=400, detail="Selling price is below the minimum profitable price")
 
     artwork = data.get("artwork") or {}
@@ -5459,8 +5532,7 @@ async def _create_manual_order_document(db, payload: ManualOrderCreate, user_id:
 async def _build_order_items(db, items: List[CartItem], shipping_address: Optional[dict] = None) -> tuple[List[OrderItem], float]:
     out: List[OrderItem] = []
     subtotal = 0.0
-    settings_doc = await db.settings.find_one({"id": "platform"}, {"_id": 0})
-    default_rate = (settings_doc or {}).get("default_commission_rate", 0.15)
+    default_rate = await _default_platform_commission_rate(db)
 
     for ci in items:
         product = await db.products.find_one({"id": ci.product_id}, {"_id": 0})
@@ -5468,7 +5540,7 @@ async def _build_order_items(db, items: List[CartItem], shipping_address: Option
             raise HTTPException(status_code=400, detail=f"Product not found: {ci.product_id}")
 
         creator = await db.creators.find_one({"id": product["band_id"]}, {"_id": 0})
-        rate = (creator or {}).get("commission_rate", default_rate)
+        rate = _creator_platform_commission_rate(creator, default_rate)
 
         unit_price = float(product["selling_price"])
         product_variation = None
@@ -6655,6 +6727,11 @@ class AdminProductCreate(ProductCreate):
     assigned_printer_id: Optional[str] = None
 
 
+class AdminProductPricingOverrideUpdate(BaseModel):
+    approved: bool
+    reason: str
+
+
 class AdminCreatorCreate(BaseModel):
     name: str
     slug: Optional[str] = None
@@ -6671,6 +6748,10 @@ class AdminCreatorCreate(BaseModel):
     subscription_status: str = "inactive"
     monthly_fee: float = 19.99
     commission_rate: float = 0.15
+    platform_commission_rate_percent: Optional[float] = None
+    platform_commission_source: Optional[str] = None
+    monthly_package_enabled: bool = False
+    monthly_package_name: Optional[str] = None
     user_id: Optional[str] = None
     visibility: str = "unlisted"
     show_on_platform_gallery: bool = False
@@ -6696,6 +6777,10 @@ class AdminCreatorUpdate(BaseModel):
     subscription_status: Optional[str] = None
     monthly_fee: Optional[float] = None
     commission_rate: Optional[float] = None
+    platform_commission_rate_percent: Optional[float] = None
+    platform_commission_source: Optional[str] = None
+    monthly_package_enabled: Optional[bool] = None
+    monthly_package_name: Optional[str] = None
     user_id: Optional[str] = None
     visibility: Optional[str] = None
     show_on_platform_gallery: Optional[bool] = None
@@ -6880,6 +6965,8 @@ async def _build_artwork_review_rows(db, status: Optional[str] = None, product_i
 
 
 def _product_requires_creator_pricing_approval(product: dict) -> bool:
+    if product.get("pricing_override_approved"):
+        return False
     return bool(product.get("requires_creator_pricing_approval") or product.get("creator_pricing_approval_status") == "pending_creator_approval")
 
 
@@ -8210,6 +8297,15 @@ async def admin_create_creator_account(
         slug = f"{slug}-{uid()[:4]}"
 
     now = utcnow()
+    commission_percent = payload.platform_commission_rate_percent
+    commission_rate = _commission_percent_to_rate(commission_percent)
+    if commission_rate is None:
+        commission_rate = _coerce_commission_rate(payload.commission_rate, DEFAULT_PLATFORM_COMMISSION_RATE)
+    commission_source = _normalize_platform_commission_source(
+        payload.platform_commission_source,
+        has_custom_rate=commission_percent is not None or abs(commission_rate - DEFAULT_PLATFORM_COMMISSION_RATE) >= 0.0001,
+    )
+
     creator = Creator(
         name=name,
         slug=slug,
@@ -8232,7 +8328,11 @@ async def admin_create_creator_account(
         status=_normalise_account_status(payload.status),
         subscription_status=payload.subscription_status or "inactive",
         monthly_fee=float(payload.monthly_fee or 0),
-        commission_rate=float(payload.commission_rate or 0),
+        commission_rate=commission_rate,
+        platform_commission_rate_percent=commission_percent,
+        platform_commission_source=commission_source,
+        monthly_package_enabled=bool(payload.monthly_package_enabled),
+        monthly_package_name=payload.monthly_package_name or None,
         created_at=now,
     )
 
@@ -8276,7 +8376,7 @@ async def admin_update_creator_account(
     if not existing:
         raise HTTPException(status_code=404, detail="Creator not found")
 
-    updates = payload.model_dump(exclude_none=True)
+    updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
 
@@ -8308,6 +8408,26 @@ async def admin_update_creator_account(
 
     if "socials" in updates:
         updates["socials"] = _clean_socials(updates["socials"])
+
+    if "platform_commission_rate_percent" in updates:
+        percent = updates.get("platform_commission_rate_percent")
+        rate = _commission_percent_to_rate(percent)
+        if rate is None:
+            updates["platform_commission_rate_percent"] = None
+            updates["platform_commission_source"] = "default"
+            updates["commission_rate"] = DEFAULT_PLATFORM_COMMISSION_RATE
+        else:
+            updates["platform_commission_rate_percent"] = percent
+            updates["platform_commission_source"] = _normalize_platform_commission_source(
+                updates.get("platform_commission_source"),
+                has_custom_rate=True,
+            )
+            updates["commission_rate"] = rate
+    elif "commission_rate" in updates:
+        updates["commission_rate"] = _coerce_commission_rate(updates.get("commission_rate"), DEFAULT_PLATFORM_COMMISSION_RATE)
+
+    if "monthly_package_name" in updates and not updates.get("monthly_package_name"):
+        updates["monthly_package_name"] = None
 
     await db.creators.update_one({"id": creator_id}, {"$set": iso_dates(updates)})
     doc = await db.creators.find_one({"id": creator_id}, {"_id": 0})
@@ -8602,7 +8722,12 @@ async def admin_set_band_commission(
 ):
     _require_manager_permission(user, "manage_subscriptions")
     db = request.app.state.db
-    await db.creators.update_one({"id": band_id}, {"$set": {"commission_rate": rate}})
+    normalized_rate = _coerce_commission_rate(rate, DEFAULT_PLATFORM_COMMISSION_RATE)
+    await db.creators.update_one({"id": band_id}, {"$set": {
+        "commission_rate": normalized_rate,
+        "platform_commission_rate_percent": round(normalized_rate * 100, 4),
+        "platform_commission_source": "creator_override",
+    }})
     return {"ok": True}
 
 
@@ -8743,6 +8868,55 @@ async def admin_get_product(
 
     if not doc:
         raise HTTPException(status_code=404, detail="Product not found")
+
+    return Product(**doc)
+
+
+@admin_router.patch("/products/{product_id}/pricing-override", response_model=Product)
+async def admin_update_product_pricing_override(
+    product_id: str,
+    payload: AdminProductPricingOverrideUpdate,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    reason = (payload.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Pricing override reason is required")
+
+    db = request.app.state.db
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    now = utcnow().isoformat()
+    updates = {
+        "pricing_override_approved": bool(payload.approved),
+        "pricing_override_reason": reason,
+        "pricing_override_by": user.id,
+        "pricing_override_at": now,
+        "pricing_override_role": user.role,
+        "updated_at": now,
+    }
+
+    await db.products.update_one({"id": product_id}, {"$set": updates})
+    doc = await db.products.find_one({"id": product_id}, {"_id": 0})
+
+    event = OrderEvent(
+        product_id=doc.get("id"),
+        product_title=doc.get("title"),
+        band_id=doc.get("band_id"),
+        actor_user_id=user.id,
+        actor_role=user.role,
+        audience=["admin"],
+        kind="system",
+        title="Pricing override approved" if payload.approved else "Pricing override removed",
+        message=reason,
+        metadata={
+            "pricing_override_approved": bool(payload.approved),
+            "reason": reason,
+        },
+    )
+    await db.order_events.insert_one(order_event_doc(event))
 
     return Product(**doc)
 
@@ -9586,7 +9760,7 @@ async def _admin_create_quick_product_impl(
     stock_status = str(payload.stock_status or "made_to_order").strip() or "made_to_order"
     stock_quantity = max(int(payload.stock_quantity or 0), 0) or 999
 
-    commission_rate = 0.15
+    commission_rate = _creator_platform_commission_rate(creator, await _default_platform_commission_rate(db))
     commission_amount = round(price * commission_rate, 2)
     platform_blank_profit = round(creator_cost - platform_cost, 2)
     creator_profit = round(price - creator_cost - commission_amount, 2)
@@ -9731,7 +9905,9 @@ async def _admin_create_quick_product_impl(
             "commission_unit": commission_amount,
             "creator_profit_unit": creator_profit,
             "production_unit_cost": creator_cost,
-            "minimum_selling_price": creator_cost + commission_amount,
+            "minimum_selling_price": _minimum_selling_price_for_cost(creator_cost, commission_rate),
+            "platform_commission_rate_percent": round(commission_rate * 100, 4),
+            "platform_commission_source": _creator_platform_commission_source(creator, await _default_platform_commission_rate(db)),
             "costing_model": "simple_manual_v1",
         },
 

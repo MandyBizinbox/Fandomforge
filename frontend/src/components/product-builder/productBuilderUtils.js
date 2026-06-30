@@ -364,7 +364,36 @@ export function getPrintOptionCost(option) {
   return Number(option?.print_cost_max || 0);
 }
 
-export function calculatePricing({ sellingPrice = 0, blankCost = 0, printCost = 0, commissionRate = 0.15 }) {
+export const DEFAULT_PLATFORM_COMMISSION_RATE = 0.15;
+
+export function resolveCreatorCommissionRate(creatorOrProduct = {}, fallbackRate = DEFAULT_PLATFORM_COMMISSION_RATE) {
+  const percent = creatorOrProduct?.platform_commission_rate_percent;
+  if (percent !== undefined && percent !== null && percent !== "") {
+    const value = Number(percent);
+    if (Number.isFinite(value)) return Math.max(0, Math.min(value / 100, 1));
+  }
+
+  const rawRate = creatorOrProduct?.commission_rate;
+  if (rawRate !== undefined && rawRate !== null && rawRate !== "") {
+    const value = Number(rawRate);
+    if (Number.isFinite(value)) return Math.max(0, Math.min(value > 1 ? value / 100 : value, 1));
+  }
+
+  return fallbackRate;
+}
+
+export function resolveCreatorCommissionSource(creatorOrProduct = {}) {
+  if (creatorOrProduct?.platform_commission_rate_percent !== undefined && creatorOrProduct?.platform_commission_rate_percent !== null && creatorOrProduct?.platform_commission_rate_percent !== "") {
+    return creatorOrProduct?.platform_commission_source || "creator_override";
+  }
+  if (creatorOrProduct?.commission_rate !== undefined && creatorOrProduct?.commission_rate !== null && creatorOrProduct?.commission_rate !== "") {
+    const rate = resolveCreatorCommissionRate(creatorOrProduct);
+    return Math.abs(rate - DEFAULT_PLATFORM_COMMISSION_RATE) >= 0.0001 ? "creator_override" : "default";
+  }
+  return "default";
+}
+
+export function calculatePricing({ sellingPrice = 0, blankCost = 0, printCost = 0, commissionRate = DEFAULT_PLATFORM_COMMISSION_RATE, commissionSource = "default", pricingOverrideApproved = false }) {
   const price = Number(sellingPrice || 0);
   const blankPayout = Math.round(Number(blankCost || 0) * 100) / 100;
   const printPayout = Math.round(Number(printCost || 0) * 100) / 100;
@@ -381,10 +410,13 @@ export function calculatePricing({ sellingPrice = 0, blankCost = 0, printCost = 
     platformPrintCost: printPayout,
     production,
     rate,
+    commissionSource,
     commission,
     profit,
     minimumSellingPrice,
+    pricingOverrideApproved: Boolean(pricingOverrideApproved),
     canPublishProfitably: price > 0 && profit >= 0,
+    canPublishWithOverride: price > 0 && (profit >= 0 || pricingOverrideApproved),
   };
 }
 

@@ -251,6 +251,10 @@ class Creator(BandBase):
     subscription_status: Literal["active", "inactive", "past_due"] = "inactive"
     monthly_fee: float = 19.99
     commission_rate: float = 0.15
+    platform_commission_rate_percent: Optional[float] = None
+    platform_commission_source: Optional[Literal["default", "creator_override", "monthly_package"]] = None
+    monthly_package_enabled: bool = False
+    monthly_package_name: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -277,6 +281,10 @@ class BandUpdate(BaseModel):
     subscription_status: Optional[Literal["active", "inactive", "past_due"]] = None
     monthly_fee: Optional[float] = None
     commission_rate: Optional[float] = None
+    platform_commission_rate_percent: Optional[float] = None
+    platform_commission_source: Optional[Literal["default", "creator_override", "monthly_package"]] = None
+    monthly_package_enabled: Optional[bool] = None
+    monthly_package_name: Optional[str] = None
     user_id: Optional[str] = None
 
 
@@ -1013,6 +1021,11 @@ class ProductBase(BaseModel):
     print_cost_override_reason: Optional[str] = None
     print_cost_overridden_by: Optional[str] = None
     print_cost_overridden_at: Optional[str] = None
+    pricing_override_approved: bool = False
+    pricing_override_reason: Optional[str] = None
+    pricing_override_by: Optional[str] = None
+    pricing_override_at: Optional[str] = None
+    pricing_override_role: Optional[str] = None
     artwork_review_status: Literal["not_required", "pending_review", "approved", "rejected"] = "not_required"
     artwork_review_notes: Optional[str] = None
 
@@ -1075,6 +1088,11 @@ class ProductUpdate(BaseModel):
     print_cost_override_reason: Optional[str] = None
     print_cost_overridden_by: Optional[str] = None
     print_cost_overridden_at: Optional[str] = None
+    pricing_override_approved: Optional[bool] = None
+    pricing_override_reason: Optional[str] = None
+    pricing_override_by: Optional[str] = None
+    pricing_override_at: Optional[str] = None
+    pricing_override_role: Optional[str] = None
     artwork_review_status: Optional[Literal["not_required", "pending_review", "approved", "rejected"]] = None
     artwork_review_notes: Optional[str] = None
 

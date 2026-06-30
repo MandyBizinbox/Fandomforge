@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 import { toast } from "sonner";
 import { ArrowLeft, Bold, Check, Heading2, List, ListOrdered, Package, Save } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
@@ -32,6 +33,8 @@ import {
   getUniquePrintCostFromGroups,
   getCreatorBlankPrice,
   getVariationCost,
+  resolveCreatorCommissionRate,
+  resolveCreatorCommissionSource,
   money,
 } from "./productBuilderUtils";
 
@@ -144,6 +147,7 @@ function templateMatchesProductType(template, productType) {
 export default function ProductBuilder({ mode = "creator", backTo = "/creator/products" }) {
   const navigate = useNavigate();
   const { id: routeId } = useParams();
+  const { user } = useAuth();
   const isNew = !routeId || routeId === "new";
   const isAdmin = mode === "admin";
 
@@ -158,6 +162,9 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const [product, setProduct] = useState(null);
   const [submittedProduct, setSubmittedProduct] = useState(null);
   const [publishing, setPublishing] = useState(false);
+  const [creatorAccount, setCreatorAccount] = useState(null);
+  const [pricingOverrideReason, setPricingOverrideReason] = useState("");
+  const [savingPricingOverride, setSavingPricingOverride] = useState(false);
 
   const [form, setForm] = useState({
     band_id: "",
@@ -191,6 +198,11 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     [productTypes, selectedProductTypeId]
   );
 
+  const selectedCreatorAccount = useMemo(() => {
+    if (!isAdmin) return creatorAccount || {};
+    return creators.find((creator) => creator.id === form.band_id) || {};
+  }, [creatorAccount, creators, form.band_id, isAdmin]);
+
   const filteredTemplates = useMemo(() => {
     if (!selectedProductType) return isNew ? [] : templates;
     return templates.filter((template) => templateMatchesProductType(template, selectedProductType));
@@ -215,11 +227,23 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     [form.artwork_groups, printOptions, selectedTemplate]
   );
 
+  const commissionRate = useMemo(() => {
+    const source = selectedCreatorAccount?.id ? selectedCreatorAccount : product;
+    return resolveCreatorCommissionRate(source);
+  }, [product, selectedCreatorAccount]);
+
+  const commissionSource = useMemo(() => {
+    const source = selectedCreatorAccount?.id ? selectedCreatorAccount : product;
+    return resolveCreatorCommissionSource(source);
+  }, [product, selectedCreatorAccount]);
+
   const pricing = calculatePricing({
     sellingPrice: form.selling_price,
     blankCost,
     printCost,
-    commissionRate: 0.15,
+    commissionRate,
+    commissionSource,
+    pricingOverrideApproved: Boolean(product?.pricing_override_approved),
   });
 
   const readyArtworkSlots = getReadyArtworkSlots(form.artwork_groups);
@@ -228,6 +252,11 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const uploadedWithoutPrintMethod = uploadedArtworkSlots.filter((slot) => !slot.print_option_id);
   const primaryArtwork = firstReadyArtwork(form.artwork_groups);
   const productPrimaryMockup = getPrimaryMockupFromGroups(form.artwork_groups) || form.primary_mockup_image_url || form.mockup_image_url || "";
+
+  useEffect(() => {
+    if (isAdmin) return;
+    http.get("/creators/me").then((response) => setCreatorAccount(response.data || null)).catch(() => {});
+  }, [isAdmin]);
 
   useEffect(() => {
     async function load() {
@@ -452,7 +481,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     if (!readyArtworkSlots.length) return "Add at least one artwork file and print method.";
     if (!generatedMockups.length) return "Generate at least one mockup.";
     if (Number(form.selling_price || 0) <= 0) return "Enter a selling price.";
-    if (form.published && !pricing.canPublishProfitably) return "Selling price is below the minimum price needed to cover production and platform costs.";
+    if (form.published && !pricing.canPublishWithOverride) return "Selling price is below the minimum price needed to cover production and platform costs.";
     return null;
   };
 
@@ -569,6 +598,30 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     }
   };
 
+  const updatePricingOverride = async (approved) => {
+    if (!isAdmin || user?.role !== "super_admin" || !product?.id) return;
+    const reason = pricingOverrideReason.trim();
+    if (!reason) {
+      toast.error("Pricing override reason is required");
+      return;
+    }
+
+    setSavingPricingOverride(true);
+    try {
+      const response = await http.patch(`/admin/products/${product.id}/pricing-override`, {
+        approved,
+        reason,
+      });
+      setProduct(response.data);
+      setPricingOverrideReason("");
+      toast.success(approved ? "Pricing override approved" : "Pricing override removed");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Could not update pricing override");
+    } finally {
+      setSavingPricingOverride(false);
+    }
+  };
+
   const canContinueProductType = Boolean(selectedProductTypeId || (!isNew && selectedTemplate));
   const canContinueProductOption = Boolean(selectedTemplate);
   const canContinueDetails = Boolean(selectedTemplate && form.title.trim() && (!isAdmin || form.band_id));
@@ -666,6 +719,18 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
 
       {!isAdmin && !isNew && product && (
         <CreatorPublishingPanel product={product} publishing={publishing} onPublish={publishProduct} />
+      )}
+
+      {isAdmin && !isNew && product && (
+        <PricingOverridePanel
+          product={product}
+          pricing={pricing}
+          user={user}
+          reason={pricingOverrideReason}
+          setReason={setPricingOverrideReason}
+          saving={savingPricingOverride}
+          onUpdate={updatePricingOverride}
+        />
       )}
 
       <div className="mb-6 overflow-auto">
@@ -833,7 +898,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
                 }
               />
               <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockups`} />
-              <ChecklistItem done={pricing.canPublishProfitably} label="Price covers costs" />
+              <ChecklistItem done={pricing.canPublishWithOverride} label={pricing.canPublishProfitably ? "Price covers costs" : "Pricing override approved"} />
             </div>
             <div className="flex gap-2">
               <button type="button" className="btn-secondary" onClick={prevStep}>Previous</button>
@@ -858,7 +923,7 @@ function BuilderSidebar({ canContinueProductType, canContinueProductOption, canC
         <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} artwork group(s)`} />
         <ChecklistItem done={readyArtworkSlots.length > 0} label={`${readyArtworkSlots.length} artwork slot(s) ready`} />
         <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockup(s) generated`} />
-        <ChecklistItem done={pricing.canPublishProfitably} label="Price covers costs" />
+        <ChecklistItem done={pricing.canPublishWithOverride} label={pricing.canPublishProfitably ? "Price covers costs" : "Pricing override approved"} />
       </section>
 
       <section className="card">
@@ -1144,7 +1209,7 @@ function TextFormatToolbar({ field, onFormat }) {
 function getPricingReviewMessages(product = {}, isAdmin = false) {
   const messages = [];
 
-  if (product?.requires_creator_pricing_approval || product?.creator_pricing_approval_status === "pending_creator_approval") {
+  if ((product?.requires_creator_pricing_approval || product?.creator_pricing_approval_status === "pending_creator_approval") && !product?.pricing_override_approved) {
     messages.push("Pricing update needs your approval before this product can go live.");
   }
 
@@ -1163,6 +1228,13 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
   const minimumSellingPrice = pricing.minimumSellingPrice || pricing.minimumRetail || 0;
   const reviewMessages = getPricingReviewMessages(product, isAdmin);
   const printCostValue = pricing.print > 0 ? money(pricing.print) : "Pending print method";
+  const overrideActive = Boolean(product?.pricing_override_approved || pricing.pricingOverrideApproved);
+  const priceResolved = Boolean(pricing.canPublishProfitably || (overrideActive && Number(sellingPrice || 0) > 0));
+  const sourceLabel = pricing.commissionSource === "default"
+    ? "default"
+    : pricing.commissionSource === "monthly_package"
+    ? "monthly package"
+    : "creator rate";
 
   return (
     <section className={compact ? "border border-white/10 bg-black/20 rounded-xl p-4" : "card"}>
@@ -1173,8 +1245,8 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
             Pricing updates as you choose your product, print area and options. Final pricing may be reviewed before the product goes live to make sure production costs are correct.
           </p>
         </div>
-        <div className={`text-xs rounded-lg px-3 py-2 border ${pricing.canPublishProfitably ? "border-[#34C759]/40 text-[#A7F3C4] bg-[#34C759]/10" : "border-[#FF3B30]/50 text-[#FFB4B0] bg-[#FF3B30]/10"}`}>
-          {pricing.canPublishProfitably ? "Price covers estimated costs" : "Price may be too low"}
+        <div className={`text-xs rounded-lg px-3 py-2 border ${priceResolved ? "border-[#34C759]/40 text-[#A7F3C4] bg-[#34C759]/10" : "border-[#FF3B30]/50 text-[#FFB4B0] bg-[#FF3B30]/10"}`}>
+          {pricing.canPublishProfitably ? "Price covers estimated costs" : overrideActive ? "Pricing override approved" : "Price may be too low"}
         </div>
       </div>
 
@@ -1186,16 +1258,25 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         <Info label="Base product cost" value={money(pricing.blank)} />
         <Info label="Estimated print cost" value={printCostValue} />
         <Info label="Estimated production cost" value={money(pricing.production)} />
-        <Info label={`Platform commission ${Math.round((pricing.rate || 0) * 100)}%`} value={money(pricing.commission)} />
+        <Info label={`Platform commission ${Number((pricing.rate || 0) * 100).toFixed(2)}% ${sourceLabel}`} value={money(pricing.commission)} />
         <Info label="Minimum selling price" value={money(minimumSellingPrice)} />
         <Info label="Your selling price" value={money(sellingPrice)} />
         <Info label="Estimated creator/fundraising amount" value={money(pricing.profit)} />
         <Info label="Pricing review status" value={product?.creator_pricing_approval_status || (isAdmin ? "Admin controlled" : "Review may be required")} />
       </div>
 
+      {overrideActive && (
+        <div className="border border-amber-400/50 bg-amber-500/10 p-3 text-xs text-amber-100 rounded-lg mt-4">
+          Pricing approved by FandomForge. This product has a pricing override approved by the platform.
+          {product?.pricing_override_reason && <span className="block mt-1">Reason: {product.pricing_override_reason}</span>}
+        </div>
+      )}
+
       {!pricing.canPublishProfitably && Number(sellingPrice || 0) > 0 && (
-        <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg mt-4">
-          This selling price may be too low to cover production and platform costs. Increase the selling price or reduce the fundraising amount.
+        <div className={`border p-3 text-xs rounded-lg mt-4 ${overrideActive ? "border-amber-400/40 bg-amber-500/10 text-amber-100" : "border-[#FF3B30]/50 bg-[#FF3B30]/10 text-[#FFB4B0]"}`}>
+          {overrideActive
+            ? "Price is below the normal minimum, but FandomForge has approved an override."
+            : "This selling price may be too low to cover production and platform costs. Increase the selling price or reduce the fundraising amount."}
         </div>
       )}
 
@@ -1262,7 +1343,7 @@ function PricingStep({ form, update, pricing, product, isAdmin, selectedVariatio
             value={desiredFundraisingAmount}
             onChange={(e) => updateDesiredFundraisingAmount(e.target.value)}
           />
-          <p className="text-xs text-zinc-500 mt-2">Changing this updates the selling price suggestion using the current 15% platform commission.</p>
+          <p className="text-xs text-zinc-500 mt-2">Changing this updates the selling price suggestion using the current platform commission.</p>
         </div>
       </div>
 
@@ -1350,7 +1431,7 @@ function ReviewStep({
   const safeUploadedWithoutPrintMethod = asArray(uploadedWithoutPrintMethod);
   const variationStatus = hasTemplateVariations ? `${safeSelectedVariations.length} selected variation(s)` : "Standard product";
   const variationDetail = hasTemplateVariations ? `${safeSelectedVariations.length} variation(s) selected` : "No variations needed";
-  const pricingStatus = pricing?.canPublishProfitably ? "Covers costs" : "Needs price review";
+  const pricingStatus = pricing?.canPublishProfitably ? "Covers costs" : pricing?.canPublishWithOverride ? "Override approved" : "Needs price review";
   const artworkStatus = product?.artwork_review_status || (safeReadyArtworkSlots.length ? "Ready for review" : "Needs artwork");
   const productTypeLabel = selectedTemplate?.product_type || selectedTemplate?.product_type_name || selectedTemplate?.category || selectedTemplate?.product_type_slug || "Product option";
   const publishingMode = isAdmin
@@ -1362,7 +1443,7 @@ function ReviewStep({
     (!hasTemplateVariations || safeSelectedVariations.length) &&
     safeReadyArtworkSlots.length &&
     safeGeneratedMockups.length &&
-    pricing?.canPublishProfitably
+    pricing?.canPublishWithOverride
   );
 
   return (
@@ -1389,7 +1470,7 @@ function ReviewStep({
               <ChecklistItem done={artworkGroups.length > 0} label={`Artwork groups: ${artworkGroups.length}`} />
               <ChecklistItem done={safeReadyArtworkSlots.length > 0} label={`Ready artwork slots: ${safeReadyArtworkSlots.length}`} />
               <ChecklistItem done={safeGeneratedMockups.length > 0} label={`Mockups generated: ${safeGeneratedMockups.length}`} />
-              <ChecklistItem done={Boolean(pricing?.canPublishProfitably)} label={`Pricing: ${pricingStatus.toLowerCase()}`} />
+              <ChecklistItem done={Boolean(pricing?.canPublishWithOverride)} label={`Pricing: ${pricingStatus.toLowerCase()}`} />
             </div>
 
             {safeUploadedWithoutPrintMethod.length > 0 && (
@@ -1495,12 +1576,72 @@ function ReviewStep({
   );
 }
 
+function PricingOverridePanel({ product, pricing, user, reason, setReason, saving, onUpdate }) {
+  const overrideActive = Boolean(product?.pricing_override_approved);
+  const needsOverride = !pricing?.canPublishProfitably && Number(product?.selling_price || 0) > 0;
+  const canOverride = user?.role === "super_admin";
+
+  if (!overrideActive && !needsOverride && !canOverride) return null;
+
+  return (
+    <section className="mb-6 rounded-xl border border-amber-400/40 bg-amber-500/10 p-5" data-testid="admin-pricing-override-panel">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+        <div>
+          <div className="overline mb-2">Pricing override</div>
+          <h2 className="font-display text-3xl uppercase text-white">
+            {overrideActive ? "Pricing override active" : needsOverride ? "Pricing blocker detected" : "Pricing override available"}
+          </h2>
+          <p className="text-sm text-amber-100 mt-2 max-w-3xl">
+            {overrideActive
+              ? "This product is below the normal pricing threshold, but FandomForge has approved an exception."
+              : "Only Super Admin can approve an exceptional pricing override. Artwork and other product requirements still apply."}
+          </p>
+
+          {overrideActive && (
+            <div className="grid sm:grid-cols-3 gap-3 text-sm mt-4">
+              <Info label="Reason" value={product.pricing_override_reason || "No reason saved"} />
+              <Info label="By" value={product.pricing_override_by || "Unknown"} />
+              <Info label="At" value={product.pricing_override_at ? new Date(product.pricing_override_at).toLocaleString() : "Unknown"} />
+            </div>
+          )}
+        </div>
+
+        {canOverride && (
+          <div className="w-full lg:max-w-sm space-y-3">
+            <label>
+              <span className="label">Reason</span>
+              <textarea
+                className="input-base"
+                rows={3}
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="Required for audit trail"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn-primary" disabled={saving} onClick={() => onUpdate(true)}>
+                {saving ? "Saving..." : "Approve Pricing Override"}
+              </button>
+              {overrideActive && (
+                <button type="button" className="btn-secondary" disabled={saving} onClick={() => onUpdate(false)}>
+                  Remove Override
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function CreatorPublishingPanel({ product, publishing, onPublish }) {
   const artworkStatus = getCreatorProductArtworkStatus(product);
   const published = isCreatorProductPublished(product);
   const pricingPending = needsCreatorPricingApproval(product);
   const readyToPublish = canPublishCreatorProduct(product);
   const rejectionReason = getCreatorProductRejectionReason(product);
+  const pricingOverrideActive = Boolean(product?.pricing_override_approved);
 
   let heading = "Awaiting review";
   let copy = "This product is still waiting for artwork approval before it can be published.";
@@ -1534,6 +1675,11 @@ function CreatorPublishingPanel({ product, publishing, onPublish }) {
           <p className="text-sm mt-2 max-w-2xl">{copy}</p>
           {artworkStatus === "rejected" && rejectionReason && (
             <p className="text-xs mt-3 text-[#FFB4B0]">Reason: {rejectionReason}</p>
+          )}
+          {pricingOverrideActive && (
+            <p className="text-xs mt-3 text-amber-100">
+              Pricing approved by FandomForge. This product has a pricing override approved by the platform.
+            </p>
           )}
         </div>
 

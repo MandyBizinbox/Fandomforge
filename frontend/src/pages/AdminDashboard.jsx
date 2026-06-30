@@ -375,7 +375,10 @@ const emptyCreatorForm = {
   banner_url: "",
   profile_image_url: "",
   socials_text: "",
-  commission_rate: 0.15,
+  platform_commission_rate_percent: "",
+  platform_commission_source: "default",
+  monthly_package_enabled: false,
+  monthly_package_name: "",
   monthly_fee: 19.99,
   subscription_status: "inactive",
   status: "active",
@@ -585,7 +588,10 @@ function BandsAdmin() {
       banner_url: row.banner_url || "",
       profile_image_url: row.profile_image_url || "",
       socials_text: jsonText(row.socials),
-      commission_rate: row.commission_rate ?? 0.15,
+      platform_commission_rate_percent: row.platform_commission_rate_percent ?? (row.commission_rate !== undefined && row.commission_rate !== null && Number(row.commission_rate) !== 0.15 ? Number(row.commission_rate) * 100 : ""),
+      platform_commission_source: row.platform_commission_source || (row.platform_commission_rate_percent !== undefined && row.platform_commission_rate_percent !== null || Number(row.commission_rate || 0.15) !== 0.15 ? "creator_override" : "default"),
+      monthly_package_enabled: Boolean(row.monthly_package_enabled),
+      monthly_package_name: row.monthly_package_name || "",
       monthly_fee: row.monthly_fee ?? 19.99,
       subscription_status: row.subscription_status || "inactive",
       status: row.status || "active",
@@ -611,7 +617,11 @@ function BandsAdmin() {
     banner_url: form.banner_url || null,
     profile_image_url: form.profile_image_url || null,
     socials: safeJsonObjectFromText(form.socials_text),
-    commission_rate: Number(form.commission_rate || 0),
+    platform_commission_rate_percent: form.platform_commission_rate_percent === "" ? null : Number(form.platform_commission_rate_percent),
+    platform_commission_source: form.platform_commission_rate_percent === "" ? "default" : (form.monthly_package_enabled ? "monthly_package" : "creator_override"),
+    commission_rate: form.platform_commission_rate_percent === "" ? 0.15 : Number(form.platform_commission_rate_percent || 0) / 100,
+    monthly_package_enabled: Boolean(form.monthly_package_enabled),
+    monthly_package_name: form.monthly_package_name || null,
     monthly_fee: Number(form.monthly_fee || 0),
     subscription_status: form.subscription_status,
     status: form.status,
@@ -754,7 +764,28 @@ function BandsAdmin() {
           </div>
         </div>
 
-        <label><span className="label">Commission rate</span><input className="input-base" type="number" step="0.01" value={form.commission_rate} onChange={(e) => setForm({ ...form, commission_rate: e.target.value })} /></label>
+        <label>
+          <span className="label">Platform Commission %</span>
+          <input
+            className="input-base"
+            type="number"
+            step="0.01"
+            min="0"
+            max="100"
+            value={form.platform_commission_rate_percent}
+            onChange={(e) => setForm({ ...form, platform_commission_rate_percent: e.target.value, platform_commission_source: e.target.value === "" ? "default" : "creator_override" })}
+            placeholder="15"
+          />
+          <span className="block text-xs text-[var(--ff-muted-text)] mt-1">Leave blank to use the platform default commission. Use this for discounted creator packages or custom agreements.</span>
+        </label>
+        <label className="flex items-start gap-3 border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-3 cursor-pointer">
+          <input type="checkbox" className="mt-1" checked={Boolean(form.monthly_package_enabled)} onChange={(e) => setForm({ ...form, monthly_package_enabled: e.target.checked, platform_commission_source: e.target.checked && form.platform_commission_rate_percent !== "" ? "monthly_package" : form.platform_commission_source })} />
+          <span>
+            <span className="block text-sm font-bold">Monthly package enabled</span>
+            <span className="block text-xs text-[var(--ff-muted-text)] mt-1">Optional label only; commission still comes from Platform Commission %.</span>
+          </span>
+        </label>
+        <label><span className="label">Monthly package name</span><input className="input-base" value={form.monthly_package_name} onChange={(e) => setForm({ ...form, monthly_package_name: e.target.value })} placeholder="Optional package name" /></label>
         <label><span className="label">Monthly fee</span><input className="input-base" type="number" step="0.01" value={form.monthly_fee} onChange={(e) => setForm({ ...form, monthly_fee: e.target.value })} /></label>
         <label><span className="label">Linked owner user</span><select className="input-base" value={form.user_id} onChange={(e) => setForm({ ...form, user_id: e.target.value })}><option value="">No linked user</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name || u.email} · {u.email}</option>)}</select></label>
 
@@ -784,7 +815,13 @@ function BandsAdmin() {
                   <div>Indexing: <span className="text-[var(--ff-card-text)]">{b.allow_search_indexing ? "Yes" : "No"}</span></div>
                 </td>
                 <td><StatusBadge status={b.subscription_status} /></td>
-                <td>{Number(b.commission_rate || 0).toFixed(2)}</td>
+                <td>
+                  {b.platform_commission_rate_percent !== undefined && b.platform_commission_rate_percent !== null
+                    ? `${Number(b.platform_commission_rate_percent || 0).toFixed(2)}%`
+                    : Number(b.commission_rate ?? 0.15) !== 0.15
+                    ? `${Number((b.commission_rate ?? 0.15) * 100).toFixed(2)}%`
+                    : "15.00% default"}
+                </td>
                 <td><select className="input-base py-1 text-xs" defaultValue="" onChange={(e) => linkUser(b, e.target.value)}><option value="">Link user</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}</select></td>
                 <td className="text-right whitespace-nowrap"><button type="button" onClick={() => edit(b)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] font-bold mr-4">Edit</button><button type="button" onClick={() => remove(b)} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)] font-bold">Delete</button></td>
               </tr>

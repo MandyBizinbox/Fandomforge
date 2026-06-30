@@ -13,6 +13,8 @@ export function isCreatorProductPublished(product = {}) {
 }
 
 export function needsCreatorPricingApproval(product = {}) {
+  if (product?.pricing_override_approved) return false;
+  if (Number(product?.estimated_creator_profit || 0) < 0) return true;
   return Boolean(
     product?.requires_creator_pricing_approval
       || product?.creator_pricing_approval_status === "pending_creator_approval"
