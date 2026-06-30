@@ -4,6 +4,12 @@ import { useAuth } from "../context/AuthContext";
 import { LogOut } from "lucide-react";
 import NotificationBell from "./notifications/NotificationBell";
 
+function formatBadgeCount(value) {
+  const count = Number(value || 0);
+  if (count > 99) return "99+";
+  return String(count);
+}
+
 export default function DashboardLayout({
   title,
   links,
@@ -39,11 +45,16 @@ export default function DashboardLayout({
                 key={l.to}
                 to={l.to}
                 end={l.end}
-                className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}
+                className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''} ${Number(l.badgeCount || 0) > 0 ? 'sidebar-link-attention' : ''}`}
                 data-testid={`${testidPrefix}-nav-${l.key}`}
               >
                 {l.icon}
-                <span>{l.label}</span>
+                <span className="min-w-0 flex-1 truncate">{l.label}</span>
+                {Number(l.badgeCount || 0) > 0 && (
+                  <span className="sidebar-link-badge" aria-label={`${l.badgeCount} pending`}>
+                    {formatBadgeCount(l.badgeCount)}
+                  </span>
+                )}
               </NavLink>
             );
           })}

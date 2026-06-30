@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
@@ -67,7 +67,7 @@ function buildAdminLinks(basePath = "/admin") {
 
     { type: "section", label: "Operations" },
     { to: `${basePath}/product-templates`, label: "Products & Templates", key: "product-templates", permission: "manage_product_templates", icon: <Package size={14} /> },
-      { to: `${basePath}/artwork-review`, label: "Artwork Review", key: "artwork-review", permission: "manage_bands", icon: <ImageIcon size={14} /> },
+      { to: `${basePath}/artwork-review`, label: "Artwork Review", key: "artwork-review", permission: "manage_artwork_review", icon: <ImageIcon size={14} /> },
     { to: `${basePath}/fulfilment`, label: "Orders & Fulfilment", key: "fulfilment", permission: "manage_orders", icon: <ShoppingBag size={14} /> },
     { to: `${basePath}/notifications`, label: "Notifications", key: "notifications", permission: "manage_orders", icon: <Bell size={14} /> },
     { to: `${basePath}/activity`, label: "Activity", key: "activity", permission: "manage_reports", icon: <Clock3 size={14} /> },
@@ -96,6 +96,7 @@ function filterAdminLinks({ modules = {}, user = null, basePath = "/admin", mode
     if (link.key === "printers-workspace") return modules.printers_enabled !== false && modules.printer_marketplace_enabled !== false;
     if (link.key === "billing") return modules.payouts_enabled !== false || modules.creator_subscriptions_enabled !== false || modules.printer_subscriptions_enabled !== false;
     if (link.key === "product-templates") return modules.product_templates_enabled !== false;
+    if (link.key === "artwork-review") return modules.artwork_review_enabled !== false;
     return true;
   });
 
@@ -2646,12 +2647,57 @@ function PlatformSettingsWorkspace({ modules = {}, user = null, mode = "admin" }
 export default function AdminDashboard({ mode = "admin", basePath = "/admin", title = "Platform Admin" } = {}) {
   const { user } = useAuth();
   const [platformConfig, setPlatformConfig] = useState(null);
+  const [artworkReviewPendingCount, setArtworkReviewPendingCount] = useState(0);
 
   useEffect(() => {
     http.get("/admin/platform-config").then((r) => setPlatformConfig(r.data)).catch(() => setPlatformConfig({ modules: {} }));
   }, []);
 
-  const visibleLinks = filterAdminLinks({ modules: platformConfig?.modules || {}, user, basePath, mode });
+  const refreshArtworkReviewPendingCount = useCallback(async () => {
+    const modules = platformConfig?.modules || {};
+    const isManager = mode === "manager" || user?.role === "manager";
+    const managerCanReview = !isManager || user?.manager_permissions?.manage_artwork_review !== false;
+    if (modules.artwork_review_enabled === false || !managerCanReview) {
+      setArtworkReviewPendingCount(0);
+      return;
+    }
+
+    try {
+      const response = await http.get("/admin/artwork-review?status=pending_review");
+      setArtworkReviewPendingCount(Number(response.data?.counts?.pending_review ?? response.data?.items?.length ?? 0));
+    } catch (error) {
+      console.warn("Could not load artwork review pending count", error);
+      setArtworkReviewPendingCount(0);
+    }
+  }, [mode, platformConfig?.modules, user?.manager_permissions?.manage_artwork_review, user?.role]);
+
+  useEffect(() => {
+    refreshArtworkReviewPendingCount();
+  }, [refreshArtworkReviewPendingCount]);
+
+  useEffect(() => {
+    const handleArtworkReviewCount = (event) => {
+      const pending = event?.detail?.pending_review;
+      if (Number.isFinite(Number(pending))) {
+        setArtworkReviewPendingCount(Number(pending));
+        return;
+      }
+      refreshArtworkReviewPendingCount();
+    };
+
+    window.addEventListener("fandomforge:artwork-review-count-refresh", handleArtworkReviewCount);
+    return () => window.removeEventListener("fandomforge:artwork-review-count-refresh", handleArtworkReviewCount);
+  }, [refreshArtworkReviewPendingCount]);
+
+  const visibleLinks = useMemo(() => (
+    filterAdminLinks({ modules: platformConfig?.modules || {}, user, basePath, mode }).map((link) => {
+      if (link.key !== "artwork-review") return link;
+      return {
+        ...link,
+        badgeCount: artworkReviewPendingCount,
+      };
+    })
+  ), [artworkReviewPendingCount, basePath, mode, platformConfig?.modules, user]);
 
   return (
     <Routes>

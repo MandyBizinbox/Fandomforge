@@ -12,6 +12,17 @@ const STATUS_OPTIONS = [
   { value: "all", label: "All Artwork" },
 ];
 
+function notifyArtworkReviewCount(counts) {
+  if (typeof window === "undefined") return;
+  const detail = {};
+  if (Number.isFinite(Number(counts?.pending_review))) {
+    detail.pending_review = Number(counts.pending_review || 0);
+  }
+  window.dispatchEvent(new CustomEvent("fandomforge:artwork-review-count-refresh", {
+    detail,
+  }));
+}
+
 function money(value) {
   return `R ${Number(value || 0).toFixed(2)}`;
 }
@@ -213,7 +224,9 @@ export default function ArtworkReviewAdmin() {
     try {
       const response = await http.get(`/admin/artwork-review?status=${status}`);
       setItems(Array.isArray(response.data?.items) ? response.data.items : []);
-      setCounts(response.data?.counts || { total: 0, pending_review: 0, approved: 0, rejected: 0 });
+      const nextCounts = response.data?.counts || { total: 0, pending_review: 0, approved: 0, rejected: 0 };
+      setCounts(nextCounts);
+      notifyArtworkReviewCount(status === "pending_review" || status === "all" ? nextCounts : null);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not load artwork review queue");
       setItems([]);
