@@ -13,10 +13,8 @@ import RegisterCreator from "./pages/RegisterCreator";
 import RegisterPrinter from "./pages/RegisterPrinter";
 import PolicyPage from "./pages/PolicyPage";
 import AuthCallback from "./pages/AuthCallback";
-import BandDirectory from "./pages/BandDirectory";
 import BandStorefront from "./pages/BandStorefront";
 import ProductDetail from "./pages/ProductDetail";
-import Shop from "./pages/Shop";
 import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
 import OrderConfirmation from "./pages/OrderConfirmation";
@@ -97,10 +95,11 @@ function AppRoutes() {
       <Route path="/register/printer" element={<RegisterPrinter />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
 
-      <Route path="/shop" element={<Shop />} />
-      <Route path="/creators" element={<BandDirectory />} />
+      <Route path="/shop" element={<Navigate to="/sell" replace />} />
+      <Route path="/creators" element={<Navigate to="/sell" replace />} />
       <Route path="/creators/:slug" element={<BandStorefront />} />
       <Route path="/sell" element={<Sell />} />
+      <Route path="/sell-online" element={<Navigate to="/sell" replace />} />
       <Route path="/print" element={<Print />} />
 
       <Route path="/product/:id" element={<ProductDetail />} />

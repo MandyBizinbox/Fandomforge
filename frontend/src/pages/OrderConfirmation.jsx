@@ -129,7 +129,7 @@ export default function OrderConfirmation() {
             <p className="overline mb-2 text-[var(--ff-primary)]">Order error</p>
             <h1 className="font-display text-4xl uppercase mb-4">Could not load order</h1>
             <p className="text-[var(--ff-muted-text)] mb-6">{error}</p>
-            <Link to="/shop" className="btn-secondary">Keep shopping</Link>
+            <Link to="/" className="btn-secondary">Return home</Link>
           </div>
         </div>
       </div>
@@ -254,8 +254,8 @@ export default function OrderConfirmation() {
             </div>
           </div>
 
-          <Link to="/shop" className="btn-secondary mt-10" data-testid="oc-continue">
-            Keep shopping
+          <Link to="/" className="btn-secondary mt-10" data-testid="oc-continue">
+            Return home
           </Link>
         </div>
       </div>

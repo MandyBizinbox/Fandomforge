@@ -79,8 +79,8 @@ export default function OrderTracking() {
             <p className="overline mb-2 text-[var(--ff-primary)]">Tracking unavailable</p>
             <h1 className="font-display text-4xl uppercase mb-4">Order not found</h1>
             <p className="text-[var(--ff-muted-text)] mb-6">{error || "This tracking link is invalid or expired."}</p>
-            <Link to="/shop" className="btn-secondary">
-              <ArrowLeft size={16} /> Back to shop
+            <Link to="/" className="btn-secondary">
+              <ArrowLeft size={16} /> Return home
             </Link>
           </div>
         </main>
@@ -228,8 +228,8 @@ export default function OrderTracking() {
                 Use this order number when asking for support.
               </p>
               <div className="font-mono text-sm border border-[var(--ff-card-border)] p-3 bg-[var(--ff-surface-bg)]/40">{tracking.order_number}</div>
-              <Link to="/shop" className="btn-secondary w-full mt-4">
-                <ExternalLink size={15} /> Continue shopping
+              <Link to="/contact" className="btn-secondary w-full mt-4">
+                <ExternalLink size={15} /> Contact support
               </Link>
             </div>
           </aside>

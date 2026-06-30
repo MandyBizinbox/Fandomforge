@@ -1,9 +1,22 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Link } from "react-router-dom";
 import Navbar from "../components/Navbar";
-import { ClipboardList, FileImage, Printer, Truck, ArrowRight } from "lucide-react";
+import { ArrowRight, ClipboardList, FileImage, Printer, ShieldCheck, Truck } from "lucide-react";
 
 export default function Print() {
+  useEffect(() => {
+    const selector = 'meta[name="robots"][data-print-page="true"]';
+    document.querySelector(selector)?.remove();
+
+    const meta = document.createElement("meta");
+    meta.name = "robots";
+    meta.content = "noindex,nofollow";
+    meta.setAttribute("data-print-page", "true");
+    document.head.appendChild(meta);
+
+    return () => document.querySelector(selector)?.remove();
+  }, []);
+
   return (
     <div className="min-h-screen page-shell">
       <Navbar />
@@ -11,31 +24,31 @@ export default function Print() {
       <section className="pt-32 pb-20 border-b border-[var(--ff-card-border)]">
         <div className="max-w-7xl mx-auto px-6 md:px-10 grid lg:grid-cols-2 gap-12 items-center">
           <div>
-            <p className="overline mb-4">For print partners</p>
-            <h1 className="font-display text-6xl md:text-8xl uppercase leading-[0.9] mb-6">
-              Get Paid To Fulfil Orders
+            <p className="overline mb-4">For production partners</p>
+            <h1 className="font-display text-5xl md:text-7xl lg:text-8xl uppercase leading-[0.9] mb-6">
+              Help fulfil made-to-order community merchandise.
             </h1>
             <p className="text-[var(--ff-muted-text)] text-lg max-w-xl mb-8">
-              Join the FandomForge fulfilment network and receive ready-to-produce orders with artwork attached.
+              FandomForge works with approved South African production partners to print, package, and dispatch orders created through direct-link creator stores.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4">
               <Link to="/register/printer" className="btn-primary">
                 Apply As Printer <ArrowRight size={18} />
               </Link>
-              <Link to="/shop" className="btn-secondary">
-                View Marketplace
+              <Link to="/contact" className="btn-secondary">
+                Contact Us
               </Link>
             </div>
           </div>
 
-          <div className="border border-[var(--ff-card-border)] bg-white/[0.03] p-8">
-            <p className="overline mb-4">Printer workflow</p>
+          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-8">
+            <p className="overline mb-4">Fulfilment workflow</p>
             <div className="space-y-5">
-              <Step icon={<ClipboardList />} title="Receive jobs" text="Accepted jobs appear in your printer dashboard." />
-              <Step icon={<FileImage />} title="Download artwork" text="Each order includes the required print artwork and order details." />
-              <Step icon={<Printer />} title="Produce the item" text="Print according to the product, size, colour and production notes." />
-              <Step icon={<Truck />} title="Dispatch and update" text="Mark production status and add tracking where required." />
+              <Step icon={<ClipboardList />} title="Receive approved jobs" text="Production work is routed through the platform once orders are ready for fulfilment." />
+              <Step icon={<FileImage />} title="Use supplied artwork" text="Order details include the product, variation, production notes, and approved artwork where required." />
+              <Step icon={<Printer />} title="Produce consistently" text="Partners work to controlled product and quality standards." />
+              <Step icon={<Truck />} title="Update fulfilment" text="Production and dispatch updates keep creators and customers informed." />
             </div>
           </div>
         </div>
@@ -43,30 +56,16 @@ export default function Print() {
 
       <section className="py-16 border-b border-[var(--ff-card-border)]">
         <div className="max-w-7xl mx-auto px-6 md:px-10">
-          <p className="overline mb-2">Why join</p>
-          <h2 className="font-display text-4xl md:text-5xl uppercase mb-8">More Production Work, Less Admin</h2>
+          <p className="overline mb-2">Partner fit</p>
+          <h2 className="font-display text-4xl md:text-5xl uppercase mb-8">Built for reliable local production</h2>
 
           <div className="grid md:grid-cols-3 gap-6">
-            <Feature title="Ready-to-print jobs" text="Orders arrive with product details, artwork and customer order information." />
-            <Feature title="No marketplace setup" text="You focus on fulfilment while creators and fans use the platform." />
-            <Feature title="Production dashboard" text="Track active jobs, production status and completed orders." />
-            <Feature title="Payout tracking" text="See what is due and what has been paid." />
-            <Feature title="Quality standards" text="Work within a controlled fulfilment network." />
-            <Feature title="Scalable order flow" text="Handle more work as the marketplace grows." />
-          </div>
-        </div>
-      </section>
-
-      <section className="py-16 border-b border-[var(--ff-card-border)]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10">
-          <p className="overline mb-2">Best fit</p>
-          <h2 className="font-display text-4xl md:text-5xl uppercase mb-8">Who Should Apply?</h2>
-
-          <div className="grid md:grid-cols-2 gap-6">
-            <Requirement title="DTF, vinyl, screen print or embroidery capability" />
-            <Requirement title="Reliable turnaround times" />
-            <Requirement title="Consistent product quality" />
-            <Requirement title="Ability to package and dispatch orders" />
+            <Feature title="Controlled jobs" text="Orders arrive through a fulfilment workflow instead of public product browsing." />
+            <Feature title="Production clarity" text="Printer tasks focus on approved products, artwork, variations, and dispatch details." />
+            <Feature title="South African fulfilment" text="FandomForge is designed around local production and delivery expectations." />
+            <Feature title="Dashboard workflow" text="Approved partners can manage production statuses and completed work from their dashboard." />
+            <Feature title="Quality standards" text="Consistent production keeps creator stores trustworthy for their own communities." />
+            <Feature title="No public catalogue role" text="Printer participation supports fulfilment; it is not a public marketplace listing." />
           </div>
         </div>
       </section>
@@ -76,7 +75,7 @@ export default function Print() {
           <p className="overline mb-2">Join the network</p>
           <h2 className="font-display text-5xl uppercase mb-6">Apply As A Printer</h2>
           <p className="text-[var(--ff-muted-text)] mb-8">
-            Submit your details and production capabilities so we can route suitable jobs to you.
+            Submit your details and production capabilities so FandomForge can assess whether your service is a fit for the fulfilment network.
           </p>
           <Link to="/register/printer" className="btn-primary">
             Apply Now <ArrowRight size={18} />
@@ -102,16 +101,9 @@ function Step({ icon, title, text }) {
 function Feature({ title, text }) {
   return (
     <div className="card">
+      <ShieldCheck className="text-[var(--ff-primary)] mb-4" />
       <h3 className="font-display text-2xl uppercase mb-2">{title}</h3>
       <p className="text-[var(--ff-muted-text)] text-sm">{text}</p>
-    </div>
-  );
-}
-
-function Requirement({ title }) {
-  return (
-    <div className="border border-[var(--ff-card-border)] bg-white/[0.03] p-6">
-      <p className="font-display text-2xl uppercase">{title}</p>
     </div>
   );
 }

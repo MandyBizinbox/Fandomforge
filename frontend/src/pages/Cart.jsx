@@ -22,7 +22,7 @@ export default function Cart() {
             <div className="card text-center py-20" data-testid="cart-empty">
               <div className="overline mb-4">Empty</div>
               <p className="text-[var(--ff-muted-text)] mb-6">Your cart is waiting to get loud.</p>
-              <Link to="/shop" className="btn-primary" data-testid="cart-shop-btn">Shop all merch</Link>
+              <Link to="/" className="btn-primary" data-testid="cart-shop-btn">Return home</Link>
             </div>
           ) : (
             <>

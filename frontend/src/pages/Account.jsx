@@ -35,9 +35,9 @@ export default function Account() {
         </div>
 
         <div className="grid md:grid-cols-2 gap-4">
-          <Link to="/shop" className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-6 hover:border-[var(--ff-primary)]">
-            <p className="font-display text-2xl uppercase mb-2">Shop Merch</p>
-            <p className="text-[var(--ff-muted-text)] text-sm">Browse products and support creators.</p>
+          <Link to="/" className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-6 hover:border-[var(--ff-primary)]">
+            <p className="font-display text-2xl uppercase mb-2">Home</p>
+            <p className="text-[var(--ff-muted-text)] text-sm">Return to the FandomForge platform homepage.</p>
           </Link>
 
           <Link to="/cart" className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-6 hover:border-[var(--ff-primary)]">
