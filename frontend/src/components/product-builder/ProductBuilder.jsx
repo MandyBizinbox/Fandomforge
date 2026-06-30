@@ -694,6 +694,8 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const canContinueProductOption = Boolean(selectedTemplate);
   const canContinueDetails = Boolean(selectedTemplate && form.title.trim() && (!isAdmin || form.band_id));
   const stepIndex = steps.findIndex((step) => step.key === activeStep);
+  const pricingWorkspace = activeStep === "pricing";
+  const wideWorkspace = activeStep === "artwork" || activeStep === "review" || pricingWorkspace;
 
   const getStepGateError = (stepKey) => {
     if (stepKey === "product_type" && !canContinueProductType) return "Select a product type.";
@@ -807,8 +809,8 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         </div>
       </div>
 
-      <div className={activeStep === "artwork" || activeStep === "review" ? "product-builder-layout grid grid-cols-1 gap-5" : "product-builder-layout grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5"}>
-        <main className={activeStep === "artwork" || activeStep === "review" ? "product-builder-main min-w-0 min-h-[820px]" : "product-builder-main min-w-0 card min-h-[720px]"}>
+      <div className={wideWorkspace ? "product-builder-layout grid grid-cols-1 gap-5" : "product-builder-layout grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5"}>
+        <main className={wideWorkspace ? "product-builder-main min-w-0 min-h-[820px]" : "product-builder-main min-w-0 card min-h-[720px]"}>
           {activeStep === "product_type" && (
             <ProductTypeStep
               productTypes={productTypes}
@@ -923,7 +925,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           )}
         </main>
 
-        {activeStep !== "artwork" && activeStep !== "review" && (
+        {!wideWorkspace && (
           <aside className="product-builder-aside space-y-4">
             <BuilderSidebar
               canContinueProductType={canContinueProductType}
@@ -944,6 +946,25 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               isNew={isNew}
             />
           </aside>
+        )}
+
+        {pricingWorkspace && (
+          <section className="card flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+            <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-2 text-xs">
+              <ChecklistItem done={Boolean(canContinueProductType)} label="Product type" />
+              <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option" />
+              <ChecklistItem done={Boolean(canContinueDetails)} label="Details" />
+              <ChecklistItem done={!hasTemplateVariations || form.selected_template_variation_ids.length > 0} label={hasTemplateVariations ? `${form.selected_template_variation_ids.length} variations` : "No variations needed"} />
+              <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} artwork groups`} />
+              <ChecklistItem done={readyArtworkSlots.length > 0} label={`${readyArtworkSlots.length} ready artwork slots`} />
+              <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockups`} />
+              <ChecklistItem done={pricing.canPublishWithOverride} label={pricing.canPublishProfitably ? "Price covers costs" : "Pricing override approved"} />
+            </div>
+            <div className="flex gap-2 md:min-w-[260px]">
+              <button type="button" className="btn-secondary flex-1" onClick={prevStep} disabled={stepIndex === 0}>Previous</button>
+              <button type="button" className="btn-primary flex-1" onClick={nextStep}>Next</button>
+            </div>
+          </section>
         )}
 
         {activeStep === "artwork" && (
@@ -1833,8 +1854,6 @@ function VariationPricingMatrix({
 
   const [drafts, setDrafts] = useState({});
   const hasActiveOverride = rows.some((row) => row.manualOverrideActive);
-  const hasPricingBlocker = hasEffectivePricingBlocker(pricingControl?.product || {}, pricing);
-  const defaultOpen = loadingPricingControl || hasActiveOverride || hasPricingBlocker;
 
   useEffect(() => {
     const next = {};
@@ -1862,6 +1881,21 @@ function VariationPricingMatrix({
     }));
   };
 
+  const setAllOverrideRows = (enabled) => {
+    setDrafts((current) => {
+      const next = { ...current };
+      rows.forEach((row) => {
+        const adminRow = row.adminRow || {};
+        const variationKey = adminRow.variation_key || row.key || "default";
+        next[variationKey] = {
+          ...(next[variationKey] || {}),
+          enabled,
+        };
+      });
+      return next;
+    });
+  };
+
   const saveRow = (row) => {
     const adminRow = row.adminRow || {};
     const variationKey = adminRow.variation_key || row.key || "default";
@@ -1883,53 +1917,71 @@ function VariationPricingMatrix({
 
   return (
     <section className="card" data-testid="variation-pricing-matrix">
-      <details open={canManagePricingControl ? defaultOpen : true} className="group">
-        <summary className="cursor-pointer list-none p-5">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-            <div>
-              <div className="overline mb-2">Variation Pricing Matrix</div>
-              <h2 className="font-display text-3xl uppercase text-white">Retail and effective pricing</h2>
-              <p className="text-sm text-zinc-400 mt-2 max-w-4xl">
-                Retail selling price controls what customers see. Super Admin override fields are manual corrections for effective costs and prices.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {canManagePricingControl && hasActiveOverride ? (
+      <div className="p-5">
+        <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-5">
+          <div>
+            <div className="overline mb-2">Variation Pricing Matrix</div>
+            <h2 className="font-display text-3xl uppercase text-white">Retail and effective pricing</h2>
+            <p className="text-sm text-zinc-400 mt-2 max-w-4xl">
+              Retail selling price controls what customers see. Super Admin override fields are manual corrections for effective costs and prices.
+            </p>
+          </div>
+
+          {canManagePricingControl && (
+            <div className="flex flex-col items-start xl:items-end gap-2">
+              {hasActiveOverride && (
                 <span className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-amber-100">
                   Manual override active
                 </span>
-              ) : canManagePricingControl ? (
-                <span className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-zinc-500">
-                  Normal pricing
-                </span>
-              ) : null}
-              <span className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-zinc-400">
-                <span className="group-open:hidden">Expand</span><span className="hidden group-open:inline">Collapse</span>
-              </span>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="btn-secondary text-xs" onClick={() => setAllOverrideRows(true)}>
+                  Select All Overrides
+                </button>
+                <button type="button" className="btn-secondary text-xs" onClick={() => setAllOverrideRows(false)}>
+                  Clear All Overrides
+                </button>
+              </div>
+              <p className="text-xs text-zinc-500 max-w-sm xl:text-right">
+                Use these controls to mark override rows in this form. Save rows to persist changes.
+              </p>
             </div>
-          </div>
-        </summary>
+          )}
+        </div>
 
-        <div className="px-5 pb-5">
-          {loadingPricingControl && canManagePricingControl ? (
-            <div className="overline text-zinc-500">Loading pricing control...</div>
-          ) : (
+        {loadingPricingControl && canManagePricingControl ? (
+          <div className="overline text-zinc-500">Loading pricing control...</div>
+        ) : (
           <div className="overflow-x-auto border border-white/10 rounded-xl">
-          <table className={`w-full text-xs ${canManagePricingControl ? "min-w-[1380px]" : "min-w-[760px]"}`}>
+          <table className={`w-full text-xs ${canManagePricingControl ? "min-w-[1680px]" : "min-w-[920px]"}`}>
+            <colgroup>
+              <col className={canManagePricingControl ? "w-[280px]" : "w-[260px]"} />
+              <col className="w-[120px]" />
+              <col className="w-[120px]" />
+              <col className="w-[160px]" />
+              {canManagePricingControl && <col className="w-[150px]" />}
+              {canManagePricingControl && <col className="w-[150px]" />}
+              {canManagePricingControl && <col className="w-[170px]" />}
+              {canManagePricingControl && <col className="w-[150px]" />}
+              {canManagePricingControl && <col className="w-[240px]" />}
+              {canManagePricingControl && <col className="w-[110px]" />}
+              <col className="w-[150px]" />
+              <col className="w-[170px]" />
+            </colgroup>
             <thead>
               <tr className="text-left text-zinc-500 border-b border-white/10">
-                <th className="py-2 px-3 sticky left-0 z-10 bg-[#080808]">Variation</th>
-                <th className="py-2 pr-3 text-right">Base cost</th>
-                <th className="py-2 pr-3 text-right">Print cost</th>
-                <th className="py-2 pr-3">Retail selling price</th>
-                {canManagePricingControl && <th className="py-2 pr-3">Override base cost</th>}
-                {canManagePricingControl && <th className="py-2 pr-3">Override print cost</th>}
-                {canManagePricingControl && <th className="py-2 pr-3">Admin selling price override</th>}
-                {canManagePricingControl && <th className="py-2 pr-3">Manual override active</th>}
-                {canManagePricingControl && <th className="py-2 pr-3">Reason</th>}
-                {canManagePricingControl && <th className="py-2 pr-3">Save</th>}
-                <th className="py-2 pr-3 text-right">Effective selling price</th>
-                <th className="py-2 pr-3 text-right">Creator/fundraising amount</th>
+                <th className="py-3 px-4 sticky left-0 z-10 bg-[#080808] whitespace-nowrap">Variation</th>
+                <th className="py-3 px-3 text-right whitespace-nowrap">Base cost</th>
+                <th className="py-3 px-3 text-right whitespace-nowrap">Print cost</th>
+                <th className="py-3 px-3 whitespace-nowrap">Retail selling price</th>
+                {canManagePricingControl && <th className="py-3 px-3 whitespace-nowrap">Override base cost</th>}
+                {canManagePricingControl && <th className="py-3 px-3 whitespace-nowrap">Override print cost</th>}
+                {canManagePricingControl && <th className="py-3 px-3 whitespace-nowrap">Admin selling price override</th>}
+                {canManagePricingControl && <th className="py-3 px-3 whitespace-nowrap">Manual override active</th>}
+                {canManagePricingControl && <th className="py-3 px-3 whitespace-nowrap">Reason</th>}
+                {canManagePricingControl && <th className="py-3 px-3 whitespace-nowrap">Save</th>}
+                <th className="py-3 px-3 text-right whitespace-nowrap">Effective selling price</th>
+                <th className="py-3 px-4 text-right whitespace-nowrap">Creator/fundraising amount</th>
               </tr>
             </thead>
             <tbody>
@@ -1937,14 +1989,19 @@ function VariationPricingMatrix({
                 const adminRow = row.adminRow || {};
                 const variationKey = adminRow.variation_key || row.key || "default";
                 const draft = drafts[variationKey] || {};
+                const overrideSelected = Boolean(draft.enabled);
                 const retailOverride = row.retailOverride ?? "";
                 const retailTooLow = row.retailPrice > 0 && row.retailPrice < row.variationMinimumPrice;
                 return (
-                  <tr key={variationKey} className={`border-b border-white/5 align-top ${row.manualOverrideActive ? "bg-amber-500/[0.04]" : ""}`}>
-                    <td className="py-2 px-3 text-white sticky left-0 z-10 bg-[#080808]">
+                  <tr key={variationKey} className={`border-b border-white/5 align-top ${overrideSelected || row.manualOverrideActive ? "bg-amber-500/[0.04]" : ""}`}>
+                    <td className="py-3 px-4 text-white sticky left-0 z-10 bg-[#080808]">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold">{row.label}</span>
-                        {row.manualOverrideActive && <span className="rounded border border-amber-400/50 bg-amber-500/10 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-amber-100">Manual</span>}
+                        <span className="font-bold leading-snug">{row.label}</span>
+                        {(overrideSelected || row.manualOverrideActive) && (
+                          <span className="rounded border border-amber-400/50 bg-amber-500/10 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-amber-100">
+                            {row.manualOverrideActive ? "Manual" : "Selected"}
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-zinc-500">{row.sublabel || variationKey}</div>
                       {row.manualOverrideUpdatedAt && (
@@ -1953,11 +2010,11 @@ function VariationPricingMatrix({
                         </div>
                       )}
                     </td>
-                    <td className="py-2 pr-3 text-right text-zinc-400">{money(row.calculatedBaseCost)}</td>
-                    <td className="py-2 pr-3 text-right text-zinc-400">{money(row.calculatedPrintCost)}</td>
-                    <td className="py-2 pr-3">
+                    <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.calculatedBaseCost)}</td>
+                    <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.calculatedPrintCost)}</td>
+                    <td className="py-3 px-3">
                       <input
-                        className="input-base w-[130px] text-xs"
+                        className="input-base w-[140px] text-xs"
                         type="number"
                         step="0.01"
                         min="0"
@@ -1968,11 +2025,11 @@ function VariationPricingMatrix({
                       />
                       {retailTooLow && <div className="text-[10px] text-[#FFB4B0] mt-1">Below {money(row.variationMinimumPrice)}</div>}
                     </td>
-                    {canManagePricingControl && <td className="py-2 pr-3"><PriceInput value={draft.base_product_cost} onChange={(value) => updateDraft(variationKey, { base_product_cost: value })} disabled={!draft.enabled} /></td>}
-                    {canManagePricingControl && <td className="py-2 pr-3"><PriceInput value={draft.print_cost} onChange={(value) => updateDraft(variationKey, { print_cost: value })} disabled={!draft.enabled} /></td>}
-                    {canManagePricingControl && <td className="py-2 pr-3"><PriceInput value={draft.selling_price} onChange={(value) => updateDraft(variationKey, { selling_price: value })} disabled={!draft.enabled} /></td>}
-                    {canManagePricingControl && <td className="py-2 pr-3">
-                      <label className="inline-flex items-center gap-2 text-xs text-zinc-300">
+                    {canManagePricingControl && <td className="py-3 px-3"><PriceInput value={draft.base_product_cost} onChange={(value) => updateDraft(variationKey, { base_product_cost: value })} disabled={!draft.enabled} /></td>}
+                    {canManagePricingControl && <td className="py-3 px-3"><PriceInput value={draft.print_cost} onChange={(value) => updateDraft(variationKey, { print_cost: value })} disabled={!draft.enabled} /></td>}
+                    {canManagePricingControl && <td className="py-3 px-3"><PriceInput value={draft.selling_price} onChange={(value) => updateDraft(variationKey, { selling_price: value })} disabled={!draft.enabled} /></td>}
+                    {canManagePricingControl && <td className="py-3 px-3">
+                      <label className="inline-flex items-center gap-2 text-xs text-zinc-300 whitespace-nowrap">
                         <input
                           type="checkbox"
                           checked={Boolean(draft.enabled)}
@@ -1981,22 +2038,22 @@ function VariationPricingMatrix({
                         Active
                       </label>
                     </td>}
-                    {canManagePricingControl && <td className="py-2 pr-3">
+                    {canManagePricingControl && <td className="py-3 px-3">
                       <textarea
-                        className="input-base min-w-[180px] text-xs"
+                        className="input-base w-[220px] text-xs"
                         rows={1}
                         value={draft.reason || ""}
                         onChange={(event) => updateDraft(variationKey, { reason: event.target.value })}
                         placeholder="Required for audit trail"
                       />
                     </td>}
-                    {canManagePricingControl && <td className="py-2 pr-3 text-right">
-                      <button type="button" className="btn-secondary text-xs" disabled={savingManualPricing} onClick={() => saveRow(row)}>
+                    {canManagePricingControl && <td className="py-3 px-3 text-right">
+                      <button type="button" className="btn-secondary text-xs w-[86px]" disabled={savingManualPricing} onClick={() => saveRow(row)}>
                         {savingManualPricing ? "Saving..." : "Save"}
                       </button>
                     </td>}
-                    <td className="py-2 pr-3 text-right font-bold text-white">{money(row.effectiveSellingPrice)}</td>
-                    <td className={`py-2 pr-3 text-right font-bold ${Number(row.effectiveCreatorAmount || 0) < 0 ? "text-[#FFB4B0]" : "text-[#A7F3C4]"}`}>{money(row.effectiveCreatorAmount)}</td>
+                    <td className="py-3 px-3 text-right font-bold text-white whitespace-nowrap">{money(row.effectiveSellingPrice)}</td>
+                    <td className={`py-3 px-4 text-right font-bold whitespace-nowrap ${Number(row.effectiveCreatorAmount || 0) < 0 ? "text-[#FFB4B0]" : "text-[#A7F3C4]"}`}>{money(row.effectiveCreatorAmount)}</td>
                   </tr>
                 );
               })}
@@ -2006,9 +2063,8 @@ function VariationPricingMatrix({
             </tbody>
           </table>
           </div>
-          )}
-        </div>
-      </details>
+        )}
+      </div>
     </section>
   );
 }
@@ -2016,7 +2072,7 @@ function VariationPricingMatrix({
 function PriceInput({ value, onChange, disabled = false }) {
   return (
     <input
-      className="input-base max-w-[140px]"
+      className="input-base w-[140px]"
       type="number"
       min="0"
       step="0.01"
