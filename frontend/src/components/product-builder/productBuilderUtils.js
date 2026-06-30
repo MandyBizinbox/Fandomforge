@@ -393,6 +393,28 @@ export function resolveCreatorCommissionSource(creatorOrProduct = {}) {
   return "default";
 }
 
+export function getEffectivePricingStatus(product = {}, pricing = {}) {
+  if (product?.pricing_override_approved || pricing?.pricingOverrideApproved) return "override_approved";
+  if (pricing?.canPublishProfitably) return "approved";
+  if (product?.requires_creator_pricing_approval || product?.creator_pricing_approval_status === "pending_creator_approval") return "pending_creator_approval";
+  if (Number(product?.estimated_creator_profit || pricing?.profit || 0) < 0) return "price_below_minimum";
+  return product?.creator_pricing_approval_status || "not_required";
+}
+
+export function hasEffectivePricingBlocker(product = {}, pricing = {}) {
+  return ["pending_creator_approval", "price_below_minimum", "rejected"].includes(getEffectivePricingStatus(product, pricing));
+}
+
+export function effectivePricingStatusLabel(product = {}, pricing = {}) {
+  const status = getEffectivePricingStatus(product, pricing);
+  if (status === "override_approved") return "Override approved";
+  if (status === "approved") return "Approved";
+  if (status === "pending_creator_approval") return "Pending creator approval";
+  if (status === "price_below_minimum") return "Price below minimum";
+  if (status === "not_required") return "Not required";
+  return String(status || "Review may be required").replace(/_/g, " ");
+}
+
 export function calculatePricing({ sellingPrice = 0, blankCost = 0, printCost = 0, commissionRate = DEFAULT_PLATFORM_COMMISSION_RATE, commissionSource = "default", pricingOverrideApproved = false }) {
   const price = Number(sellingPrice || 0);
   const blankPayout = Math.round(Number(blankCost || 0) * 100) / 100;

@@ -35,6 +35,9 @@ import {
   getVariationCost,
   resolveCreatorCommissionRate,
   resolveCreatorCommissionSource,
+  effectivePricingStatusLabel,
+  getEffectivePricingStatus,
+  hasEffectivePricingBlocker,
   money,
 } from "./productBuilderUtils";
 
@@ -1206,19 +1209,25 @@ function TextFormatToolbar({ field, onFormat }) {
   );
 }
 
-function getPricingReviewMessages(product = {}, isAdmin = false) {
+function getPricingReviewMessages(product = {}, isAdmin = false, pricing = {}) {
   const messages = [];
+  const pricingStatus = getEffectivePricingStatus(product, pricing);
+  const artworkStatus = product?.artwork_review_status;
+  const artworkBlocking = Boolean(artworkStatus && !["approved", "not_required"].includes(artworkStatus));
+  const pricingBlocking = pricingStatus === "pending_creator_approval" || pricingStatus === "price_below_minimum";
 
-  if ((product?.requires_creator_pricing_approval || product?.creator_pricing_approval_status === "pending_creator_approval") && !product?.pricing_override_approved) {
+  if (pricingBlocking) {
     messages.push("Pricing update needs your approval before this product can go live.");
   }
 
-  if (product?.artwork_review_status && product.artwork_review_status !== "approved") {
+  if (artworkBlocking) {
     messages.push("Artwork review pending. Your product will stay unpublished until review is complete.");
   }
 
-  if (!isAdmin) {
+  if (!isAdmin && pricingStatus !== "override_approved" && (pricingBlocking || artworkBlocking)) {
     messages.push("This product will stay unpublished until artwork and pricing are reviewed.");
+  } else if (!isAdmin && pricingStatus === "override_approved" && artworkBlocking) {
+    messages.push("This product will stay unpublished until artwork review is complete.");
   }
 
   return [...new Set(messages)];
@@ -1226,10 +1235,11 @@ function getPricingReviewMessages(product = {}, isAdmin = false) {
 
 function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isAdmin = false, compact = false }) {
   const minimumSellingPrice = pricing.minimumSellingPrice || pricing.minimumRetail || 0;
-  const reviewMessages = getPricingReviewMessages(product, isAdmin);
+  const reviewMessages = getPricingReviewMessages(product, isAdmin, pricing);
   const printCostValue = pricing.print > 0 ? money(pricing.print) : "Pending print method";
   const overrideActive = Boolean(product?.pricing_override_approved || pricing.pricingOverrideApproved);
-  const priceResolved = Boolean(pricing.canPublishProfitably || (overrideActive && Number(sellingPrice || 0) > 0));
+  const effectivePricingStatus = getEffectivePricingStatus(product, pricing);
+  const priceResolved = !hasEffectivePricingBlocker(product, pricing);
   const sourceLabel = pricing.commissionSource === "default"
     ? "default"
     : pricing.commissionSource === "monthly_package"
@@ -1246,7 +1256,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
           </p>
         </div>
         <div className={`text-xs rounded-lg px-3 py-2 border ${priceResolved ? "border-[#34C759]/40 text-[#A7F3C4] bg-[#34C759]/10" : "border-[#FF3B30]/50 text-[#FFB4B0] bg-[#FF3B30]/10"}`}>
-          {pricing.canPublishProfitably ? "Price covers estimated costs" : overrideActive ? "Pricing override approved" : "Price may be too low"}
+          {pricing.canPublishProfitably ? "Price covers estimated costs" : overrideActive ? "Below minimum — override approved" : "Price may be too low"}
         </div>
       </div>
 
@@ -1262,20 +1272,23 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         <Info label="Minimum selling price" value={money(minimumSellingPrice)} />
         <Info label="Your selling price" value={money(sellingPrice)} />
         <Info label="Estimated creator/fundraising amount" value={money(pricing.profit)} />
-        <Info label="Pricing review status" value={product?.creator_pricing_approval_status || (isAdmin ? "Admin controlled" : "Review may be required")} />
+        <Info label="Effective pricing status" value={effectivePricingStatus === "override_approved" ? "override_approved" : effectivePricingStatusLabel(product, pricing)} />
       </div>
 
       {overrideActive && (
         <div className="border border-amber-400/50 bg-amber-500/10 p-3 text-xs text-amber-100 rounded-lg mt-4">
-          Pricing approved by FandomForge. This product has a pricing override approved by the platform.
-          {product?.pricing_override_reason && <span className="block mt-1">Reason: {product.pricing_override_reason}</span>}
+          <div className="font-bold uppercase tracking-widest text-[11px] mb-1">Pricing override approved</div>
+          <div>This product is below the normal minimum selling price, but FandomForge has approved a pricing override. Artwork and other product requirements still apply.</div>
+          {product?.pricing_override_reason && <span className="block mt-2">Reason: {product.pricing_override_reason}</span>}
+          {product?.pricing_override_by && <span className="block">Approved by: {product.pricing_override_by}</span>}
+          {product?.pricing_override_at && <span className="block">Approved at: {new Date(product.pricing_override_at).toLocaleString()}</span>}
         </div>
       )}
 
       {!pricing.canPublishProfitably && Number(sellingPrice || 0) > 0 && (
         <div className={`border p-3 text-xs rounded-lg mt-4 ${overrideActive ? "border-amber-400/40 bg-amber-500/10 text-amber-100" : "border-[#FF3B30]/50 bg-[#FF3B30]/10 text-[#FFB4B0]"}`}>
           {overrideActive
-            ? "Price is below the normal minimum, but FandomForge has approved an override."
+            ? "This product is below the normal minimum selling price, but FandomForge has approved a pricing override."
             : "This selling price may be too low to cover production and platform costs. Increase the selling price or reduce the fundraising amount."}
         </div>
       )}
@@ -1578,10 +1591,10 @@ function ReviewStep({
 
 function PricingOverridePanel({ product, pricing, user, reason, setReason, saving, onUpdate }) {
   const overrideActive = Boolean(product?.pricing_override_approved);
-  const needsOverride = !pricing?.canPublishProfitably && Number(product?.selling_price || 0) > 0;
+  const needsOverride = hasEffectivePricingBlocker(product, pricing) && Number(product?.selling_price || 0) > 0;
   const canOverride = user?.role === "super_admin";
 
-  if (!overrideActive && !needsOverride && !canOverride) return null;
+  if (!overrideActive && !needsOverride) return null;
 
   return (
     <section className="mb-6 rounded-xl border border-amber-400/40 bg-amber-500/10 p-5" data-testid="admin-pricing-override-panel">
@@ -1609,7 +1622,7 @@ function PricingOverridePanel({ product, pricing, user, reason, setReason, savin
         {canOverride && (
           <div className="w-full lg:max-w-sm space-y-3">
             <label>
-              <span className="label">Reason</span>
+              <span className="label">{overrideActive ? "Removal reason" : "Reason"}</span>
               <textarea
                 className="input-base"
                 rows={3}
@@ -1619,12 +1632,13 @@ function PricingOverridePanel({ product, pricing, user, reason, setReason, savin
               />
             </label>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn-primary" disabled={saving} onClick={() => onUpdate(true)}>
-                {saving ? "Saving..." : "Approve Pricing Override"}
-              </button>
-              {overrideActive && (
+              {overrideActive ? (
                 <button type="button" className="btn-secondary" disabled={saving} onClick={() => onUpdate(false)}>
-                  Remove Override
+                  {saving ? "Saving..." : "Remove Override"}
+                </button>
+              ) : (
+                <button type="button" className="btn-primary" disabled={saving} onClick={() => onUpdate(true)}>
+                  {saving ? "Saving..." : "Approve Pricing Override"}
                 </button>
               )}
             </div>
