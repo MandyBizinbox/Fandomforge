@@ -15,15 +15,15 @@ export default function Footer() {
   return (
     <footer className="site-footer border-t border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] text-[var(--ff-card-text)]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-10 py-10">
-        <div className="grid gap-8 md:grid-cols-[1.2fr_0.8fr_0.8fr]">
+        <div className="grid gap-8 md:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr_0.8fr]">
           <div>
             <div className="font-display text-3xl uppercase leading-none">
               Fandom<span className="brand-text">Forge</span>
             </div>
             <p className="text-sm text-[var(--ff-muted-text)] mt-3 max-w-md">
-              Creator merch, made to order in South Africa. We help creators, groups and fans get official merch produced and fulfilled.
+              Branded online merch stores for creators, schools, Scout groups, clubs, churches and communities. Share your store link; FandomForge handles printing, payments and fulfilment.
             </p>
-            <div className="flex flex-col sm:flex-row gap-3 mt-5 text-sm">
+            <div className="flex flex-col gap-3 mt-5 text-sm">
               <a href="mailto:info@theforgeza.co.za" className="inline-flex items-center gap-2 hover:text-[var(--ff-primary)]">
                 <Mail size={16} /> info@theforgeza.co.za
               </a>
@@ -33,32 +33,51 @@ export default function Footer() {
             </div>
           </div>
 
-          <div>
-            <div className="overline mb-3">Help</div>
-            <nav className="grid gap-2 text-sm">
-              <Link to="/contact" className="hover:text-[var(--ff-primary)]">Contact Us</Link>
-              <Link to="/delivery-terms" className="hover:text-[var(--ff-primary)]">Delivery Terms</Link>
-              <Link to="/shop-terms" className="hover:text-[var(--ff-primary)]">Shop Terms</Link>
-              <Link to="/privacy-policy" className="hover:text-[var(--ff-primary)]">Privacy Policy</Link>
-            </nav>
-          </div>
+          <FooterColumn title="FandomForge" links={[
+            ["Home", "/"],
+            ["Sell Online", "/sell"],
+            ["About Us", "/about"],
+            ["Contact Us", "/contact"],
+          ]} />
 
-          <div>
-            <div className="overline mb-3">Company</div>
-            <div className="text-sm text-[var(--ff-muted-text)] space-y-1">
-              <p>FandomForge (PTY) Ltd</p>
-              <p>Reg: 2024/705706/07</p>
-              <p>Durbanville, South Africa</p>
-              <p>Support: Mon–Fri, 9am–4pm</p>
-            </div>
-          </div>
+          <FooterColumn title="For Creators" links={[
+            ["Apply to Start a Store", "/register/creator"],
+            ["Login", "/login"],
+            ["How It Works", "/sell#how-it-works"],
+            ["Store Privacy", "/sell#store-visibility"],
+          ]} />
+
+          <FooterColumn title="Support" links={[
+            ["Contact Us", "/contact"],
+            ["Order Help", "/contact"],
+            ["Creator Help", "/contact"],
+          ]} />
+
+          <FooterColumn title="Legal" links={[
+            ["Terms", "/shop-terms"],
+            ["Privacy Policy", "/privacy-policy"],
+            ["Refund Policy", "/shop-terms"],
+          ]} />
         </div>
 
         <div className="border-t border-[var(--ff-card-border)] mt-8 pt-5 text-xs text-[var(--ff-muted-text)] flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
           <span>© {new Date().getFullYear()} FandomForge. All rights reserved.</span>
-          <span>Made-to-order creator merch platform.</span>
+          <span>Direct-link merch stores, made to order in South Africa.</span>
         </div>
       </div>
     </footer>
+  );
+}
+
+function FooterColumn({ title, links }) {
+  return (
+    <div>
+      <div className="overline mb-3">{title}</div>
+      <nav className="grid gap-2 text-sm">
+        {links.map(([label, to]) => (
+          <Link key={`${title}-${label}`} to={to} className="hover:text-[var(--ff-primary)]">{label}</Link>
+        ))}
+      </nav>
+    </div>
   );
 }

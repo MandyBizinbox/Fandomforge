@@ -18,6 +18,7 @@ def utcnow() -> datetime:
 # ------------ USERS ------------
 Role = Literal["super_admin", "owner", "admin", "manager", "creator", "creator", "printer", "buyer", "customer"]
 AccountStatus = Literal["active", "suspended", "pending", "archived"]
+CreatorVisibility = Literal["public", "unlisted", "private"]
 
 
 class UserBase(BaseModel):
@@ -229,6 +230,12 @@ class BandBase(BaseModel):
     website_url: Optional[str] = ""
     socials: Dict[str, str] = Field(default_factory=dict)
     group_delivery: Dict[str, Any] = Field(default_factory=dict)
+    visibility: CreatorVisibility = "unlisted"
+    show_on_platform_gallery: bool = False
+    gallery_logo_url: Optional[str] = None
+    gallery_banner_url: Optional[str] = None
+    gallery_display_name: Optional[str] = None
+    allow_search_indexing: bool = False
 
 
 class BandCreate(BandBase):
@@ -260,6 +267,12 @@ class BandUpdate(BaseModel):
     website_url: Optional[str] = None
     socials: Optional[Dict[str, str]] = None
     group_delivery: Optional[Dict[str, Any]] = None
+    visibility: Optional[CreatorVisibility] = None
+    show_on_platform_gallery: Optional[bool] = None
+    gallery_logo_url: Optional[str] = None
+    gallery_banner_url: Optional[str] = None
+    gallery_display_name: Optional[str] = None
+    allow_search_indexing: Optional[bool] = None
     status: Optional[AccountStatus] = None
     subscription_status: Optional[Literal["active", "inactive", "past_due"]] = None
     monthly_fee: Optional[float] = None

@@ -10,8 +10,6 @@ export default function Navbar() {
   const { items } = useCart();
   const navigate = useNavigate();
   const { platform } = usePlatformConfig();
-  const modules = platform.modules || {};
-  const signup = platform.signup || {};
 
   useEffect(() => {
     const root = document.documentElement;
@@ -40,7 +38,7 @@ export default function Navbar() {
       ? "/admin"
       : user?.role === "manager"
       ? "/manager"
-      : user?.role === "creator" || user?.role === "creator"
+      : user?.role === "creator"
       ? "/creator"
       : user?.role === "printer"
       ? "/printer"
@@ -51,7 +49,7 @@ export default function Navbar() {
       ? "Admin"
       : user?.role === "manager"
       ? "Manager"
-      : user?.role === "creator" || user?.role === "creator"
+      : user?.role === "creator"
       ? "Creator"
       : user?.role === "printer"
       ? "Printer"
@@ -72,18 +70,19 @@ export default function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-10 h-16 flex items-center justify-between gap-2 min-w-0">
         <Link to="/" className="flex items-center gap-2 min-w-0 flex-shrink">
-          {platform.logo_url ? <img src={platform.logo_url} alt={platform.platform_name} className="h-8 sm:h-9 max-w-[120px] sm:max-w-[180px] object-contain" /> : <><span className="font-display text-xl sm:text-2xl uppercase tracking-tight truncate">{String(platform.platform_name || "MERCHFORGE").split(" ")[0]}</span><span className="font-display text-xl sm:text-2xl uppercase tracking-tight brand-text truncate">{String(platform.platform_name || "MERCHFORGE").split(" ").slice(1).join(" ") || ""}</span></>}
+          {platform.logo_url ? <img src={platform.logo_url} alt={platform.platform_name} className="h-8 sm:h-9 max-w-[120px] sm:max-w-[180px] object-contain" /> : <><span className="font-display text-xl sm:text-2xl uppercase tracking-tight truncate">{String(platform.platform_name || "FandomForge").split(" ")[0]}</span><span className="font-display text-xl sm:text-2xl uppercase tracking-tight brand-text truncate">{String(platform.platform_name || "FandomForge").split(" ").slice(1).join(" ") || ""}</span></>}
         </Link>
 
         <nav className="hidden md:flex items-center gap-8">
-          <NavLink to="/shop" className={navClass}>Shop</NavLink>
-          <NavLink to="/creators" className={navClass}>Creators</NavLink>
-          {modules.creators_enabled !== false && signup.creator_signup_enabled !== false && <NavLink to="/sell" className={navClass}>Sell Merch</NavLink>}
-          {modules.printers_enabled !== false && modules.printer_marketplace_enabled !== false && !modules.sole_printer_mode && signup.printer_signup_enabled !== false && <NavLink to="/print" className={navClass}>Print Orders</NavLink>}
+          <NavLink to="/" className={navClass}>Home</NavLink>
+          <NavLink to="/sell" className={navClass}>Sell Online</NavLink>
+          <NavLink to="/about" className={navClass}>About Us</NavLink>
+          <NavLink to="/contact" className={navClass}>Contact Us</NavLink>
+          {!user && <NavLink to="/login" className={navClass}>Login</NavLink>}
         </nav>
 
         <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
-          <Link to="/cart" className="relative p-2 hover:text-[var(--ff-primary)]">
+          <Link to="/cart" className="relative p-2 hover:text-[var(--ff-primary)]" aria-label="Cart">
             <ShoppingBag size={20} />
             {items.length > 0 && (
               <span className="absolute -top-1 -right-1 bg-[var(--ff-primary)] text-[var(--ff-button-primary-text)] text-[10px] w-4 h-4 flex items-center justify-center font-bold">
@@ -94,35 +93,17 @@ export default function Navbar() {
 
           {user ? (
             <>
-              <button
-                type="button"
-                onClick={() => navigate(dashPath)}
-                className="btn-secondary text-xs py-2 px-2 sm:px-3"
-              >
+              <button type="button" onClick={() => navigate(dashPath)} className="btn-secondary text-xs py-2 px-2 sm:px-3">
                 <User size={14} /> <span className="hidden sm:inline">{accountLabel}</span>
               </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  logout();
-                  navigate("/");
-                }}
-                className="p-2 hover:text-[var(--ff-primary)]"
-                title="Sign out"
-              >
+              <button type="button" onClick={() => { logout(); navigate("/"); }} className="p-2 hover:text-[var(--ff-primary)]" title="Sign out">
                 <LogOut size={18} />
               </button>
             </>
           ) : (
-            <>
-              <Link to="/login" className="btn-secondary text-xs py-2 px-2 sm:px-3">
-                Sign in
-              </Link>
-              <Link to={signup.creator_signup_enabled === false ? "/register" : "/register/creator"} className="btn-primary text-xs py-2 px-3 hidden sm:inline-flex">
-                Join
-              </Link>
-            </>
+            <Link to="/sell" className="btn-primary text-xs py-2 px-3 hidden sm:inline-flex">
+              Sell Online
+            </Link>
           )}
         </div>
       </div>

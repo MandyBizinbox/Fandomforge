@@ -2476,6 +2476,29 @@ async def _profile_for_owner(db, owner_type: str, owner_id: str) -> Optional[dic
     }, {"_id": 0})
 
 
+CREATOR_VISIBILITIES = {"public", "unlisted", "private"}
+
+
+def normalize_creator_visibility(value: Optional[str]) -> str:
+    visibility = (value or "unlisted").strip().lower()
+    return visibility if visibility in CREATOR_VISIBILITIES else "unlisted"
+
+
+def public_creator_discovery_query(status: Optional[str] = None) -> Dict[str, Any]:
+    return {
+        "status": status or "active",
+        "visibility": "public",
+        "show_on_platform_gallery": True,
+    }
+
+
+def apply_creator_visibility_defaults(data: Dict[str, Any]) -> Dict[str, Any]:
+    data["visibility"] = normalize_creator_visibility(data.get("visibility"))
+    data["show_on_platform_gallery"] = bool(data.get("show_on_platform_gallery", False))
+    data["allow_search_indexing"] = bool(data.get("allow_search_indexing", False))
+    return data
+
+
 bands_router = APIRouter(prefix="/creators")
 
 
@@ -2510,7 +2533,7 @@ async def create_band(
         slug = f"{slug}-{uid()[:4]}"
 
     creator = Creator(**payload.model_dump(), user_id=user.id, slug=slug)
-    doc = iso_dates(creator.model_dump())
+    doc = apply_creator_visibility_defaults(iso_dates(creator.model_dump()))
     await db.creators.insert_one(doc)
 
     if user.role == "buyer":
@@ -2525,7 +2548,7 @@ async def list_bands(
     status: Optional[str] = None,
 ):
     db = request.app.state.db
-    q = {"status": status or "active"}
+    q = public_creator_discovery_query(status)
     docs = await db.creators.find(q, {"_id": 0}).to_list(200)
     return [Creator(**d) for d in docs]
 
@@ -3863,6 +3886,14 @@ async def list_products(
 
     if band_id:
         q["band_id"] = band_id
+
+    public_creator_docs = await db.creators.find(public_creator_discovery_query(), {"_id": 0, "id": 1}).to_list(500)
+    public_creator_ids = [creator["id"] for creator in public_creator_docs if creator.get("id")]
+    if band_id:
+        if band_id not in public_creator_ids:
+            return []
+    else:
+        q["band_id"] = {"$in": public_creator_ids}
 
     docs = await db.products.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return [Product(**d) for d in docs]
@@ -6591,6 +6622,12 @@ class AdminCreatorCreate(BaseModel):
     monthly_fee: float = 19.99
     commission_rate: float = 0.15
     user_id: Optional[str] = None
+    visibility: str = "unlisted"
+    show_on_platform_gallery: bool = False
+    gallery_logo_url: Optional[str] = None
+    gallery_banner_url: Optional[str] = None
+    gallery_display_name: Optional[str] = None
+    allow_search_indexing: bool = False
 
 
 class AdminCreatorUpdate(BaseModel):
@@ -6610,6 +6647,12 @@ class AdminCreatorUpdate(BaseModel):
     monthly_fee: Optional[float] = None
     commission_rate: Optional[float] = None
     user_id: Optional[str] = None
+    visibility: Optional[str] = None
+    show_on_platform_gallery: Optional[bool] = None
+    gallery_logo_url: Optional[str] = None
+    gallery_banner_url: Optional[str] = None
+    gallery_display_name: Optional[str] = None
+    allow_search_indexing: Optional[bool] = None
 
 
 class AdminPrinterCreate(BaseModel):
@@ -8132,6 +8175,12 @@ async def admin_create_creator_account(
         website_url=payload.website_url or "",
         socials=_clean_socials(payload.socials),
         user_id=payload.user_id or "",
+        visibility=normalize_creator_visibility(payload.visibility),
+        show_on_platform_gallery=bool(payload.show_on_platform_gallery),
+        gallery_logo_url=_clean_account_asset_value(payload.gallery_logo_url),
+        gallery_banner_url=_clean_account_asset_value(payload.gallery_banner_url),
+        gallery_display_name=payload.gallery_display_name or None,
+        allow_search_indexing=bool(payload.allow_search_indexing),
         status=_normalise_account_status(payload.status),
         subscription_status=payload.subscription_status or "inactive",
         monthly_fee=float(payload.monthly_fee or 0),
@@ -8198,11 +8247,14 @@ async def admin_update_creator_account(
     if "status" in updates:
         updates["status"] = _normalise_account_status(updates["status"], existing.get("status") or "active")
 
+    if "visibility" in updates:
+        updates["visibility"] = normalize_creator_visibility(updates["visibility"])
+
     if "user_id" in updates:
         await _ensure_user_exists(db, updates.get("user_id"))
         updates["user_id"] = updates.get("user_id") or ""
 
-    for key in ["logo_url", "banner_url", "profile_image_url"]:
+    for key in ["logo_url", "banner_url", "profile_image_url", "gallery_logo_url", "gallery_banner_url"]:
         if key in updates:
             updates[key] = _clean_account_asset_value(updates[key])
 

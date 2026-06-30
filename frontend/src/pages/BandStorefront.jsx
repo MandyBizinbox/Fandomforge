@@ -21,6 +21,22 @@ export default function BandStorefront() {
       .finally(() => setLoading(false));
   }, [slug]);
 
+  useEffect(() => {
+    const selector = 'meta[name="robots"][data-creator-store="true"]';
+    document.querySelector(selector)?.remove();
+
+    const visibility = (creator?.visibility || "unlisted").toLowerCase();
+    if (visibility === "public") return undefined;
+
+    const meta = document.createElement("meta");
+    meta.name = "robots";
+    meta.content = "noindex,nofollow";
+    meta.setAttribute("data-creator-store", "true");
+    document.head.appendChild(meta);
+
+    return () => document.querySelector(selector)?.remove();
+  }, [creator]);
+
   if (loading) return (<div className="min-h-screen page-shell"><Navbar /><div className="pt-32 text-center overline">Loading…</div></div>);
   if (!creator) return (<div className="min-h-screen page-shell"><Navbar /><div className="pt-32 text-center overline">Creator not found</div></div>);
 

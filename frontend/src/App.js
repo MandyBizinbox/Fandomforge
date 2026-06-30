@@ -184,6 +184,7 @@ function AppRoutes() {
         }
       />
 
+      <Route path="/about" element={<StaticContentPage pageKey="about" />} />
       <Route path="/contact" element={<StaticContentPage pageKey="contact" />} />
       <Route path="/privacy-policy" element={<StaticContentPage pageKey="privacy-policy" />} />
       <Route path="/delivery-terms" element={<StaticContentPage pageKey="delivery-terms" />} />

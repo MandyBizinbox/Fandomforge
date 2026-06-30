@@ -112,6 +112,34 @@ function ContactForm() {
   );
 }
 
+function AboutPage() {
+  return (
+    <>
+      <PageHero
+        overline="About Us"
+        title="Merch stores for communities, without the operational load"
+        subtitle="FandomForge helps schools, Scout groups, clubs, churches, creators and community organisations sell branded merchandise through their own direct-link online stores."
+      />
+
+      <Section title="What FandomForge does">
+        <p>
+          We provide the storefront, online ordering flow, payment handling, production workflow and fulfilment support that make community merchandise easier to manage. Creators share their own store link with their audience, and supporters order online.
+        </p>
+      </Section>
+
+      <Section title="Why direct-link stores matter">
+        <p>
+          Many organisations do not need a public marketplace listing. They need a simple, branded store for members, parents, supporters, fans or customers who already know them. FandomForge supports that model with Unlisted stores as the recommended default.
+        </p>
+      </Section>
+
+      <Section title="Who we support">
+        <BulletList items={["Scout groups", "Schools", "Churches", "Sports clubs", "Charities", "Community organisations", "Fan communities", "Small businesses", "Event organisers"]} />
+      </Section>
+    </>
+  );
+}
+
 function ContactPage() {
   return (
     <>
@@ -331,6 +359,7 @@ function PageHero({ overline, title, subtitle }) {
 
 export default function StaticContentPage({ pageKey }) {
   const page = useMemo(() => {
+    if (pageKey === "about") return <AboutPage />;
     if (pageKey === "contact") return <ContactPage />;
     if (pageKey === "delivery-terms") return <DeliveryTermsPage />;
     if (pageKey === "shop-terms") return <ShopTermsPage />;
