@@ -37,6 +37,10 @@ const steps = [
   { key: "review", label: "8 Review" },
 ];
 
+const SELECTED_CARD_CLASS = "border-emerald-400/90 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(52,211,153,0.55),0_18px_45px_rgba(16,185,129,0.08)]";
+const UNSELECTED_CARD_CLASS = "border-white/10 bg-black/30 hover:border-white/30 hover:bg-black/40";
+const SELECTED_BADGE_CLASS = "inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-400/15 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-emerald-200";
+
 const emptyArtwork = {
   original_url: "",
   file_name: "",
@@ -661,7 +665,6 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
             <ProductOptionStep
               templates={filteredTemplates}
               selectedProductType={selectedProductType}
-              selectedTemplate={selectedTemplate}
               form={form}
               chooseTemplate={chooseTemplate}
             />
@@ -867,17 +870,31 @@ function ProductTypeStep({ productTypes = [], selectedProductTypeId, selectedTem
 
       <section className="border border-white/10 bg-black/20 p-5 rounded-xl space-y-4">
         <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          {productTypes.map((type) => (
-            <button
-              key={type.id}
-              type="button"
-              onClick={() => chooseProductType(type.id)}
-              className={`w-full text-left border rounded-xl p-4 transition ${selectedProductTypeId === type.id ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}
-            >
-              <div className="font-bold text-white">{type.name}</div>
-              <div className="text-xs text-zinc-500 mt-1">{type.category || type.slug}</div>
-            </button>
-          ))}
+          {productTypes.map((type) => {
+            const selected = selectedProductTypeId === type.id;
+
+            return (
+              <button
+                key={type.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => chooseProductType(type.id)}
+                className={`relative w-full text-left border rounded-xl p-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black ${selected ? SELECTED_CARD_CLASS : UNSELECTED_CARD_CLASS}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-bold text-white">{type.name}</div>
+                    <div className="text-xs text-zinc-500 mt-1">{type.category || type.slug}</div>
+                  </div>
+                  {selected && (
+                    <span className={SELECTED_BADGE_CLASS}>
+                      Selected <Check size={12} />
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
 
         {!productTypes.length && (
@@ -894,7 +911,7 @@ function ProductTypeStep({ productTypes = [], selectedProductTypeId, selectedTem
   );
 }
 
-function ProductOptionStep({ templates = [], selectedProductType, selectedTemplate, form, chooseTemplate }) {
+function ProductOptionStep({ templates = [], selectedProductType, form, chooseTemplate }) {
   return (
     <div className="space-y-6 product-builder-main">
       <div>
@@ -927,8 +944,9 @@ function ProductOptionStep({ templates = [], selectedProductType, selectedTempla
               <button
                 key={template.id}
                 type="button"
+                aria-pressed={selected}
                 onClick={() => chooseTemplate(template)}
-                className={`w-full text-left border rounded-xl p-3 transition ${selected ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}
+                className={`relative w-full text-left border rounded-xl p-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black ${selected ? SELECTED_CARD_CLASS : UNSELECTED_CARD_CLASS}`}
               >
                 <div className="grid gap-3 lg:grid-cols-[88px_minmax(140px,1.1fr)_minmax(180px,1.3fr)_minmax(150px,0.9fr)_minmax(150px,0.8fr)] lg:items-center">
                   <div>
@@ -940,8 +958,14 @@ function ProductOptionStep({ templates = [], selectedProductType, selectedTempla
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 lg:hidden">Name</div>
-                    <div className="font-bold text-white">{template.name}</div>
-                    {selectedTemplate?.id === template.id && <div className="text-[11px] text-[#A7F3C4] mt-1">Selected</div>}
+                    <div className="flex flex-wrap items-start gap-2">
+                      <div className="font-bold text-white">{template.name}</div>
+                      {selected && (
+                        <span className={SELECTED_BADGE_CLASS}>
+                          Selected <Check size={12} />
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 lg:hidden">Description</div>
