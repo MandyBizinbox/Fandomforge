@@ -29,7 +29,10 @@ async def lifespan(app: FastAPI):
     app.state.db = client[db_name]
     try:
         from seed import seed_if_empty
+        from seed_production_operations import seed_production_operations
+
         await seed_if_empty(app.state.db)
+        await seed_production_operations(app.state.db)
         logger.info("Seed check complete")
     except Exception as e:
         logger.exception(f"Seed failed: {e}")
@@ -62,6 +65,7 @@ from routes_main import (
     orders_router, admin_router, payments_router, platform_billing_router, files_router, public_router,
     band_dash_router, printer_dash_router, categories_router, attributes_router, print_options_router,
 )
+from routes_production_operations import production_operations_router
 
 api_router.include_router(auth_router)
 api_router.include_router(bands_router)
@@ -80,6 +84,7 @@ api_router.include_router(printer_dash_router)
 api_router.include_router(categories_router)
 api_router.include_router(attributes_router)
 api_router.include_router(print_options_router)
+api_router.include_router(production_operations_router)
 
 app.include_router(api_router)
 
@@ -88,5 +93,5 @@ app.add_middleware(
     allow_credentials=True,
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
