@@ -44,7 +44,25 @@ def normalize_method_key(value: Any) -> str:
         "adhesive_vinyl_area_from_sheet": "adhesive_vinyl",
         "adhesive_vinyl_full_sheet": "adhesive_vinyl",
     }
-    return aliases.get(key, key)
+
+    if key in aliases:
+        return aliases[key]
+
+    # Launch-safe canonicalisation for pricing-rule/product-specific method keys.
+    # Examples: sublimation_mug, htv_classic, adhesive_vinyl_frosted,
+    # dtf_area_fixed_rate, uv_dtf_full_sheet.
+    prefix_aliases = (
+        ("adhesive_vinyl_", "adhesive_vinyl"),
+        ("sublimation_", "sublimation"),
+        ("uv_dtf_", "uv_dtf"),
+        ("dtf_", "dtf"),
+        ("htv_", "htv"),
+    )
+    for prefix, canonical in prefix_aliases:
+        if key.startswith(prefix):
+            return canonical
+
+    return key
 
 
 ACTIVE_V1_METHOD_KEYS = {"sublimation", "dtf", "htv", "uv_dtf", "adhesive_vinyl"}
