@@ -31,6 +31,7 @@ import {
   getTemplateImage,
   getTemplateShortDescription,
   getUniquePrintCostFromGroups,
+  estimateProductionOperationCostFromGroups,
   getCreatorBlankPrice,
   getVariationCost,
   resolveCreatorCommissionRate,
@@ -162,6 +163,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const [productTypes, setProductTypes] = useState([]);
   const [selectedProductTypeId, setSelectedProductTypeId] = useState("");
   const [printOptions, setPrintOptions] = useState([]);
+  const [productionOperations, setProductionOperations] = useState([]);
   const [product, setProduct] = useState(null);
   const [submittedProduct, setSubmittedProduct] = useState(null);
   const [publishing, setPublishing] = useState(false);
@@ -233,6 +235,16 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     [form.artwork_groups, printOptions, selectedTemplate]
   );
 
+  const productionOperationEstimate = useMemo(
+    () => estimateProductionOperationCostFromGroups(form.artwork_groups, printOptions, productionOperations, selectedTemplate),
+    [form.artwork_groups, printOptions, productionOperations, selectedTemplate]
+  );
+
+  const creatorVisiblePrintCost = useMemo(
+    () => Math.round((Number(printCost || 0) + Number(productionOperationEstimate.creatorCost || 0)) * 100) / 100,
+    [printCost, productionOperationEstimate.creatorCost]
+  );
+
   const commissionRate = useMemo(() => {
     const source = selectedCreatorAccount?.id ? selectedCreatorAccount : product;
     return resolveCreatorCommissionRate(source);
@@ -253,7 +265,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const pricing = calculatePricing({
     sellingPrice: primaryManualPricingRow?.effective_selling_price ?? form.selling_price,
     blankCost: primaryManualPricingRow?.effective_base_product_cost ?? blankCost,
-    printCost: primaryManualPricingRow?.effective_print_cost ?? printCost,
+    printCost: primaryManualPricingRow?.effective_print_cost ?? creatorVisiblePrintCost,
     commissionRate,
     commissionSource,
     pricingOverrideApproved: Boolean(product?.pricing_override_approved),
@@ -278,6 +290,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         const requests = [
           http.get(isAdmin ? "/admin/product-templates" : "/product-templates"),
           http.get("/print-options"),
+          http.get("/production-operations").catch(() => ({ data: [] })),
         ];
 
         requests.push(http.get("/public/product-types?status=active"));
@@ -287,8 +300,9 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         const responses = await Promise.all(requests);
         setTemplates(asArray(responses[0].data));
         setPrintOptions(asArray(responses[1].data));
+        setProductionOperations(asArray(responses[2].data));
 
-        let cursor = 2;
+        let cursor = 3;
         setProductTypes(asArray(responses[cursor].data));
         cursor += 1;
         if (isAdmin) {
@@ -1027,13 +1041,25 @@ function BuilderSidebar({ canContinueProductType, canContinueProductOption, canC
         <div className="overline mb-3">Pricing estimate</div>
         <table className="w-full text-sm">
           <tbody>
-            <tr><td className="text-zinc-400">Base product cost</td><td className="text-right">{money(pricing.blank)}</td></tr>
-            <tr><td className="text-zinc-400">Estimated print cost</td><td className="text-right">{pricing.print > 0 ? money(pricing.print) : "Pending"}</td></tr>
-            <tr><td className="text-zinc-400">Minimum selling price</td><td className="text-right">{money(pricing.minimumSellingPrice || 0)}</td></tr>
-            <tr className="border-t border-white/15"><td className="font-bold pt-2">Estimated creator/fundraising amount</td><td className={`text-right font-bold pt-2 ${pricing.profit >= 0 ? "text-[#34C759]" : "text-[#FF3B30]"}`}>{money(pricing.profit)}</td></tr>
+            <tr>
+              <td className="text-zinc-400">Estimated production cost</td>
+              <td className="text-right">{pricing.print > 0 ? money(pricing.production) : "Pending"}</td>
+            </tr>
+            <tr>
+              <td className="text-zinc-400">Platform fee {Number((pricing.rate || 0) * 100).toFixed(2)}%</td>
+              <td className="text-right">{money(pricing.commission)}</td>
+            </tr>
+            <tr>
+              <td className="text-zinc-400">Minimum selling price</td>
+              <td className="text-right">{money(pricing.minimumSellingPrice || 0)}</td>
+            </tr>
+            <tr className="border-t border-white/15">
+              <td className="font-bold pt-2">Markup / fundraising amount</td>
+              <td className={`text-right font-bold pt-2 ${pricing.profit >= 0 ? "text-[#34C759]" : "text-[#FF3B30]"}`}>{money(pricing.profit)}</td>
+            </tr>
           </tbody>
         </table>
-        <p className="text-xs text-zinc-500 mt-3">Estimate updates as artwork and print method are selected.</p>
+        <p className="text-xs text-zinc-500 mt-3">Printing includes print cost plus production labour estimate.</p>
       </section>
 
       <section className="card flex gap-2">
@@ -1316,10 +1342,14 @@ function getPricingReviewMessages(product = {}, isAdmin = false, pricing = {}) {
   return [...new Set(messages)];
 }
 
-function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isAdmin = false, compact = false }) {
-  const minimumSellingPrice = pricing.minimumSellingPrice || pricing.minimumRetail || 0;
+function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isAdmin = false, compact = false, fundraisingValue = "", onFundraisingChange = null }) {
+  const fundraisingAmount = Number(fundraisingValue || Math.max(Number(pricing.profit || 0), 0) || 0);
+  const rate = Number(pricing.rate || 0);
+  const minimumSellingPrice = rate >= 1
+    ? pricing.production + fundraisingAmount
+    : Math.ceil(((Number(pricing.production || 0) + fundraisingAmount) / (1 - rate)) * 100) / 100;
+  const platformFeeAmount = Math.round(minimumSellingPrice * rate * 100) / 100;
   const reviewMessages = getPricingReviewMessages(product, isAdmin, pricing);
-  const printCostValue = pricing.print > 0 ? money(pricing.print) : "Pending print method";
   const overrideActive = Boolean(product?.pricing_override_approved || pricing.pricingOverrideApproved);
   const manualPricingActive = Boolean(product?.manual_pricing_override_active);
   const effectivePricingStatus = getEffectivePricingStatus(product, pricing);
@@ -1355,29 +1385,44 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 2xl:grid-cols-4 gap-4 text-sm">
-        <PricingSummaryGroup title="Cost inputs">
-          <PricingSummaryMetric label="Base product cost" value={money(pricing.blank)} />
-          <PricingSummaryMetric label="Estimated print cost" value={printCostValue} />
-          <PricingSummaryMetric label="Estimated production cost" value={money(pricing.production)} />
+      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
+        <PricingSummaryGroup title="Estimated production cost">
+          <PricingSummaryMetric label="Product + printing" value={pricing.print > 0 ? money(pricing.production) : "Pending print method"} />
+          <div className="text-[11px] leading-relaxed text-zinc-500">
+            Includes base product cost plus creator-facing printing/production estimate.
+          </div>
         </PricingSummaryGroup>
 
-        <PricingSummaryGroup title="Platform fees">
-          <PricingSummaryMetric label="Commission rate" value={`${Number((pricing.rate || 0) * 100).toFixed(2)}%`} />
-          <PricingSummaryMetric label="Commission source" value={sourceLabel} />
-          <PricingSummaryMetric label="Commission amount" value={money(pricing.commission)} />
+        <PricingSummaryGroup title="Platform fee">
+          <PricingSummaryMetric label={`Platform fee ${Number((pricing.rate || 0) * 100).toFixed(2)}%`} value={money(platformFeeAmount)} />
+          <div className="text-[11px] leading-relaxed text-zinc-500">
+            Calculated against the selling price needed to cover production and fundraising.
+          </div>
         </PricingSummaryGroup>
 
-        <PricingSummaryGroup title="Selling outcome">
-          <PricingSummaryMetric label="Minimum selling price" value={money(minimumSellingPrice)} />
-          <PricingSummaryMetric label="Current selling price" value={money(manualPricingActive ? pricing.price : sellingPrice)} />
-          <PricingSummaryMetric label="Creator/fundraising amount" value={money(pricing.profit)} valueClassName={Number(pricing.profit || 0) < 0 ? "text-[#FFB4B0]" : "text-white"} />
+        <PricingSummaryGroup title="Markup / fundraising amount">
+          {onFundraisingChange ? (
+            <input
+              className="input-base"
+              type="number"
+              step="0.01"
+              min="0"
+              value={fundraisingValue}
+              onChange={(event) => onFundraisingChange(event.target.value)}
+            />
+          ) : (
+            <PricingSummaryMetric label="Amount" value={money(fundraisingAmount)} />
+          )}
+          <div className="text-[11px] leading-relaxed text-zinc-500">
+            This is the creator, club or fundraiser amount per item.
+          </div>
         </PricingSummaryGroup>
 
-        <PricingSummaryGroup title="Status">
-          <PricingSummaryMetric label="Effective pricing status" value={effectivePricingStatus === "override_approved" ? "override_approved" : effectivePricingStatusLabel(product, pricing)} />
-          <PricingSummaryMetric label="Manual override" value={manualPricingActive ? "Active" : "Not active"} valueClassName={manualPricingActive ? "text-amber-100" : "text-zinc-300"} />
-          <PricingSummaryMetric label="Pricing blocker override" value={overrideActive ? "Approved" : "Not approved"} valueClassName={overrideActive ? "text-amber-100" : "text-zinc-300"} />
+        <PricingSummaryGroup title="Minimum selling price">
+          <PricingSummaryMetric label="Required customer price" value={money(minimumSellingPrice)} />
+          <div className="text-[11px] leading-relaxed text-zinc-500">
+            Production cost + platform fee + markup/fundraising.
+          </div>
         </PricingSummaryGroup>
       </div>
 
@@ -1481,7 +1526,14 @@ function PricingStep({
         </p>
       </div>
 
-      <PricingSummaryPanel pricing={pricing} sellingPrice={form.selling_price} product={product} isAdmin={isAdmin} />
+      <PricingSummaryPanel
+        pricing={pricing}
+        sellingPrice={form.selling_price}
+        product={product}
+        isAdmin={isAdmin}
+        fundraisingValue={desiredFundraisingAmount}
+        onFundraisingChange={updateDesiredFundraisingAmount}
+      />
 
       <section className="card w-full">
         <div className="mb-4">

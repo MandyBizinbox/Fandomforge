@@ -364,6 +364,111 @@ export function getPrintOptionCost(option) {
   return Number(option?.print_cost_max || 0);
 }
 
+export function normalizeProductionMethodKey(value) {
+  const key = String(value || "").trim().toLowerCase().replace(/[-\s]+/g, "_");
+
+  const aliases = {
+    dtf_transfers: "dtf",
+    dtf_transfer: "dtf",
+    dtf_print: "dtf",
+    uvdtf: "uv_dtf",
+    uv_dtf_transfer: "uv_dtf",
+    heat_transfer_vinyl: "htv",
+    vinyl: "adhesive_vinyl",
+    adhesive: "adhesive_vinyl",
+  };
+
+  if (aliases[key]) return aliases[key];
+
+  const prefixes = [
+    ["adhesive_vinyl_", "adhesive_vinyl"],
+    ["sublimation_", "sublimation"],
+    ["uv_dtf_", "uv_dtf"],
+    ["dtf_", "dtf"],
+    ["htv_", "htv"],
+  ];
+
+  for (const [prefix, canonical] of prefixes) {
+    if (key.startsWith(prefix)) return canonical;
+  }
+
+  return key;
+}
+
+export function estimateProductionOperationCostFromGroups(groups, printOptions = [], productionOperations = [], template = {}) {
+  const slots = flattenArtworkGroups(groups).filter((slot) => slot.print_option_id && slot.original_url);
+  const chargedPerJob = new Set();
+  const lines = [];
+  let platformCost = 0;
+
+  slots.forEach((slot) => {
+    const option = asArray(printOptions).find((item) => item.id === slot.print_option_id) || slot;
+    const area = asArray(template?.print_areas).find((item) => item.id === slot.print_area_id) || {};
+    const method = normalizeProductionMethodKey(option.method_key || slot.method_key || option.print_method || slot.print_method);
+
+    if (!method) return;
+
+    const areaCosting = calculateAreaPrintCost(slot, area, option);
+    const areaCm2 = Number(areaCosting.area_cm2 || slot.area_cm2 || 0);
+
+    asArray(productionOperations).forEach((operation) => {
+      if (operation.active === false) return;
+
+      const appliesToRaw = Array.isArray(operation.applies_to_method)
+        ? operation.applies_to_method
+        : [operation.applies_to_method].filter(Boolean);
+      const appliesTo = appliesToRaw.map(normalizeProductionMethodKey);
+
+      if (!appliesTo.includes(method)) return;
+
+      const costBasis = operation.cost_basis || "per_operation";
+      const operationId = operation.id || operation.slug || operation.name || costBasis;
+      const unitCost = Number(operation.cost || 0);
+      const defaultQuantity = Number(operation.default_quantity || 1);
+      const estimatedTime = Number(operation.estimated_time || 0);
+
+      let quantity = defaultQuantity;
+
+      if (costBasis === "per_job") {
+        const perJobKey = `${method}:${operationId}`;
+        if (chargedPerJob.has(perJobKey)) return;
+        chargedPerJob.add(perJobKey);
+      }
+
+      if (costBasis === "per_minute") {
+        quantity = estimatedTime * defaultQuantity;
+      }
+
+      if (costBasis === "per_cm2") {
+        quantity = areaCm2 * defaultQuantity;
+      }
+
+      const lineCost = Math.round(unitCost * quantity * 100) / 100;
+      platformCost += lineCost;
+
+      lines.push({
+        operation_id: operationId,
+        operation_name: operation.name || operationId,
+        operation_type: operation.operation_type || "",
+        cost_basis: costBasis,
+        method_key: method,
+        print_area_id: costBasis === "per_job" ? null : slot.print_area_id,
+        unit_cost: unitCost,
+        quantity,
+        platform_cost: lineCost,
+      });
+    });
+  });
+
+  platformCost = Math.round(platformCost * 100) / 100;
+
+  return {
+    platformCost,
+    creatorCost: Math.round(platformCost * 1.1 * 100) / 100,
+    lines,
+  };
+}
+
 export const DEFAULT_PLATFORM_COMMISSION_RATE = 0.15;
 
 export function resolveCreatorCommissionRate(creatorOrProduct = {}, fallbackRate = DEFAULT_PLATFORM_COMMISSION_RATE) {
@@ -633,25 +738,15 @@ export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
   const artworkHeightPx = Number(slot.original_height_px || slot.artwork_height_px || 0);
   const aspectRatio = artworkWidthPx > 0 && artworkHeightPx > 0 ? artworkWidthPx / artworkHeightPx : Number(slot.artwork_aspect_ratio || 0);
 
-  let printWidthMm = boxWidthMm;
-  let printHeightMm = boxHeightMm;
-
-  // The preview uses object-contain, so the actual printed image should be the contained image,
-  // not the whole placement box. If no image dimensions are known, fall back to the box.
-  if (aspectRatio > 0 && boxWidthMm > 0 && boxHeightMm > 0) {
-    const boxRatio = boxWidthMm / boxHeightMm;
-
-    if (boxRatio > aspectRatio) {
-      printHeightMm = boxHeightMm;
-      printWidthMm = printHeightMm * aspectRatio;
-    } else {
-      printWidthMm = boxWidthMm;
-      printHeightMm = printWidthMm / aspectRatio;
-    }
-  }
+  // Creator pricing must follow the physical placed artwork box inside the
+  // admin-defined print area. If the creator sets the artwork box to 100% × 100%
+  // of a 300mm × 300mm print area, the charged size is 300mm × 300mm.
+  // If they resize it to 50% × 50%, the charged size is 150mm × 150mm.
+  const printWidthMm = boxWidthMm;
+  const printHeightMm = boxHeightMm;
 
   const areaCm2 = (printWidthMm / 10) * (printHeightMm / 10);
-  const pricingSource = aspectRatio > 0 && boxWidthMm > 0 && boxHeightMm > 0 ? "actual_artwork_size" : "print_area_fallback";
+  const pricingSource = "placed_artwork_box_size";
 
   if (calculationType === "fixed") {
     const cost = Number(option.print_cost_max || slot.print_cost_max || 0);

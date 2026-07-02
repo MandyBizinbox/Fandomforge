@@ -15,10 +15,10 @@ import {
 const defaultPlacement = (area) => ({
   screen_id: area?.screen_id || "",
   print_area_id: area?.id || "",
-  x: 10,
-  y: 10,
-  width: 80,
-  height: 80,
+  x: 0,
+  y: 0,
+  width: 100,
+  height: 100,
   rotation: 0,
   scale: 1,
 });
@@ -340,12 +340,28 @@ export default function ProductArtworkStudio({
   const patchPlacement = (slotId, patch) => {
     const slot = slots.find((item) => item.id === slotId);
     if (!slot) return;
+
+    const nextPlacement = sanitizePlacement({
+      ...defaultPlacement(activeArea),
+      ...(slot.placement || {}),
+      ...patch,
+    }, activeArea);
+
+    const option = printOptions.find((item) => item.id === slot.print_option_id) || slot;
+    const costing = calculateAreaPrintCost({ ...slot, placement: nextPlacement }, activeArea, option || {});
+
     patchSlot(slotId, {
-      placement: sanitizePlacement({
-        ...defaultPlacement(activeArea),
-        ...(slot.placement || {}),
-        ...patch,
-      }, activeArea),
+      placement: nextPlacement,
+      placement_box_width_mm: costing.placement_box_width_mm,
+      placement_box_height_mm: costing.placement_box_height_mm,
+      artwork_aspect_ratio: costing.artwork_aspect_ratio || slot.artwork_aspect_ratio || 0,
+      print_width_mm: costing.print_width_mm,
+      print_height_mm: costing.print_height_mm,
+      area_cm2: costing.area_cm2,
+      raw_print_cost: costing.raw_print_cost,
+      calculated_print_cost: costing.calculated_print_cost,
+      print_cost_max: costing.calculated_print_cost,
+      pricing_source: costing.pricing_source,
     });
   };
 
@@ -455,21 +471,8 @@ export default function ProductArtworkStudio({
       const artH = (Number(placement.height || 100) / 100) * areaH;
       const rotation = (Number(placement.rotation || 0) * Math.PI) / 180;
 
-      const sourceW = artworkImage.naturalWidth || artworkImage.width || 1;
-      const sourceH = artworkImage.naturalHeight || artworkImage.height || 1;
-      const sourceRatio = sourceW / sourceH;
-      const boxRatio = artW / artH;
-
-      let drawW = artW;
-      let drawH = artH;
-
-      if (sourceRatio > boxRatio) {
-        drawW = artW;
-        drawH = artW / sourceRatio;
-      } else {
-        drawH = artH;
-        drawW = artH * sourceRatio;
-      }
+      const drawW = artW;
+      const drawH = artH;
 
       ctx.save();
       ctx.beginPath();
@@ -663,7 +666,7 @@ export default function ProductArtworkStudio({
                       <img
                         src={assetUrl(activeSlot.original_url)}
                         alt="Artwork overlay"
-                        className="h-full w-full object-contain pointer-events-none"
+                        className="h-full w-full object-fill pointer-events-none"
                         draggable="false"
                       />
                       <ResizeHandle position="nw" onMouseDown={(event) => startDrag(event, "resize", "nw")} />
@@ -819,7 +822,7 @@ export default function ProductArtworkStudio({
                   <NumericControl label="Rotation" value={activePlacement.rotation} onChange={(value) => patchPlacement(activeSlot.id, { rotation: value })} />
                 </div>
                 <div className="grid grid-cols-3 gap-2 mt-3">
-                  <button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 10, y: 10, width: 80, height: 80, rotation: 0 })}>Fit</button>
+                  <button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 0, y: 0, width: 100, height: 100, rotation: 0 })}>Fit</button>
                   <button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 25, y: 25, width: 50, height: 50, rotation: 0 })}>Center</button>
                   <button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, defaultPlacement(activeArea))}>Reset</button>
                 </div>
