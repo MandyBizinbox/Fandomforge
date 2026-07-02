@@ -63,6 +63,7 @@ from auth import auth_router
 import routes_main as routes_main_module
 from production_operation_pricing import install_production_operation_pricing
 from order_finance_patches import install_order_finance_patches
+from order_visibility_middleware import install_order_visibility_middleware
 
 install_production_operation_pricing(routes_main_module)
 install_order_finance_patches(routes_main_module)
@@ -94,6 +95,7 @@ api_router.include_router(print_options_router)
 api_router.include_router(production_operations_router)
 
 app.include_router(api_router)
+install_order_visibility_middleware(app)
 
 app.add_middleware(
     CORSMiddleware,
