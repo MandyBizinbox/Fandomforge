@@ -1958,7 +1958,53 @@ function VariationPricingMatrix({
         {loadingPricingControl && canManagePricingControl ? (
           <div className="overline text-zinc-500">Loading pricing control...</div>
         ) : (
-          <div className="w-full overflow-x-auto border border-white/10 rounded-xl">
+          <>
+            <div className="mb-4 rounded-xl border border-white/10 bg-black/25 p-4">
+              <div className="flex flex-col xl:flex-row xl:items-end gap-4">
+                <div className="flex-1">
+                  <div className="overline mb-2">Default pricing controls</div>
+                  <p className="text-xs text-zinc-500 max-w-3xl">
+                    Set the default fundraising amount and retail selling price. Use Apply to all to push the default retail price to every variation row.
+                  </p>
+                </div>
+
+                <label className="block min-w-[190px]">
+                  <span className="label">Default fundraising</span>
+                  <input
+                    className="input-base"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={fundraisingAmount}
+                    onChange={(event) => handleDefaultFundraisingChange(event.target.value)}
+                  />
+                </label>
+
+                <label className="block min-w-[190px]">
+                  <span className="label">Default retail price</span>
+                  <input
+                    className="input-base"
+                    type="number"
+                    step="0.01"
+                    min={defaultMinimum.toFixed(2)}
+                    value={defaultRetailValue}
+                    onChange={(event) => handleDefaultRetailChange(event.target.value)}
+                  />
+                  <span className="mt-1 block text-[10px] text-zinc-500">Minimum {money(defaultMinimum)}</span>
+                </label>
+
+                <label className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/30 px-3 py-3 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={applyToAll}
+                    onChange={(event) => handleApplyToAllChange(event.target.checked)}
+                  />
+                  Apply retail price to all rows
+                </label>
+              </div>
+            </div>
+
+            <div className="w-full overflow-x-auto border border-white/10 rounded-xl">
             <table className="w-full min-w-[980px] text-xs">
               <colgroup>
                 <col className="w-[280px]" />
@@ -1979,48 +2025,6 @@ function VariationPricingMatrix({
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-b border-white/10 bg-white/[0.03] align-top">
-                  <td className="py-3 px-4 text-white sticky left-0 z-10 bg-[#111]">
-                    <div className="font-bold">Apply default pricing</div>
-                    <div className="text-[11px] text-zinc-500">Use top summary values</div>
-                  </td>
-                  <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(pricing.blank)}</td>
-                  <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{pricing.print > 0 ? money(pricing.print) : "Pending"}</td>
-                  <td className="py-3 px-3">
-                    <input
-                      className="input-base w-[160px] text-xs"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={fundraisingAmount}
-                      onChange={(event) => handleDefaultFundraisingChange(event.target.value)}
-                    />
-                    <div className="text-[10px] text-zinc-500 mt-1">Default markup / fundraising</div>
-                  </td>
-                  <td className="py-3 px-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label className="inline-flex items-center gap-2 text-[11px] text-zinc-300 whitespace-nowrap">
-                        <input
-                          type="checkbox"
-                          checked={applyToAll}
-                          onChange={(event) => handleApplyToAllChange(event.target.checked)}
-                        />
-                        Apply to all
-                      </label>
-                      <input
-                        className="input-base w-[150px] text-xs"
-                        type="number"
-                        step="0.01"
-                        min={defaultMinimum.toFixed(2)}
-                        value={defaultRetailValue}
-                        onChange={(event) => handleDefaultRetailChange(event.target.value)}
-                      />
-                    </div>
-                    <div className="text-[10px] text-zinc-500 mt-1">Cannot go below {money(defaultMinimum)}</div>
-                  </td>
-                  <td className="py-3 px-4 text-right font-bold text-white whitespace-nowrap">{money(defaultMinimum)}</td>
-                </tr>
-
                 {rows.map((row) => {
                   const retailTooLow = Number(row.retailPrice || 0) < Number(row.minimumRetail || 0);
                   return (
@@ -2066,6 +2070,7 @@ function VariationPricingMatrix({
               </tbody>
             </table>
           </div>
+          </>
         )}
 
         <p className="text-xs text-zinc-500 mt-3">
