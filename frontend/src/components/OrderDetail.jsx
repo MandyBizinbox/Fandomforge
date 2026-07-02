@@ -91,11 +91,23 @@ function creatorOrderTotals(order) {
   });
 }
 
+function assignedPrinterName(order) {
+  for (const item of order?.items || []) {
+    const printer = item?.production_snapshot?.assigned_printer || {};
+    const name = printer.company_name || printer.name || item.printer_company_name || item.printer_name;
+    if (name) return name;
+  }
+  return "Printer assignment pending";
+}
+
 export default function OrderDetail({ mode = "view", backTo, testidPrefix = "order" }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [order, setOrder] = useState(null);
   const [printers, setPrinters] = useState([]);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpMessage, setHelpMessage] = useState("");
+  const [submittingHelp, setSubmittingHelp] = useState(false);
 
   const isCreatorView = mode === "creator" || String(testidPrefix || "").startsWith("creator");
   const isPrinterView = mode === "printer";
@@ -133,6 +145,31 @@ export default function OrderDetail({ mode = "view", backTo, testidPrefix = "ord
       load();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Failed");
+    }
+  };
+
+  const submitCreatorHelp = async (event) => {
+    event.preventDefault();
+    const message = helpMessage.trim();
+
+    if (!message) {
+      toast.error("Add a short help message first");
+      return;
+    }
+
+    try {
+      setSubmittingHelp(true);
+      await http.post(`/orders/${id}/notes`, {
+        message: `Creator help request for order ${order.order_number}: ${message}`,
+        audience: ["admin", "creator"],
+      });
+      setHelpMessage("");
+      setHelpOpen(false);
+      toast.success("Help request sent");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Could not send help request");
+    } finally {
+      setSubmittingHelp(false);
     }
   };
 
@@ -180,6 +217,7 @@ export default function OrderDetail({ mode = "view", backTo, testidPrefix = "ord
   ];
 
   const creatorTotals = creatorOrderTotals(order);
+  const printerName = assignedPrinterName(order);
 
   return (
     <div data-testid={`${testidPrefix}-detail-page`}>
@@ -198,19 +236,6 @@ export default function OrderDetail({ mode = "view", backTo, testidPrefix = "ord
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
-          {isCreatorView && (
-            <div className="card border-[#34C759]/30 bg-[#34C759]/5">
-              <div className="overline mb-3 text-[#34C759]">Creator order money</div>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
-                <div><div className="text-zinc-500 text-xs">Selling total</div><div className="font-bold">{formatMoney(creatorTotals.sellingTotal)}</div></div>
-                <div><div className="text-zinc-500 text-xs">Production cost</div><div className="font-bold">{formatMoney(creatorTotals.productionTotal)}</div></div>
-                <div><div className="text-zinc-500 text-xs">Platform fee</div><div className="font-bold">{formatMoney(creatorTotals.platformFeeTotal)}</div></div>
-                <div><div className="text-zinc-500 text-xs">Total markup</div><div className="font-bold text-[#34C759]">{formatMoney(creatorTotals.creatorMarkupTotal)}</div></div>
-                <div><div className="text-zinc-500 text-xs">Total payout</div><div className="font-bold text-[#34C759]">{formatMoney(creatorTotals.creatorPayoutTotal)}</div></div>
-              </div>
-            </div>
-          )}
-
           {order.items.map((it) => {
             const creatorFinance = itemCreatorFinance(it);
             const printerFinance = itemPrinterFinance(it);
@@ -256,7 +281,7 @@ export default function OrderDetail({ mode = "view", backTo, testidPrefix = "ord
                   </div>
                 </div>
 
-                {it.artwork_file_url && (
+                {!isCreatorView && it.artwork_file_url && (
                   <a href={assetUrl(it.artwork_file_url)} target="_blank" rel="noreferrer" className="btn-secondary mt-3 text-xs inline-flex" data-testid={`${testidPrefix}-art-${it.id}`}>
                     <Download size={12} /> Download Artwork
                   </a>
@@ -310,6 +335,26 @@ export default function OrderDetail({ mode = "view", backTo, testidPrefix = "ord
               </div>
             );
           })}
+
+          {isCreatorView && (
+            <div className="card">
+              <div className="overline mb-3">Order totals</div>
+              <div className="text-sm space-y-2 max-w-md">
+                <div className="flex justify-between gap-3">
+                  <span className="text-zinc-400">Subtotal</span>
+                  <span className="font-mono text-right">{formatMoney(order.subtotal)}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-zinc-400">Shipping</span>
+                  <span className="font-mono text-right">{Number(order.shipping_total || 0) === 0 ? "Free" : formatMoney(order.shipping_total)}</span>
+                </div>
+                <div className="flex justify-between gap-3 border-t border-white/10 pt-2">
+                  <span className="font-bold">Customer total</span>
+                  <span className="font-display text-xl text-right">{formatMoney(order.total)}</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -334,12 +379,22 @@ export default function OrderDetail({ mode = "view", backTo, testidPrefix = "ord
               {order.tracking_url && <a href={order.tracking_url} target="_blank" rel="noreferrer" className="text-[#FF3B30] uppercase tracking-widest text-xs font-bold">Open courier tracking</a>}
             </div>
           </div>
-          <div className="card">
-            <div className="overline mb-3">Totals</div>
-            <div className="text-sm flex justify-between"><span className="text-zinc-400">Subtotal</span><span>{formatMoney(order.subtotal)}</span></div>
-            <div className="text-sm flex justify-between"><span className="text-zinc-400">Shipping</span><span>{Number(order.shipping_total || 0) === 0 ? "Free" : formatMoney(order.shipping_total)}</span></div>
-            <div className="text-sm flex justify-between border-t border-white/10 pt-2 mt-2"><span className="font-bold">Total</span><span className="font-display text-xl" data-testid={`${testidPrefix}-total`}>{formatMoney(order.total)}</span></div>
-          </div>
+          {!isCreatorView && (
+            <div className="card">
+              <div className="overline mb-3">Totals</div>
+              <div className="text-sm flex justify-between"><span className="text-zinc-400">Subtotal</span><span>{formatMoney(order.subtotal)}</span></div>
+              <div className="text-sm flex justify-between"><span className="text-zinc-400">Shipping</span><span>{Number(order.shipping_total || 0) === 0 ? "Free" : formatMoney(order.shipping_total)}</span></div>
+              <div className="text-sm flex justify-between border-t border-white/10 pt-2 mt-2"><span className="font-bold">Total</span><span className="font-display text-xl" data-testid={`${testidPrefix}-total`}>{formatMoney(order.total)}</span></div>
+            </div>
+          )}
+
+          {isCreatorView && (
+            <div className="card">
+              <div className="overline mb-3">Assigned printer</div>
+              <div className="font-display text-2xl uppercase">{printerName}</div>
+              <p className="text-xs text-zinc-500 mt-2">This is the production partner assigned to fulfil the order. FandomForge support still manages order issues and escalations.</p>
+            </div>
+          )}
 
           {isCreatorView && (
             <div className="card border-[#34C759]/30 bg-[#34C759]/5">
@@ -351,6 +406,37 @@ export default function OrderDetail({ mode = "view", backTo, testidPrefix = "ord
                 <div className="flex justify-between gap-3"><span className="text-zinc-400">Total markup on order</span><span className="font-mono text-right text-[#34C759]">{formatMoney(creatorTotals.creatorMarkupTotal)}</span></div>
                 <div className="flex justify-between gap-3 border-t border-white/10 pt-2"><span className="font-bold">Total payout for order</span><span className="font-mono text-right font-bold text-[#34C759]">{formatMoney(creatorTotals.creatorPayoutTotal)}</span></div>
               </div>
+            </div>
+          )}
+
+          {isCreatorView && (
+            <div className="card">
+              <div className="overline mb-3">Need help?</div>
+              <p className="text-xs text-zinc-500 mb-3">Submit a help request to FandomForge support for this order.</p>
+
+              {!helpOpen ? (
+                <button type="button" className="btn-secondary w-full" onClick={() => setHelpOpen(true)}>
+                  Submit help request
+                </button>
+              ) : (
+                <form onSubmit={submitCreatorHelp} className="space-y-3">
+                  <textarea
+                    className="input-base"
+                    rows={4}
+                    value={helpMessage}
+                    onChange={(event) => setHelpMessage(event.target.value)}
+                    placeholder="Tell us what you need help with on this order."
+                  />
+                  <div className="flex gap-2">
+                    <button type="submit" className="btn-primary flex-1" disabled={submittingHelp}>
+                      {submittingHelp ? "Sending…" : "Send request"}
+                    </button>
+                    <button type="button" className="btn-secondary" onClick={() => { setHelpOpen(false); setHelpMessage(""); }}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           )}
 
