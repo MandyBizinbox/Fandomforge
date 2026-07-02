@@ -62,8 +62,10 @@ async def health():
 from auth import auth_router
 import routes_main as routes_main_module
 from production_operation_pricing import install_production_operation_pricing
+from order_finance_patches import install_order_finance_patches
 
 install_production_operation_pricing(routes_main_module)
+install_order_finance_patches(routes_main_module)
 
 from routes_main import (
     bands_router, printers_router, product_templates_router, products_router, artworks_router,
