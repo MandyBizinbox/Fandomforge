@@ -97,17 +97,80 @@ def _normalise_order_item_finance(item: Any) -> Any:
     return item
 
 
+def _dict_value(row: Any, key: str, default: Any = None) -> Any:
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
+
+
+async def _ensure_legacy_commission_and_payout_records(routes_main_module, db, order: dict) -> None:
+    """Create legacy commission/payout records for paid gateway orders.
+
+    Wallet transactions are the newer ledger source of truth, but legacy admin
+    screens and payout reports still read ``commissions`` and ``payouts``. Manual
+    paid orders already create these records. Gateway-paid orders must do the
+    same, idempotently.
+    """
+    if not order or order.get("payment_status") != "paid":
+        return
+
+    order_id = order.get("id")
+    if not order_id:
+        return
+
+    Commission = routes_main_module.Commission
+    Payout = routes_main_module.Payout
+    iso_dates = routes_main_module.iso_dates
+
+    for item in order.get("items") or []:
+        item_id = _dict_value(item, "id")
+        if not item_id:
+            continue
+
+        existing_commission = await db.commissions.find_one({"order_id": order_id, "order_item_id": item_id}, {"_id": 1})
+        if not existing_commission:
+            commission_amount = _money(_dict_value(item, "commission_amount"))
+            if commission_amount:
+                await db.commissions.insert_one(iso_dates(Commission(
+                    order_id=order_id,
+                    order_item_id=item_id,
+                    band_id=_dict_value(item, "band_id"),
+                    amount=commission_amount,
+                    rate=float(_dict_value(item, "commission_rate") or 0),
+                ).model_dump()))
+
+        printer_id = _dict_value(item, "printer_id")
+        existing_payout = await db.payouts.find_one({"order_id": order_id, "order_item_id": item_id}, {"_id": 1})
+        if printer_id and not existing_payout:
+            payout_amount = _money(_dict_value(item, "printer_payout"))
+            if payout_amount:
+                await db.payouts.insert_one(iso_dates(Payout(
+                    printer_id=printer_id,
+                    order_id=order_id,
+                    order_item_id=item_id,
+                    amount=payout_amount,
+                ).model_dump()))
+
+
 def install_order_finance_patches(routes_main_module):
     """Install order finance patches onto routes_main."""
     if getattr(routes_main_module, "_order_finance_patches_installed", False):
         return
 
     original_build_order_items = routes_main_module._build_order_items
+    original_mark_order_paid = routes_main_module._mark_order_paid_from_payment
 
     async def patched_build_order_items(*args, **kwargs):
         order_items, subtotal = await original_build_order_items(*args, **kwargs)
         order_items = [_normalise_order_item_finance(item) for item in order_items]
         return order_items, subtotal
 
+    async def patched_mark_order_paid_from_payment(db, payment, payload=None):
+        order = await original_mark_order_paid(db, payment, payload)
+        if order:
+            await _ensure_legacy_commission_and_payout_records(routes_main_module, db, order)
+        return order
+
     routes_main_module._build_order_items = patched_build_order_items
+    routes_main_module._mark_order_paid_from_payment = patched_mark_order_paid_from_payment
     routes_main_module._order_finance_patches_installed = True
