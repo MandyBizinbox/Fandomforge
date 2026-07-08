@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Copy, Plus, Brush, Image as ImageIcon } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Plus, Brush, Image as ImageIcon, Archive, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { http, assetUrl } from "../../lib/api";
 import StatusBadge from "../StatusBadge";
@@ -163,6 +163,7 @@ export default function ProductTemplatesPage() {
   const [printOptions, setPrintOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [duplicatingId, setDuplicatingId] = useState("");
+  const [archivingId, setArchivingId] = useState("");
   const [status, setStatus] = useState("all");
   const [readinessFilter, setReadinessFilter] = useState("all");
   const navigate = useNavigate();
@@ -209,13 +210,40 @@ export default function ProductTemplatesPage() {
       const response = await http.post(`/admin/product-templates/duplicate/${template.id}`);
       toast.success("Template duplicated");
       await load();
-      if (response.data?.id) {
-        navigate(`/admin/product-templates/${response.data.id}`);
-      }
+      if (response.data?.id) navigate(`/admin/product-templates/${response.data.id}`);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not duplicate template");
     } finally {
       setDuplicatingId("");
+    }
+  };
+
+  const archiveTemplate = async (event, template) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!template?.id) return;
+    const isArchived = normalise(template.status) === "archived";
+    const action = isArchived ? "restore" : "archive";
+
+    if (!isArchived) {
+      const confirmed = window.confirm(
+        `Archive template "${template.name}"?\n\nThis removes it from active template workflows, but keeps the production data for safety.`
+      );
+      if (!confirmed) return;
+    }
+
+    setArchivingId(template.id);
+    try {
+      await http.patch(`/admin/product-templates/${template.id}`, {
+        status: isArchived ? "active" : "archived",
+      });
+      toast.success(isArchived ? "Template restored" : "Template archived");
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Could not ${action} template`);
+    } finally {
+      setArchivingId("");
     }
   };
 
@@ -286,34 +314,23 @@ export default function ProductTemplatesPage() {
           {filteredTemplates.map((template) => {
             const image = templateImage(template);
             const ready = readiness(template, printOptions);
+            const isArchived = normalise(template.status) === "archived";
             const areas = safeArray(template.print_areas).filter((area) => area.status !== "archived" && !area.archived && !area.deleted).length;
             const views = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted).length;
 
             return (
               <div
                 key={template.id}
-                className="text-left border border-white/15 bg-white/[0.03] hover:border-[#FF3B30] transition-colors"
+                className={`text-left border border-white/15 bg-white/[0.03] hover:border-[#FF3B30] transition-colors ${isArchived ? "opacity-60" : ""}`}
               >
-                <button
-                  type="button"
-                  onClick={() => navigate(`/admin/product-templates/${template.id}`)}
-                  className="block w-full text-left"
-                >
+                <button type="button" onClick={() => navigate(`/admin/product-templates/${template.id}`)} className="block w-full text-left">
                   <div className="aspect-[4/3] bg-black border-b border-white/10 flex items-center justify-center overflow-hidden">
-                    {image ? (
-                      <img src={assetUrl(image)} alt={template.name} className="w-full h-full object-contain" />
-                    ) : (
-                      <ImageIcon className="text-zinc-700" size={44} />
-                    )}
+                    {image ? <img src={assetUrl(image)} alt={template.name} className="w-full h-full object-contain" /> : <ImageIcon className="text-zinc-700" size={44} />}
                   </div>
                 </button>
 
                 <div className="p-5">
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/admin/product-templates/${template.id}`)}
-                    className="block w-full text-left"
-                  >
+                  <button type="button" onClick={() => navigate(`/admin/product-templates/${template.id}`)} className="block w-full text-left">
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
                         <h2 className="font-display text-2xl uppercase leading-tight">{template.name}</h2>
@@ -328,11 +345,7 @@ export default function ProductTemplatesPage() {
                           <div className="text-xs uppercase tracking-widest text-zinc-500">Readiness</div>
                           <div className="font-bold text-sm mt-1">{ready.label}</div>
                         </div>
-                        {ready.launchReady ? (
-                          <CheckCircle2 size={22} className="text-[#34C759]" />
-                        ) : (
-                          <AlertTriangle size={22} className="text-[#FFB020]" />
-                        )}
+                        {ready.launchReady ? <CheckCircle2 size={22} className="text-[#34C759]" /> : <AlertTriangle size={22} className="text-[#FFB020]" />}
                       </div>
                       <div className="text-[11px] text-zinc-500 mt-2">
                         {ready.missing.length ? `Needs ${ready.missing.join(", ")}` : "All launch checks pass."}
@@ -351,21 +364,22 @@ export default function ProductTemplatesPage() {
                     </div>
                   </button>
 
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/admin/product-templates/${template.id}`)}
-                      className="btn-secondary text-xs flex-1"
-                    >
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    <button type="button" onClick={() => navigate(`/admin/product-templates/${template.id}`)} className="btn-secondary text-xs">
                       Edit
+                    </button>
+                    <button type="button" onClick={(event) => duplicateTemplate(event, template)} disabled={duplicatingId === template.id} className="btn-secondary text-xs">
+                      <Copy size={13} /> {duplicatingId === template.id ? "Duplicating…" : "Duplicate"}
                     </button>
                     <button
                       type="button"
-                      onClick={(event) => duplicateTemplate(event, template)}
-                      disabled={duplicatingId === template.id}
-                      className="btn-secondary text-xs flex-1"
+                      onClick={(event) => archiveTemplate(event, template)}
+                      disabled={archivingId === template.id}
+                      className={isArchived ? "btn-secondary text-xs" : "btn-secondary text-xs border-[#FFB020]/50 text-[#FFB020]"}
+                      title={isArchived ? "Restore template" : "Archive template"}
                     >
-                      <Copy size={13} /> {duplicatingId === template.id ? "Duplicating…" : "Duplicate"}
+                      {isArchived ? <RotateCcw size={13} /> : <Archive size={13} />}
+                      {archivingId === template.id ? "Saving…" : isArchived ? "Restore" : "Archive"}
                     </button>
                   </div>
                 </div>
