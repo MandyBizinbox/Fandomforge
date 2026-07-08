@@ -15,16 +15,37 @@ import {
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value || 0)));
 const round = (value) => Math.round(Number(value || 0) * 10) / 10;
 const TEXT_FONT_OPTIONS = [
+  "Roboto",
+  "Montserrat",
+  "Poppins",
+  "Oswald",
+  "Bebas Neue",
+  "Anton",
+  "Raleway",
+  "Playfair Display",
+  "Lobster",
+  "Pacifico",
+  "Bangers",
+  "Permanent Marker",
   "Arial",
   "Impact",
   "Georgia",
-  "Times New Roman",
-  "Trebuchet MS",
-  "Verdana",
   "Courier New",
-  "Comic Sans MS",
-  "Brush Script MT",
 ];
+const GOOGLE_FONT_FAMILIES = new Set([
+  "Roboto",
+  "Montserrat",
+  "Poppins",
+  "Oswald",
+  "Bebas Neue",
+  "Anton",
+  "Raleway",
+  "Playfair Display",
+  "Lobster",
+  "Pacifico",
+  "Bangers",
+  "Permanent Marker",
+]);
 
 function areaPct(area, key) {
   if (!area) return 0;
@@ -66,6 +87,39 @@ function patchGroup(groups, groupId, updater) {
     if (group.id !== groupId) return group;
     return typeof updater === "function" ? updater(group) : { ...group, ...updater };
   });
+}
+
+function fontCssFamily(fontFamily) {
+  return GOOGLE_FONT_FAMILIES.has(fontFamily)
+    ? `"${fontFamily}", Arial, sans-serif`
+    : `${fontFamily || "Arial"}, Arial, sans-serif`;
+}
+
+function googleFontHref(fontFamily) {
+  const family = String(fontFamily || "").trim().replace(/\s+/g, "+");
+  return `https://fonts.googleapis.com/css2?family=${family}:wght@400;600;700;900&display=swap`;
+}
+
+function ensureGoogleFontLink(fontFamily) {
+  if (typeof document === "undefined" || !GOOGLE_FONT_FAMILIES.has(fontFamily)) return;
+  const id = `ff-google-font-${String(fontFamily).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+  if (document.getElementById(id)) return;
+  const link = document.createElement("link");
+  link.id = id;
+  link.rel = "stylesheet";
+  link.href = googleFontHref(fontFamily);
+  document.head.appendChild(link);
+}
+
+async function ensureFontReady(fontFamily, weight = "700", size = 120) {
+  if (typeof document === "undefined" || !document.fonts) return;
+  ensureGoogleFontLink(fontFamily);
+  try {
+    await document.fonts.load(`${weight} ${size}px "${fontFamily}"`);
+    await document.fonts.ready;
+  } catch (error) {
+    // Browser falls back to system fonts if Google Fonts cannot be loaded.
+  }
 }
 
 function loadImage(src) {
@@ -118,7 +172,7 @@ function escapeSvg(value) {
 function normaliseTextSettings(settings = {}) {
   return {
     text_content: String(settings.text_content || settings.text || "Custom Text").slice(0, 240),
-    text_font_family: settings.text_font_family || "Arial",
+    text_font_family: settings.text_font_family || "Roboto",
     text_font_weight: String(settings.text_font_weight || "700"),
     text_font_size: Number(settings.text_font_size || 150),
     text_color: settings.text_color || "#111111",
@@ -127,12 +181,13 @@ function normaliseTextSettings(settings = {}) {
 
 function estimateTextWidth(line, fontSize, fontFamily) {
   const family = String(fontFamily || "").toLowerCase();
-  const factor = family.includes("courier") ? 0.62 : family.includes("impact") ? 0.58 : family.includes("brush") ? 0.52 : 0.56;
+  const factor = family.includes("courier") ? 0.62 : family.includes("impact") || family.includes("anton") ? 0.58 : family.includes("brush") || family.includes("pacifico") || family.includes("lobster") ? 0.52 : 0.56;
   return Math.max(1, String(line || "").length * fontSize * factor);
 }
 
 function buildTextLayerAsset(settings = {}) {
   const next = normaliseTextSettings(settings);
+  ensureGoogleFontLink(next.text_font_family);
   const lines = next.text_content.split(/\r?\n/).filter((line) => line.trim() !== "");
   const safeLines = lines.length ? lines : ["Custom Text"];
   const fontSize = clamp(next.text_font_size, 24, 320);
@@ -167,6 +222,35 @@ function drawImageContain(ctx, image, x, y, w, h) {
   const drawW = sourceW * scale;
   const drawH = sourceH * scale;
   ctx.drawImage(image, x + (w - drawW) / 2, y + (h - drawH) / 2, drawW, drawH);
+}
+
+async function drawTextLayer(ctx, slot, x, y, w, h) {
+  const settings = normaliseTextSettings(slot);
+  const lines = settings.text_content.split(/\r?\n/).filter((line) => line.trim() !== "");
+  const safeLines = lines.length ? lines : ["Custom Text"];
+  const family = settings.text_font_family;
+  const weight = settings.text_font_weight;
+  await ensureFontReady(family, weight, settings.text_font_size);
+
+  let fontSize = clamp(settings.text_font_size, 24, 320);
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  ctx.fillStyle = settings.text_color;
+  ctx.font = `${weight} ${fontSize}px ${fontCssFamily(family)}`;
+
+  const maxTextWidth = Math.max(...safeLines.map((line) => ctx.measureText(line).width), 1);
+  const lineHeight = fontSize * 1.15;
+  const totalHeight = lineHeight * safeLines.length;
+  const scale = Math.min(w / maxTextWidth, h / totalHeight, 1);
+  fontSize = Math.max(4, fontSize * scale);
+  ctx.font = `${weight} ${fontSize}px ${fontCssFamily(family)}`;
+  const finalLineHeight = fontSize * 1.15;
+  const finalTotalHeight = finalLineHeight * safeLines.length;
+  const startY = y + h / 2 - finalTotalHeight / 2 + finalLineHeight / 2;
+
+  safeLines.forEach((line, index) => {
+    ctx.fillText(line, x + w / 2, startY + index * finalLineHeight);
+  });
 }
 
 function isNeckLabelArea(area) {
@@ -206,6 +290,28 @@ function optionPatchForSlot(slot, area, option = {}) {
     fit_mode: option?.fit_mode || area?.fit_mode || slot.fit_mode || "contain",
     production_notes: option?.production_notes || slot.production_notes || "",
   };
+}
+
+function TextLayerPreview({ slot }) {
+  const settings = normaliseTextSettings(slot);
+  useEffect(() => {
+    ensureGoogleFontLink(settings.text_font_family);
+  }, [settings.text_font_family]);
+
+  return (
+    <div
+      className="w-full h-full flex items-center justify-center text-center whitespace-pre leading-tight overflow-hidden pointer-events-none"
+      style={{
+        fontFamily: fontCssFamily(settings.text_font_family),
+        fontWeight: settings.text_font_weight,
+        color: settings.text_color,
+        fontSize: "100%",
+        lineHeight: 1.1,
+      }}
+    >
+      {settings.text_content}
+    </div>
+  );
 }
 
 export default function ProductArtworkStudio({
@@ -296,10 +402,13 @@ export default function ProductArtworkStudio({
     return printOptions.filter((option) => allowedIds.includes(option.id) && (option.status || "active") === "active");
   }, [activeArea, template, printOptions]);
 
-  const selectedOption = printOptions.find((item) => item.id === activeSlot?.print_option_id);
   const hasUploadedArtwork = Boolean(activeSlot?.original_url);
   const missingPrintMethod = Boolean(activeSlot && hasUploadedArtwork && !activeSlot.print_option_id);
   const canGenerateMockup = Boolean(activeArea && activeImage && sameAreaSlots.some((slot) => slot.original_url && slot.print_option_id));
+
+  useEffect(() => {
+    slots.filter((slot) => slot.text_layer).forEach((slot) => ensureGoogleFontLink(slot.text_font_family || "Roboto"));
+  }, [slots]);
 
   const fitHeightForAspect = (widthPercent, aspectRatio) => {
     const rect = areaRef.current?.getBoundingClientRect?.();
@@ -600,7 +709,6 @@ export default function ProductArtworkStudio({
       ctx.clip();
 
       for (const slot of drawableSlots) {
-        const artworkImage = await loadImage(slot.original_url);
         const placement = sanitizePlacement(slot.placement, activeArea);
         const artX = areaX + (Number(placement.x || 0) / 100) * areaW;
         const artY = areaY + (Number(placement.y || 0) / 100) * areaH;
@@ -611,7 +719,12 @@ export default function ProductArtworkStudio({
         ctx.save();
         ctx.translate(artX + artW / 2, artY + artH / 2);
         ctx.rotate(rotation);
-        drawImageContain(ctx, artworkImage, -artW / 2, -artH / 2, artW, artH);
+        if (slot.text_layer) {
+          await drawTextLayer(ctx, slot, -artW / 2, -artH / 2, artW, artH);
+        } else {
+          const artworkImage = await loadImage(slot.original_url);
+          drawImageContain(ctx, artworkImage, -artW / 2, -artH / 2, artW, artH);
+        }
         ctx.restore();
       }
       ctx.restore();
@@ -639,7 +752,7 @@ export default function ProductArtworkStudio({
         <div>
           <div className="overline mb-1">Artwork Studio V2</div>
           <p className="text-sm text-zinc-500 max-w-4xl">
-            Add image layers or text layers to each print area. The builder now uses resolved template/variation production overrides and keeps artwork aspect ratio by default.
+            Add image layers or text layers to each print area. Text layers use curated Google Fonts in preview and generated mockups.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-zinc-400">
@@ -731,7 +844,11 @@ export default function ProductArtworkStudio({
                     const active = activeSlot?.id === slot.id;
                     return (
                       <div key={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center" }} onMouseDown={(event) => { setActiveSlotId(slot.id); startDrag(event, "move"); }}>
-                        <img src={assetUrl(slot.original_url)} alt={slot.text_layer ? "Text layer" : "Artwork layer"} className="h-full w-full object-contain pointer-events-none" draggable="false" />
+                        {slot.text_layer ? (
+                          <TextLayerPreview slot={slot} />
+                        ) : (
+                          <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-contain pointer-events-none" draggable="false" />
+                        )}
                         {active && (
                           <>
                             <ResizeHandle position="nw" onMouseDown={(event) => startDrag(event, "resize", "nw")} />
@@ -780,7 +897,7 @@ export default function ProductArtworkStudio({
                   <div className="grid grid-cols-2 gap-2">
                     <label>
                       <span className="label">Font</span>
-                      <select className="input-base" value={activeSlot.text_font_family || "Arial"} onChange={(e) => updateTextLayer({ text_font_family: e.target.value })}>
+                      <select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(e) => updateTextLayer({ text_font_family: e.target.value })}>
                         {TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}
                       </select>
                     </label>
@@ -802,7 +919,7 @@ export default function ProductArtworkStudio({
                       <input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(e) => updateTextLayer({ text_color: e.target.value })} />
                     </label>
                   </div>
-                  <p className="text-[11px] text-zinc-500">The SVG is regenerated with tight bounds around the text, so the selection box now follows the text shape much better.</p>
+                  <p className="text-[11px] text-zinc-500">Google Fonts load into the page preview and are drawn directly into the final canvas mockup.</p>
                 </div>
               )}
 
