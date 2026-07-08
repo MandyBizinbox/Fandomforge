@@ -4,120 +4,17 @@ import { ArrowLeft, Image as ImageIcon, PackageSearch, RefreshCw } from "lucide-
 import { toast } from "sonner";
 import { http, assetUrl } from "../lib/api";
 import StatusBadge from "../components/StatusBadge";
-
-const ACTIVE_V1_METHODS = [
-  "Sublimation",
-  "DTF Transfers",
-  "HTV",
-  "UV DTF",
-  "Adhesive Vinyl",
-];
-
-const ACTIVE_METHOD_KEYS = new Set([
-  "sublimation",
-  "dtf",
-  "dtf transfer",
-  "dtf transfers",
-  "dtf_transfer",
-  "dtf_transfers",
-  "heat transfer vinyl",
-  "htv",
-  "uv dtf",
-  "uv_dtf",
-  "uv-dtf",
-  "adhesive vinyl",
-  "adhesive_vinyl",
-  "adhesive-vinyl",
-  "vinyl sticker",
-  "vinyl stickers",
-  "sticker",
-  "stickers",
-]);
-
-const INACTIVE_METHOD_KEYS = new Set([
-  "laser",
-  "laser engraving",
-  "screen printing",
-  "screen print",
-  "screen_print",
-  "embroidery",
-]);
-
-function safeArray(value) {
-  return Array.isArray(value) ? value : [];
-}
+import {
+  ACTIVE_V1_METHODS,
+  methodLabel,
+  normaliseKey,
+  pricingBands as resolvePricingBands,
+  safeArray,
+  templatePricingInfo,
+} from "../lib/cataloguePricingUtils";
 
 function money(value) {
   return `R ${Number(value || 0).toFixed(2)}`;
-}
-
-function normaliseKey(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ");
-}
-
-function methodRawLabel(option = {}) {
-  return option.print_method || option.method || option.method_key || option.rule_name || option.name || option.id || "Print method";
-}
-
-function methodLabel(option = {}) {
-  const key = normaliseKey(methodRawLabel(option));
-
-  if (key.includes("sublimation")) return "Sublimation";
-  if (key.includes("uv") && key.includes("dtf")) return "UV DTF";
-  if (key.includes("dtf")) return "DTF Transfers";
-  if (key.includes("htv") || key.includes("heat transfer")) return "HTV";
-  if (key.includes("adhesive") || key.includes("sticker") || key.includes("vinyl")) return "Adhesive Vinyl";
-
-  return methodRawLabel(option);
-}
-
-function isActiveV1PrintOption(option = {}) {
-  if (!option || option.status === "inactive" || option.status === "archived") return false;
-  const key = normaliseKey(methodRawLabel(option));
-  if (!key) return false;
-  if (INACTIVE_METHOD_KEYS.has(key)) return false;
-  if ([...INACTIVE_METHOD_KEYS].some((inactive) => key.includes(inactive))) return false;
-  return ACTIVE_METHOD_KEYS.has(key) || [...ACTIVE_METHOD_KEYS].some((active) => key.includes(active));
-}
-
-function optionPrice(option = {}) {
-  return Number(
-    option.creator_print_price ??
-    option.print_cost_max ??
-    option.platform_print_cost ??
-    option.minimum_print_cost ??
-    0
-  );
-}
-
-function optionSizeText(option = {}) {
-  return String(
-    option.standard_print_size_key ||
-    option.print_size ||
-    option.size_band ||
-    option.name ||
-    option.rule_name ||
-    ""
-  );
-}
-
-function sizeBand(option = {}) {
-  const text = normaliseKey(optionSizeText(option));
-  const width = Number(option.width_mm || 0);
-  const height = Number(option.height_mm || 0);
-  const longest = Math.max(width, height);
-
-  if (text.includes("full") || text.includes("wrap") || text.includes("front") || text.includes("back") || longest >= 280) {
-    return "Full front/back where applicable";
-  }
-  if (text.includes("large") || text.includes("a4") || longest >= 200) return "Large print";
-  if (text.includes("medium") || text.includes("a5") || longest >= 120) return "Medium print";
-  return "Small print";
 }
 
 function firstTruthy(...values) {
@@ -172,53 +69,17 @@ function recommendedBaseSellingPrice(template = {}) {
   );
 }
 
-function templatePrintOptions(template = {}, globalPrintOptions = []) {
-  const globalById = new Map(safeArray(globalPrintOptions).map((option) => [option.id, option]));
-  const localOptions = safeArray(template.print_options);
-  const ids = new Set([
-    ...safeArray(template.print_option_ids),
-    ...localOptions.map((option) => option.id).filter(Boolean),
-  ]);
-
-  const merged = [];
-
-  ids.forEach((id) => {
-    const globalOption = globalById.get(id) || {};
-    const localOption = localOptions.find((option) => option.id === id) || {};
-    merged.push({ ...globalOption, ...localOption, id });
-  });
-
-  if (!merged.length) return localOptions;
-  return merged;
-}
-
 function pricingBands(template = {}, globalPrintOptions = []) {
-  const options = templatePrintOptions(template, globalPrintOptions).filter(isActiveV1PrintOption);
-  const byBand = new Map();
-
-  options.forEach((option) => {
-    const band = sizeBand(option);
-    const existing = byBand.get(band);
-    const cost = optionPrice(option);
-    if (!existing || cost < existing.estimated_print_cost) {
-      byBand.set(band, {
-        size_band: band,
-        method: methodLabel(option),
-        estimated_print_cost: cost,
-        estimated_total_base_cost: blankCost(template) + cost,
-      });
-    }
-  });
-
-  return Array.from(byBand.values()).sort((a, b) => {
-    const order = ["Small print", "Medium print", "Large print", "Full front/back where applicable"];
-    return order.indexOf(a.size_band) - order.indexOf(b.size_band);
-  });
+  const blank = blankCost(template);
+  return resolvePricingBands(template, globalPrintOptions).map((band) => ({
+    ...band,
+    estimated_total_base_cost: blank + Number(band.estimated_print_cost || 0),
+  }));
 }
 
 function readiness(template = {}, globalPrintOptions = []) {
   const enabledVariations = safeArray(template.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
-  const options = templatePrintOptions(template, globalPrintOptions).filter(isActiveV1PrintOption);
+  const pricingInfo = templatePricingInfo(template, globalPrintOptions);
   const bands = pricingBands(template, globalPrintOptions);
   const activeScreens = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted);
   const activeAreas = safeArray(template.print_areas).filter((area) => area.status !== "archived" && !area.archived && !area.deleted);
@@ -227,11 +88,11 @@ function readiness(template = {}, globalPrintOptions = []) {
     mainImage: Boolean(templateImage(template)),
     variationImages: enabledVariations.length === 0 || enabledVariations.some(hasVariationImage),
     blankCost: blankCost(template) > 0,
-    activePrintMethod: options.length > 0,
+    activePrintMethod: pricingInfo.activeOptions.length > 0,
     printAreas: activeAreas.length > 0,
     printAreaViews: activeScreens.length > 0,
     mockup: Boolean(template.mockup_url || safeArray(template.mockup_images)[0] || activeScreens.some((screen) => screen.image_url)),
-    creatorPricing: bands.length > 0 && blankCost(template) > 0,
+    creatorPricing: pricingInfo.hasPricing && blankCost(template) > 0,
   };
 
   const missing = [];
@@ -258,7 +119,7 @@ function readiness(template = {}, globalPrintOptions = []) {
   else if (!checks.mockup) label = "Needs mockups";
   else if (pricingReady) label = "Pricing ready";
 
-  return { checks, missing, isLaunchReady, pricingReady, label, bands, options };
+  return { checks, missing, isLaunchReady, pricingReady, label, bands, options: pricingInfo.activeOptions };
 }
 
 function statsFor(templates, globalPrintOptions) {
