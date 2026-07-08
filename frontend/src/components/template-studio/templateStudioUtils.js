@@ -1,4 +1,3 @@
-
 const STANDARD_VIEW_OPTIONS = [
   { value: "front", label: "Front" },
   { value: "back", label: "Back" },
@@ -90,7 +89,6 @@ export function printSizeLabel(widthMm, heightMm, dpi = 300) {
   if (!width || !height) return "Custom size";
   return `${width}×${height}mm · ${printPixels(width, dpi)}×${printPixels(height, dpi)}px @ ${dpi} DPI`;
 }
-
 
 export const VIEW_OPTIONS = STANDARD_VIEW_OPTIONS;
 
@@ -244,4 +242,51 @@ export function buildVariationCombinations(
   };
 
   return walk(0, {}).flat().map((variation, index) => ({ ...variation, sort_order: index }));
+}
+
+export function clampPercent(value, min = 0, max = 100) {
+  const number = Number(value);
+  const lower = Number.isFinite(Number(min)) ? Number(min) : 0;
+  const upper = Number.isFinite(Number(max)) ? Number(max) : 100;
+
+  if (!Number.isFinite(number)) return lower;
+
+  return Math.min(upper, Math.max(lower, number));
+}
+
+export function normalizeArea(area = {}) {
+  const width = clampPercent(area.width ?? area.width_pct ?? 30, 0, 100);
+  const height = clampPercent(area.height ?? area.height_pct ?? 30, 0, 100);
+  const x = clampPercent(area.x ?? area.x_pct ?? 30, 0, Math.max(0, 100 - width));
+  const y = clampPercent(area.y ?? area.y_pct ?? 25, 0, Math.max(0, 100 - height));
+
+  const viewKey = area.view_key || area.screen_view || area.view || "";
+  const areaKey = area.area_key || area.print_area_key || viewKey || "custom";
+  const printSizeKey = area.standard_print_size_key || area.print_size || "custom";
+
+  return {
+    ...area,
+    id: area.id || newId("area"),
+    name: area.name || area.label || "Print Area",
+    x,
+    y,
+    width,
+    height,
+    x_pct: x,
+    y_pct: y,
+    width_pct: width,
+    height_pct: height,
+    screen_id: area.screen_id || area.mockup_screen_id || "",
+    screen_view: area.screen_view || viewKey,
+    view_key: viewKey,
+    area_key: areaKey,
+    print_size: printSizeKey,
+    standard_print_size_key: printSizeKey,
+    width_mm: area.width_mm ?? area.print_width_mm ?? null,
+    height_mm: area.height_mm ?? area.print_height_mm ?? null,
+    dpi: Number(area.dpi || 300),
+    fit_mode: area.fit_mode || "contain",
+    required: Boolean(area.required),
+    allowed_print_option_ids: safeArray(area.allowed_print_option_ids ?? area.print_option_ids ?? []),
+  };
 }
