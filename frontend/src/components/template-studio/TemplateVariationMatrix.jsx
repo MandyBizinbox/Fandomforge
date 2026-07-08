@@ -1,47 +1,17 @@
 import React, { useMemo, useState } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  Image as ImageIcon,
-  Square,
-  CheckSquare,
-  Wand2,
-} from "lucide-react";
+import { CheckSquare, Image as ImageIcon, Square, Wand2 } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
 import { toast } from "sonner";
 import {
   buildVariationCombinations,
-  findAttributeByKind,
   getVariationKey,
   money,
   safeArray,
 } from "./templateStudioUtils";
 
-const DEFAULT_COLUMN = "Default";
-
-function getAttrValue(variation, names, fallback = "") {
-  const attrs = variation?.attributes || {};
-
-  for (const name of names) {
-    if (attrs[name]) return attrs[name];
-  }
-
-  const entries = Object.entries(attrs);
-  const match = entries.find(([key]) => names.some((name) => key.toLowerCase() === name.toLowerCase()));
-  return match ? match[1] : fallback;
-}
-
-function attrNames(attribute, fallback) {
-  return [attribute?.name, attribute?.slug, attribute?.id, fallback].filter(Boolean);
-}
-
-function attrLabel(attribute, fallback = "Attribute") {
-  return attribute?.name || attribute?.slug || fallback;
-}
-
 function variationLabel(variation) {
   const values = Object.values(variation?.attributes || {}).filter(Boolean);
-  return values.length ? values.join(" / ") : "Variation";
+  return values.length ? values.join(" / ") : variation?.sku || variation?.supplier_sku || "Variation";
 }
 
 function attributeValueKey(attribute) {
@@ -81,22 +51,58 @@ function imageForVariation(variation) {
   return variation?.image_url || variation?.product_image_url || variation?.mockup_image_url || "";
 }
 
+function variationOverride(variation) {
+  return variation?.print_area_overrides?.default || {};
+}
+
+function valueOrBlank(...values) {
+  const found = values.find((value) => value !== undefined && value !== null && value !== "");
+  return found === undefined ? "" : found;
+}
+
 function variationPrintWidth(variation) {
-  return variation?.print_width_mm ?? variation?.width_mm ?? variation?.print_area_width_mm ?? "";
+  const override = variationOverride(variation);
+  return valueOrBlank(override.width_mm, variation?.print_width_mm, variation?.width_mm, variation?.print_area_width_mm);
 }
 
 function variationPrintHeight(variation) {
-  return variation?.print_height_mm ?? variation?.height_mm ?? variation?.print_area_height_mm ?? "";
+  const override = variationOverride(variation);
+  return valueOrBlank(override.height_mm, variation?.print_height_mm, variation?.height_mm, variation?.print_area_height_mm);
+}
+
+function variationPrintX(variation) {
+  const override = variationOverride(variation);
+  return valueOrBlank(override.x_pct, variation?.print_area_x_pct, variation?.x_pct);
+}
+
+function variationPrintY(variation) {
+  const override = variationOverride(variation);
+  return valueOrBlank(override.y_pct, variation?.print_area_y_pct, variation?.y_pct);
+}
+
+function variationPrintBoxWidth(variation) {
+  const override = variationOverride(variation);
+  return valueOrBlank(override.width_pct, variation?.print_area_width_pct, variation?.width_pct);
+}
+
+function variationPrintBoxHeight(variation) {
+  const override = variationOverride(variation);
+  return valueOrBlank(override.height_pct, variation?.print_area_height_pct, variation?.height_pct);
+}
+
+function variationPrintSizeKey(variation) {
+  const override = variationOverride(variation);
+  return valueOrBlank(override.standard_print_size_key, variation?.standard_print_size_key, variation?.print_size, variation?.size_label);
+}
+
+function imageOverrideCount(variation) {
+  return Object.values(variation?.mockup_screen_overrides || {}).filter(Boolean).length;
 }
 
 function ImageBox({ src, alt, className = "" }) {
   return (
     <div className={`bg-black border border-white/10 rounded-lg overflow-hidden flex items-center justify-center ${className}`}>
-      {src ? (
-        <img src={assetUrl(src)} alt={alt} className="w-full h-full object-contain" />
-      ) : (
-        <ImageIcon size={18} className="text-zinc-700" />
-      )}
+      {src ? <img src={assetUrl(src)} alt={alt} className="w-full h-full object-contain" /> : <ImageIcon size={18} className="text-zinc-700" />}
     </div>
   );
 }
@@ -115,9 +121,9 @@ export default function TemplateVariationMatrix({
 }) {
   const [bulkCost, setBulkCost] = useState("");
   const [bulkCreatorPrice, setBulkCreatorPrice] = useState("");
-  const [expandedRow, setExpandedRow] = useState(null);
+  const [selectedVariationId, setSelectedVariationId] = useState("");
   const [uploadingKey, setUploadingKey] = useState("");
-  const [detailSearch, setDetailSearch] = useState("");
+  const [search, setSearch] = useState("");
 
   const selectedAttributes = useMemo(
     () => safeArray(attributes).filter((attribute) => safeArray(selectedAttributeIds).includes(attribute.id)),
@@ -132,47 +138,28 @@ export default function TemplateVariationMatrix({
     return hasExplicitValues ? safeArray(selectedAttributeValues[key]) : safeArray(attribute?.values);
   };
 
-  const colorAttribute = findAttributeByKind(selectedAttributes, "colour") || findAttributeByKind(selectedAttributes, "color");
-  const sizeAttribute = findAttributeByKind(selectedAttributes, "size");
-  const rowAttribute = colorAttribute || selectedAttributes[0] || null;
-  const columnAttribute =
-    (sizeAttribute && rowAttribute && sizeAttribute.id !== rowAttribute.id ? sizeAttribute : null) ||
-    selectedAttributes.find((attribute) => rowAttribute && attribute.id !== rowAttribute.id) ||
-    null;
-
-  const rowLabel = attrLabel(rowAttribute, "Variation");
-  const columnLabel = attrLabel(columnAttribute, "Option");
-  const rowValues = rowAttribute
-    ? selectedValuesFor(rowAttribute)
-    : Array.from(new Set(safeArray(variations).map((variation) => variationLabel(variation)))).filter(Boolean);
-  const columnValues = columnAttribute ? selectedValuesFor(columnAttribute) : [DEFAULT_COLUMN];
-  const hasRowAxis = Boolean(rowAttribute);
-  const hasColumnAxis = Boolean(columnAttribute);
-  const singleAxisMode = hasRowAxis && !hasColumnAxis;
-  const simpleListMode = !hasRowAxis;
-
-  const variationByRowColumn = useMemo(() => {
-    const map = new Map();
-    safeArray(variations).forEach((variation) => {
-      const rowValue = rowAttribute ? getAttrValue(variation, attrNames(rowAttribute, rowLabel), DEFAULT_COLUMN) : variationLabel(variation);
-      const columnValue = columnAttribute ? getAttrValue(variation, attrNames(columnAttribute, columnLabel), DEFAULT_COLUMN) : DEFAULT_COLUMN;
-      map.set(`${rowValue}|||${columnValue}`, variation);
-    });
-    return map;
-  }, [variations, rowAttribute, columnAttribute, rowLabel, columnLabel]);
-
-  const activeCount = safeArray(variations).filter((variation) => variation.enabled !== false).length;
   const selectedAttrValues = selectedAttributes
     .map((attribute) => {
       const values = selectedValuesFor(attribute);
       return `${attribute.name}: ${values.length ? values.join(", ") : "No values selected"}`;
     })
     .join(" · ");
+
+  const activeCount = safeArray(variations).filter((variation) => variation.enabled !== false).length;
+  const filteredVariations = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return safeArray(variations);
+    return safeArray(variations).filter((variation) => {
+      const attrs = Object.entries(variation.attributes || {}).map(([key, value]) => `${key} ${value}`).join(" ");
+      return `${variationLabel(variation)} ${attrs} ${variation.supplier_sku || ""}`.toLowerCase().includes(term);
+    });
+  }, [variations, search]);
+
+  const selectedVariation = useMemo(() => {
+    return safeArray(variations).find((variation) => variation.id === selectedVariationId) || filteredVariations[0] || null;
+  }, [filteredVariations, selectedVariationId, variations]);
+
   const validScreensForOverrides = safeArray(screens).filter((screen) => screen && screen.id);
-  const visibleSimpleVariations = safeArray(variations).filter((variation) => {
-    if (!detailSearch.trim()) return true;
-    return variationLabel(variation).toLowerCase().includes(detailSearch.toLowerCase());
-  });
 
   const toggleAttribute = (attributeId) => {
     const attribute = safeArray(attributes).find((item) => item.id === attributeId);
@@ -225,32 +212,60 @@ export default function TemplateVariationMatrix({
     });
 
     onVariationsChange(generated);
-    toast.success(`${generated.length} variations generated`);
+    setSelectedVariationId(generated[0]?.id || "");
+    toast.success(`${generated.length} variation combination(s) generated`);
   };
 
   const updateVariation = (variationId, patch) => {
     onVariationsChange(safeArray(variations).map((variation) => (variation.id === variationId ? { ...variation, ...patch } : variation)));
   };
 
-  const updateVariationPrintSize = (variation, patch) => {
-    const width = patch.print_width_mm ?? variationPrintWidth(variation);
-    const height = patch.print_height_mm ?? variationPrintHeight(variation);
-    updateVariation(variation.id, {
-      ...patch,
+  const updateSelectedVariation = (patch) => {
+    if (!selectedVariation?.id) return;
+    updateVariation(selectedVariation.id, patch);
+  };
+
+  const updateSelectedPrintOverride = (patch) => {
+    if (!selectedVariation?.id) return;
+
+    const currentOverride = variationOverride(selectedVariation);
+    const nextOverride = { ...currentOverride, ...patch };
+    const width = valueOrBlank(nextOverride.width_mm, selectedVariation.print_width_mm, selectedVariation.width_mm);
+    const height = valueOrBlank(nextOverride.height_mm, selectedVariation.print_height_mm, selectedVariation.height_mm);
+    const xPct = valueOrBlank(nextOverride.x_pct, selectedVariation.print_area_x_pct, selectedVariation.x_pct);
+    const yPct = valueOrBlank(nextOverride.y_pct, selectedVariation.print_area_y_pct, selectedVariation.y_pct);
+    const widthPct = valueOrBlank(nextOverride.width_pct, selectedVariation.print_area_width_pct, selectedVariation.width_pct);
+    const heightPct = valueOrBlank(nextOverride.height_pct, selectedVariation.print_area_height_pct, selectedVariation.height_pct);
+    const sizeKey = valueOrBlank(nextOverride.standard_print_size_key, selectedVariation.standard_print_size_key, selectedVariation.print_size);
+
+    updateVariation(selectedVariation.id, {
       print_width_mm: width,
       print_height_mm: height,
       width_mm: width,
       height_mm: height,
       print_area_width_mm: width,
       print_area_height_mm: height,
-      standard_print_size_key: patch.standard_print_size_key ?? variation.standard_print_size_key ?? `${width || "custom"}x${height || "custom"}`,
+      print_area_x_pct: xPct,
+      print_area_y_pct: yPct,
+      print_area_width_pct: widthPct,
+      print_area_height_pct: heightPct,
+      x_pct: xPct,
+      y_pct: yPct,
+      width_pct: widthPct,
+      height_pct: heightPct,
+      standard_print_size_key: sizeKey,
+      print_size: sizeKey,
       print_area_overrides: {
-        ...(variation.print_area_overrides || {}),
+        ...(selectedVariation.print_area_overrides || {}),
         default: {
-          ...(variation.print_area_overrides?.default || {}),
+          ...nextOverride,
           width_mm: width,
           height_mm: height,
-          standard_print_size_key: patch.standard_print_size_key ?? variation.standard_print_size_key ?? `${width || "custom"}x${height || "custom"}`,
+          x_pct: xPct,
+          y_pct: yPct,
+          width_pct: widthPct,
+          height_pct: heightPct,
+          standard_print_size_key: sizeKey,
         },
       },
     });
@@ -260,55 +275,8 @@ export default function TemplateVariationMatrix({
     updateVariation(variation.id, { enabled: variation.enabled === false, status: variation.enabled === false ? "active" : "draft" });
   };
 
-  const setVariationsEnabled = (variationIds, enabled) => {
-    const idSet = new Set(variationIds);
-    onVariationsChange(safeArray(variations).map((variation) => (idSet.has(variation.id) ? { ...variation, enabled, status: enabled ? "active" : "draft" } : variation)));
-  };
-
   const setAllEnabled = (enabled) => {
     onVariationsChange(safeArray(variations).map((variation) => ({ ...variation, enabled, status: enabled ? "active" : "draft" })));
-  };
-
-  const rowVariations = (rowValue) => columnValues.map((columnValue) => variationByRowColumn.get(`${rowValue}|||${columnValue}`)).filter(Boolean);
-  const rowActiveCount = (rowValue) => rowVariations(rowValue).filter((variation) => variation.enabled !== false).length;
-
-  const setRowEnabled = (rowValue, enabled) => {
-    setVariationsEnabled(rowVariations(rowValue).map((variation) => variation.id), enabled);
-  };
-
-  const setColumnEnabled = (columnValue, enabled) => {
-    const ids = safeArray(variations)
-      .filter((variation) => !hasColumnAxis || getAttrValue(variation, attrNames(columnAttribute, columnLabel), DEFAULT_COLUMN) === columnValue)
-      .map((variation) => variation.id);
-    setVariationsEnabled(ids, enabled);
-  };
-
-  const updateRowCost = (rowValue, cost) => {
-    const rowIds = new Set(rowVariations(rowValue).map((variation) => variation.id));
-    onVariationsChange(safeArray(variations).map((variation) => (rowIds.has(variation.id) ? { ...variation, ...resolveVariationCostPatch(cost) } : variation)));
-  };
-
-  const updateRowCreatorPrice = (rowValue, creatorPrice) => {
-    const rowIds = new Set(rowVariations(rowValue).map((variation) => variation.id));
-    onVariationsChange(safeArray(variations).map((variation) => (rowIds.has(variation.id) ? { ...variation, ...resolveVariationCostPatch(variationPlatformCost(variation), creatorPrice) } : variation)));
-  };
-
-  const updateColumnCost = (columnValue, cost) => {
-    onVariationsChange(
-      safeArray(variations).map((variation) => {
-        const value = hasColumnAxis ? getAttrValue(variation, attrNames(columnAttribute, columnLabel), DEFAULT_COLUMN) : DEFAULT_COLUMN;
-        return value === columnValue ? { ...variation, ...resolveVariationCostPatch(cost) } : variation;
-      })
-    );
-  };
-
-  const updateColumnCreatorPrice = (columnValue, creatorPrice) => {
-    onVariationsChange(
-      safeArray(variations).map((variation) => {
-        const value = hasColumnAxis ? getAttrValue(variation, attrNames(columnAttribute, columnLabel), DEFAULT_COLUMN) : DEFAULT_COLUMN;
-        return value === columnValue ? { ...variation, ...resolveVariationCostPatch(variationPlatformCost(variation), creatorPrice) } : variation;
-      })
-    );
   };
 
   const applyBulkCost = () => {
@@ -319,8 +287,8 @@ export default function TemplateVariationMatrix({
     onVariationsChange(safeArray(variations).map((variation) => ({ ...variation, ...resolveVariationCostPatch(variationPlatformCost(variation), bulkCreatorPrice) })));
   };
 
-  const uploadVariationImage = async (variationIds, file, label = "Variation image") => {
-    if (!file || !safeArray(variationIds).length) return;
+  const uploadVariationImage = async (variationId, file, label = "Variation image") => {
+    if (!file || !variationId) return;
     const uploadKey = `${label}-${Date.now()}`;
     setUploadingKey(uploadKey);
 
@@ -329,8 +297,7 @@ export default function TemplateVariationMatrix({
       formData.append("file", file);
       formData.append("subdir", "template-variation-images");
       const response = await http.post("/files/image", formData, { headers: { "Content-Type": "multipart/form-data" } });
-      const idSet = new Set(safeArray(variationIds));
-      onVariationsChange(safeArray(variations).map((variation) => (idSet.has(variation.id) ? { ...variation, image_url: response.data.url } : variation)));
+      updateVariation(variationId, { image_url: response.data.url });
       toast.success(`${label} uploaded`);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Image upload failed");
@@ -339,51 +306,28 @@ export default function TemplateVariationMatrix({
     }
   };
 
-  const uploadRowImage = (rowValue, file) => {
-    uploadVariationImage(rowVariations(rowValue).map((variation) => variation.id), file, `${rowValue} variation image`);
-  };
-
-  const rowImage = (rowValue) => {
-    const item = rowVariations(rowValue).find((variation) => imageForVariation(variation));
-    return imageForVariation(item);
-  };
-
-  const rowScreenOverride = (rowValue, screen) => {
-    const found = rowVariations(rowValue).find((variation) => {
-      const overrides = variation.mockup_screen_overrides || {};
-      return overrides[screen.id] || overrides[screen.view_key] || overrides[screen.name];
+  const setScreenOverride = (screen, imageUrl) => {
+    if (!selectedVariation?.id || !screen?.id) return;
+    updateSelectedVariation({
+      mockup_screen_overrides: {
+        ...(selectedVariation.mockup_screen_overrides || {}),
+        [screen.id]: imageUrl,
+      },
     });
-    const overrides = found?.mockup_screen_overrides || {};
-    return overrides[screen.id] || overrides[screen.view_key] || overrides[screen.name] || "";
   };
 
-  const setRowScreenOverride = (rowValue, screen, imageUrl) => {
-    const rowIds = new Set(rowVariations(rowValue).map((variation) => variation.id));
-    onVariationsChange(
-      safeArray(variations).map((variation) => {
-        if (!rowIds.has(variation.id)) return variation;
-        return { ...variation, mockup_screen_overrides: { ...(variation.mockup_screen_overrides || {}), [screen.id]: imageUrl } };
-      })
-    );
+  const clearScreenOverride = (screen) => {
+    if (!selectedVariation?.id || !screen?.id) return;
+    const overrides = { ...(selectedVariation.mockup_screen_overrides || {}) };
+    delete overrides[screen.id];
+    if (screen.view_key) delete overrides[screen.view_key];
+    if (screen.name) delete overrides[screen.name];
+    updateSelectedVariation({ mockup_screen_overrides: overrides });
   };
 
-  const clearRowScreenOverride = (rowValue, screen) => {
-    const rowIds = new Set(rowVariations(rowValue).map((variation) => variation.id));
-    onVariationsChange(
-      safeArray(variations).map((variation) => {
-        if (!rowIds.has(variation.id)) return variation;
-        const overrides = { ...(variation.mockup_screen_overrides || {}) };
-        delete overrides[screen.id];
-        if (screen.view_key) delete overrides[screen.view_key];
-        if (screen.name) delete overrides[screen.name];
-        return { ...variation, mockup_screen_overrides: overrides };
-      })
-    );
-  };
-
-  const uploadRowScreenOverride = async (rowValue, screen, file) => {
-    if (!file || !screen?.id) return;
-    const uploadKey = `${rowValue}-${screen.id || screen.name || "screen"}`;
+  const uploadScreenOverride = async (screen, file) => {
+    if (!file || !screen?.id || !selectedVariation?.id) return;
+    const uploadKey = `${selectedVariation.id}-${screen.id}`;
     setUploadingKey(uploadKey);
 
     try {
@@ -391,8 +335,8 @@ export default function TemplateVariationMatrix({
       fd.append("file", file);
       fd.append("subdir", "template-variation-views");
       const response = await http.post("/files/image", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      setRowScreenOverride(rowValue, screen, response.data.url);
-      toast.success(`${rowValue} ${screen.name || screen.view_key || screen.screen_view || "view"} image uploaded`);
+      setScreenOverride(screen, response.data.url);
+      toast.success(`${variationLabel(selectedVariation)} ${screen.name || screen.view_key || "view"} image uploaded`);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not upload variation view image");
     } finally {
@@ -400,14 +344,17 @@ export default function TemplateVariationMatrix({
     }
   };
 
+  const selectedOverride = selectedVariation ? variationOverride(selectedVariation) : {};
+
   return (
     <div className="studio-panel variation-matrix-panel">
       <div className="studio-panel-header">
         <div>
           <div className="overline mb-1">Variations</div>
-          <h2 className="font-display text-2xl uppercase">Variation Matrix</h2>
-          <p className="text-xs text-zinc-500 mt-1">Configure supplier variation images, print size overrides, blank costs, creator prices, SKUs and variation-specific mockup overrides.</p>
-          {singleAxisMode && <p className="text-xs text-[#FFB020] mt-2">Single-axis mode active. Use the arrow on each {rowLabel.toLowerCase()} row to open image, pricing and override controls.</p>}
+          <h2 className="font-display text-2xl uppercase">Variation Production Cards</h2>
+          <p className="text-xs text-zinc-500 mt-1">
+            Each generated variation combination is its own production record. Open a card to set images, print area overrides, blank cost and supplier SKU.
+          </p>
         </div>
         <button type="button" onClick={generateVariations} className="btn-primary text-xs"><Wand2 size={14} /> Generate</button>
       </div>
@@ -420,7 +367,7 @@ export default function TemplateVariationMatrix({
               <button key={attribute.id} type="button" onClick={() => toggleAttribute(attribute.id)} className={safeArray(selectedAttributeIds).includes(attribute.id) ? "studio-pill active" : "studio-pill"}>{attribute.name}</button>
             ))}
           </div>
-          <p className="text-xs text-zinc-500 mt-3">{selectedAttrValues || "Select one or more variation attributes. Any attribute set supports variation images."}</p>
+          <p className="text-xs text-zinc-500 mt-3">{selectedAttrValues || "Select one or more variation attributes. Any attribute combination can have its own image and print area."}</p>
 
           {selectedAttributes.length > 0 && (
             <div className="mt-5 space-y-4 border-t border-white/10 pt-4">
@@ -462,7 +409,7 @@ export default function TemplateVariationMatrix({
         </div>
 
         <div className="studio-subpanel variation-count-card">
-          <div className="label">Active variations</div>
+          <div className="label">Active production records</div>
           <div className="font-display text-3xl leading-none">{activeCount}</div>
           <div className="text-xs text-zinc-500">of {safeArray(variations).length}</div>
         </div>
@@ -482,166 +429,146 @@ export default function TemplateVariationMatrix({
       </div>
 
       {safeArray(variations).length === 0 ? (
-        <div className="studio-empty-state"><Wand2 size={24} className="text-zinc-600" /><p className="font-bold uppercase tracking-widest text-sm">No variations generated yet</p><p className="text-zinc-500 text-sm">Select one or more attributes, then click Generate.</p></div>
-      ) : simpleListMode ? (
-        <SimpleVariationList variations={visibleSimpleVariations} detailSearch={detailSearch} setDetailSearch={setDetailSearch} updateVariation={updateVariation} toggleVariation={toggleVariation} uploadVariationImage={uploadVariationImage} updateVariationPrintSize={updateVariationPrintSize} />
+        <div className="studio-empty-state"><Wand2 size={24} className="text-zinc-600" /><p className="font-bold uppercase tracking-widest text-sm">No variation cards generated yet</p><p className="text-zinc-500 text-sm">Select one or more attributes, then click Generate.</p></div>
       ) : (
-        <div className="variation-matrix-board">
-          {hasColumnAxis && (
-            <div className="variation-size-bar">
-              <div className="variation-size-bar-spacer">{rowLabel}</div>
-              <div className="variation-size-grid" style={{ gridTemplateColumns: `repeat(${columnValues.length}, minmax(120px, 1fr))` }}>
-                {columnValues.map((columnValue) => (
-                  <div key={columnValue} className="variation-size-header-card">
-                    <div className="font-bold">{columnValue}</div>
-                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">{columnLabel}</div>
-                    <div className="variation-mini-actions"><button type="button" onClick={() => setColumnEnabled(columnValue, true)}>All</button><button type="button" onClick={() => setColumnEnabled(columnValue, false)}>None</button></div>
-                    <input className="studio-mini-input mt-2" type="number" placeholder="Platform cost" onBlur={(event) => event.target.value && updateColumnCost(columnValue, event.target.value)} />
-                    <input className="studio-mini-input mt-2" type="number" placeholder="Creator price" onBlur={(event) => event.target.value && updateColumnCreatorPrice(columnValue, event.target.value)} />
-                  </div>
-                ))}
+        <div className="grid xl:grid-cols-[minmax(0,1fr)_420px] gap-5">
+          <div className="studio-subpanel">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <div>
+                <div className="label">Variation production cards</div>
+                <p className="text-xs text-zinc-500 mt-1">Click a card to edit exact production overrides for that combination.</p>
               </div>
+              <input className="input-base sm:w-72" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search variation cards" />
             </div>
-          )}
 
-          <div className="variation-row-stack">
-            {rowValues.map((rowValue) => {
-              const image = rowImage(rowValue);
-              const rowExpanded = expandedRow === rowValue;
-              const activeInRow = rowActiveCount(rowValue);
-              const totalInRow = rowVariations(rowValue).length;
-
-              return (
-                <div key={rowValue} className="variation-colour-row">
-                  <div className="variation-colour-card">
-                    <button type="button" className="variation-expand-button" onClick={() => setExpandedRow(rowExpanded ? null : rowValue)} title={rowExpanded ? "Close row details" : "Open row details"}>{rowExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
-                    <ImageBox src={image} alt={rowValue} className="variation-colour-image" />
-                    <div className="variation-colour-meta">
-                      <div className="text-[10px] uppercase tracking-widest text-zinc-500">{rowLabel}</div>
-                      <div className="font-bold leading-tight">{rowValue}</div>
-                      <div className="text-xs text-zinc-500">{activeInRow} of {totalInRow} active</div>
-                      <div className="variation-mini-actions mt-2">
-                        <label className="studio-file-button text-[10px]">{uploadingKey.startsWith(`${rowValue} variation`) ? "Uploading" : "Upload row image"}<input type="file" accept="image/*" className="hidden" onChange={(event) => uploadRowImage(rowValue, event.target.files?.[0])} /></label>
-                        <button type="button" onClick={() => setRowEnabled(rowValue, true)}>All</button>
-                        <button type="button" onClick={() => setRowEnabled(rowValue, false)}>None</button>
+            <div className="grid md:grid-cols-2 2xl:grid-cols-3 gap-3">
+              {filteredVariations.map((variation) => {
+                const active = variation.enabled !== false;
+                const selected = selectedVariation?.id === variation.id;
+                return (
+                  <button
+                    key={variation.id || getVariationKey(variation)}
+                    type="button"
+                    onClick={() => setSelectedVariationId(variation.id)}
+                    className={`text-left border rounded-xl p-3 transition-colors ${selected ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/20 hover:border-white/30"}`}
+                  >
+                    <div className="flex gap-3">
+                      <ImageBox src={imageForVariation(variation)} alt={variationLabel(variation)} className="w-20 h-20 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="font-bold text-sm leading-tight">{variationLabel(variation)}</div>
+                          <span className={active ? "studio-pill active" : "studio-pill"}>{active ? "On" : "Off"}</span>
+                        </div>
+                        <div className="text-[11px] text-zinc-500 mt-1 break-all">{variation.supplier_sku || variation.sku || variation.id}</div>
+                        <div className="grid grid-cols-2 gap-2 mt-3 text-[11px] text-zinc-400">
+                          <div className="border border-white/10 p-2 rounded-lg"><span className="overline block mb-1">Blank</span>{money(variationCreatorPrice(variation))}</div>
+                          <div className="border border-white/10 p-2 rounded-lg"><span className="overline block mb-1">Print</span>{variationPrintWidth(variation) || "—"}×{variationPrintHeight(variation) || "—"}mm</div>
+                        </div>
+                        <div className="text-[10px] text-zinc-500 mt-2">{imageOverrideCount(variation)} view override(s)</div>
                       </div>
                     </div>
-                    <div className="variation-row-cost-box">
-                      <label><span>Row platform cost</span><input className="studio-mini-input" type="number" placeholder="Actual cost" onBlur={(event) => event.target.value && updateRowCost(rowValue, event.target.value)} /></label>
-                      <label><span>Row creator price</span><input className="studio-mini-input" type="number" placeholder="Creator pays" onBlur={(event) => event.target.value && updateRowCreatorPrice(rowValue, event.target.value)} /></label>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="studio-subpanel xl:sticky xl:top-4 self-start">
+            {selectedVariation ? (
+              <div>
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <div className="label">Selected production record</div>
+                    <h3 className="font-display text-2xl uppercase mt-1">{variationLabel(selectedVariation)}</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Set exact overrides for this variation combination only.</p>
+                  </div>
+                  <button type="button" onClick={() => toggleVariation(selectedVariation)} className={selectedVariation.enabled === false ? "studio-pill" : "studio-pill active"}>
+                    {selectedVariation.enabled === false ? "Disabled" : "Enabled"}
+                  </button>
+                </div>
+
+                <div className="space-y-5">
+                  <div className="border border-white/10 bg-black/20 rounded-xl p-4">
+                    <div className="font-bold text-sm mb-3">Variation image</div>
+                    <div className="flex items-center gap-3">
+                      <ImageBox src={imageForVariation(selectedVariation)} alt={variationLabel(selectedVariation)} className="w-24 h-24 shrink-0" />
+                      <div className="flex-1">
+                        <label className="studio-file-button justify-center text-xs w-full">
+                          {uploadingKey.startsWith(variationLabel(selectedVariation)) ? "Uploading" : "Upload / replace variation image"}
+                          <input type="file" accept="image/*" className="hidden" onChange={(event) => uploadVariationImage(selectedVariation.id, event.target.files?.[0], variationLabel(selectedVariation))} />
+                        </label>
+                        <p className="text-[11px] text-zinc-500 mt-2">This should represent the exact blank combination, for example White 5cm or Clear 7cm.</p>
+                      </div>
                     </div>
                   </div>
 
-                  {hasColumnAxis && (
-                    <div className="variation-size-grid" style={{ gridTemplateColumns: `repeat(${columnValues.length}, minmax(120px, 1fr))` }}>
-                      {columnValues.map((columnValue) => {
-                        const variation = variationByRowColumn.get(`${rowValue}|||${columnValue}`);
-                        if (!variation) return <div key={columnValue} className="variation-cell missing">—</div>;
-                        const enabled = variation.enabled !== false;
-                        return (
-                          <div key={variation.id} className={enabled ? "variation-cell active" : "variation-cell"}>
-                            <button type="button" onClick={() => toggleVariation(variation)} className="variation-cell-toggle" title={`${rowValue} / ${columnValue}`}>{enabled ? <CheckSquare size={16} /> : <Square size={16} />}<span>{enabled ? "On" : "Off"}</span></button>
-                            <input className="studio-mini-input" type="number" step="0.01" value={variationPlatformCost(variation)} onChange={(event) => updateVariation(variation.id, { ...resolveVariationCostPatch(event.target.value, variation.creator_blank_price) })} />
-                            <div className="text-[10px] text-zinc-500 mt-1">{variationPrintWidth(variation) || "—"}×{variationPrintHeight(variation) || "—"}mm</div>
-                          </div>
-                        );
-                      })}
+                  <div className="border border-white/10 bg-black/20 rounded-xl p-4">
+                    <div className="font-bold text-sm mb-3">Variation print area override</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label><span className="label">Print width mm</span><input className="input-base text-sm" type="number" step="0.1" value={variationPrintWidth(selectedVariation)} onChange={(event) => updateSelectedPrintOverride({ width_mm: event.target.value })} /></label>
+                      <label><span className="label">Print height mm</span><input className="input-base text-sm" type="number" step="0.1" value={variationPrintHeight(selectedVariation)} onChange={(event) => updateSelectedPrintOverride({ height_mm: event.target.value })} /></label>
+                      <label className="col-span-2"><span className="label">Print size key / label</span><input className="input-base text-sm" value={variationPrintSizeKey(selectedVariation)} onChange={(event) => updateSelectedPrintOverride({ standard_print_size_key: event.target.value })} placeholder="e.g. 5cm, 7cm, 50x50mm" /></label>
+                      <label><span className="label">Area X %</span><input className="input-base text-sm" type="number" step="0.1" value={variationPrintX(selectedVariation)} onChange={(event) => updateSelectedPrintOverride({ x_pct: event.target.value })} placeholder="Use template default" /></label>
+                      <label><span className="label">Area Y %</span><input className="input-base text-sm" type="number" step="0.1" value={variationPrintY(selectedVariation)} onChange={(event) => updateSelectedPrintOverride({ y_pct: event.target.value })} placeholder="Use template default" /></label>
+                      <label><span className="label">Area W %</span><input className="input-base text-sm" type="number" step="0.1" value={variationPrintBoxWidth(selectedVariation)} onChange={(event) => updateSelectedPrintOverride({ width_pct: event.target.value })} placeholder="Use template default" /></label>
+                      <label><span className="label">Area H %</span><input className="input-base text-sm" type="number" step="0.1" value={variationPrintBoxHeight(selectedVariation)} onChange={(event) => updateSelectedPrintOverride({ height_pct: event.target.value })} placeholder="Use template default" /></label>
+                    </div>
+                    <div className="text-[11px] text-zinc-500 border border-white/10 bg-black/20 rounded-xl p-3 mt-3">
+                      These values override the template default print area for this exact variation. Leave position fields blank to inherit the template area placement.
+                    </div>
+                  </div>
+
+                  <div className="border border-white/10 bg-black/20 rounded-xl p-4">
+                    <div className="font-bold text-sm mb-3">Blank pricing and supplier</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label><span className="label">Platform blank cost</span><input className="input-base text-sm" type="number" step="0.01" value={variationPlatformCost(selectedVariation)} onChange={(event) => updateSelectedVariation({ ...resolveVariationCostPatch(event.target.value, selectedVariation.creator_blank_price) })} /></label>
+                      <label><span className="label">Creator blank price</span><input className="input-base text-sm" type="number" step="0.01" value={variationCreatorPrice(selectedVariation)} onChange={(event) => updateSelectedVariation({ ...resolveVariationCostPatch(variationPlatformCost(selectedVariation), event.target.value) })} /></label>
+                      <div className="variation-profit-summary"><span>Profit</span><strong>{money(variationCreatorPrice(selectedVariation) - variationPlatformCost(selectedVariation))}</strong></div>
+                      <div className="variation-profit-summary"><span>Margin</span><strong>{Number(selectedVariation.platform_blank_margin_percent || 0).toFixed(2)}%</strong></div>
+                      <label className="col-span-2"><span className="label">Supplier SKU</span><input className="input-base text-sm" value={selectedVariation.supplier_sku || ""} onChange={(event) => updateSelectedVariation({ supplier_sku: event.target.value })} /></label>
+                    </div>
+                  </div>
+
+                  {validScreensForOverrides.length > 0 && (
+                    <div className="border border-white/10 bg-black/20 rounded-xl p-4">
+                      <div className="font-bold text-sm mb-1">Variation base view overrides</div>
+                      <p className="text-xs text-zinc-500 mb-3">Use this when the exact variation needs a different blank image for front/back/wrap views.</p>
+                      <div className="space-y-3">
+                        {validScreensForOverrides.map((screen) => {
+                          const override = selectedVariation.mockup_screen_overrides?.[screen.id] || selectedVariation.mockup_screen_overrides?.[screen.view_key] || selectedVariation.mockup_screen_overrides?.[screen.name] || "";
+                          const fallback = screen.image_url || "";
+                          const uploadKey = `${selectedVariation.id}-${screen.id}`;
+                          return (
+                            <div key={screen.id} className="border border-white/10 rounded-xl p-3">
+                              <div className="flex items-start justify-between gap-2 mb-2">
+                                <div>
+                                  <div className="text-[10px] uppercase tracking-widest text-zinc-500">Base view</div>
+                                  <div className="font-bold text-xs">{screen.name || screen.view_key || screen.screen_view || "View"}</div>
+                                </div>
+                                <span className={override ? "studio-pill active" : "studio-pill"}>{override ? "Override" : "Default"}</span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 mb-3">
+                                <div><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Default</div><ImageBox src={fallback} alt="Default view" className="aspect-[4/3]" /></div>
+                                <div><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Override</div><ImageBox src={override} alt="Override view" className="aspect-[4/3]" /></div>
+                              </div>
+                              <div className="flex gap-2">
+                                <label className="studio-file-button text-[10px] flex-1 justify-center">
+                                  {uploadingKey === uploadKey ? "Uploading" : override ? "Replace" : "Upload"}
+                                  <input type="file" accept="image/*" className="hidden" onChange={(event) => uploadScreenOverride(screen, event.target.files?.[0])} />
+                                </label>
+                                {override && <button type="button" className="btn-secondary text-[10px]" onClick={() => clearScreenOverride(screen)}>Clear</button>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
-
-                  {rowExpanded && (
-                    <VariationRowDetail rowValue={rowValue} rowLabel={rowLabel} columnValues={columnValues} columnLabel={columnLabel} hasColumnAxis={hasColumnAxis} variationByRowColumn={variationByRowColumn} validScreensForOverrides={validScreensForOverrides} uploadingKey={uploadingKey} rowScreenOverride={rowScreenOverride} uploadRowScreenOverride={uploadRowScreenOverride} clearRowScreenOverride={clearRowScreenOverride} updateVariation={updateVariation} updateVariationPrintSize={updateVariationPrintSize} toggleVariation={toggleVariation} uploadVariationImage={uploadVariationImage} />
-                  )}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SimpleVariationList({ variations, detailSearch, setDetailSearch, updateVariation, toggleVariation, uploadVariationImage, updateVariationPrintSize }) {
-  return (
-    <div className="studio-subpanel">
-      <p className="text-zinc-400 text-sm mb-4">No matrix axis is selected. Edit generated variations below.</p>
-      <input className="input-base mb-4" value={detailSearch} onChange={(event) => setDetailSearch(event.target.value)} placeholder="Search variations" />
-      <div className="variation-list-editor">
-        {safeArray(variations).map((variation) => (
-          <div key={variation.id || getVariationKey(variation)} className="variation-list-row">
-            <div className="flex items-center gap-3 min-w-0"><ImageBox src={imageForVariation(variation)} alt={variationLabel(variation)} className="variation-colour-image shrink-0" /><div><div className="font-bold text-sm">{variationLabel(variation)}</div><div className="text-xs text-zinc-500">{variation.supplier_sku || "No supplier SKU"}</div></div></div>
-            <label className="studio-file-button text-[10px]">Upload image<input type="file" accept="image/*" className="hidden" onChange={(event) => uploadVariationImage([variation.id], event.target.files?.[0], variationLabel(variation))} /></label>
-            <input className="studio-mini-input" type="number" step="0.01" value={variationPlatformCost(variation)} onChange={(event) => updateVariation(variation.id, { ...resolveVariationCostPatch(event.target.value, variation.creator_blank_price) })} />
-            <input className="studio-mini-input" type="number" step="0.1" placeholder="Print width mm" value={variationPrintWidth(variation)} onChange={(event) => updateVariationPrintSize(variation, { print_width_mm: event.target.value })} />
-            <input className="studio-mini-input" type="number" step="0.1" placeholder="Print height mm" value={variationPrintHeight(variation)} onChange={(event) => updateVariationPrintSize(variation, { print_height_mm: event.target.value })} />
-            <button type="button" onClick={() => toggleVariation(variation)} className={variation.enabled === false ? "matrix-toggle compact" : "matrix-toggle compact active"}>{variation.enabled === false ? "Off" : "On"}</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function VariationRowDetail({ rowValue, rowLabel, columnValues, columnLabel, hasColumnAxis, variationByRowColumn, validScreensForOverrides, uploadingKey, rowScreenOverride, uploadRowScreenOverride, clearRowScreenOverride, updateVariation, updateVariationPrintSize, toggleVariation, uploadVariationImage }) {
-  const variations = columnValues.map((columnValue) => ({ columnValue, variation: variationByRowColumn.get(`${rowValue}|||${columnValue}`) })).filter((item) => item.variation);
-
-  return (
-    <div className="variation-row-detail space-y-5">
-      <div className="variation-detail-card">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div>
-            <div className="font-bold text-sm">Variation image, print size and blank pricing</div>
-            <p className="text-xs text-zinc-500 mt-1">Each generated combination is its own production record. Set images and print dimensions per variation where needed.</p>
-          </div>
-          <div className="text-[10px] uppercase tracking-widest text-zinc-500">{variations.length} record(s)</div>
-        </div>
-
-        <div className="grid lg:grid-cols-2 gap-3">
-          {variations.map(({ columnValue, variation }) => (
-            <div key={variation.id} className="border border-white/10 bg-black/20 rounded-xl p-4">
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <div className="flex items-center gap-3 min-w-0"><ImageBox src={imageForVariation(variation)} alt={variationLabel(variation)} className="w-16 h-16 shrink-0" /><div><div className="font-bold text-sm">{hasColumnAxis ? `${rowValue} / ${columnValue}` : rowValue}</div><div className="text-[11px] text-zinc-500">{rowLabel}{hasColumnAxis ? ` · ${columnLabel}` : ""}</div><div className="text-xs text-zinc-500 break-all">{variation.id}</div></div></div>
-                <button type="button" onClick={() => toggleVariation(variation)} className={variation.enabled === false ? "studio-pill" : "studio-pill active"}>{variation.enabled === false ? "Disabled" : "Enabled"}</button>
               </div>
-
-              <div className="grid sm:grid-cols-2 gap-2">
-                <label className="sm:col-span-2 studio-file-button justify-center text-xs">Upload this variation image<input type="file" accept="image/*" className="hidden" onChange={(event) => uploadVariationImage([variation.id], event.target.files?.[0], variationLabel(variation))} /></label>
-                <label><span className="label">Variation print width mm</span><input className="input-base text-sm" type="number" step="0.1" value={variationPrintWidth(variation)} onChange={(event) => updateVariationPrintSize(variation, { print_width_mm: event.target.value })} /></label>
-                <label><span className="label">Variation print height mm</span><input className="input-base text-sm" type="number" step="0.1" value={variationPrintHeight(variation)} onChange={(event) => updateVariationPrintSize(variation, { print_height_mm: event.target.value })} /></label>
-                <label className="sm:col-span-2"><span className="label">Print size key / label</span><input className="input-base text-sm" value={variation.standard_print_size_key || ""} onChange={(event) => updateVariationPrintSize(variation, { standard_print_size_key: event.target.value })} placeholder="e.g. 5cm, 7cm, 50x50mm" /></label>
-                <div className="sm:col-span-2 text-[11px] text-zinc-500 border border-white/10 bg-black/20 rounded-xl p-3">These values override the template print dimensions for this variation. Use this for items such as White 5cm, White 7cm, Clear 5cm and Clear 7cm.</div>
-                <label><span className="label">Platform blank cost</span><input className="input-base text-sm" type="number" step="0.01" value={variationPlatformCost(variation)} onChange={(event) => updateVariation(variation.id, { ...resolveVariationCostPatch(event.target.value, variation.creator_blank_price) })} /></label>
-                <label><span className="label">Creator blank price</span><input className="input-base text-sm" type="number" step="0.01" value={variationCreatorPrice(variation)} onChange={(event) => updateVariation(variation.id, { ...resolveVariationCostPatch(variationPlatformCost(variation), event.target.value) })} /></label>
-                <div className="variation-profit-summary"><span>Profit</span><strong>{money(variationCreatorPrice(variation) - variationPlatformCost(variation))}</strong></div>
-                <div className="variation-profit-summary"><span>Margin</span><strong>{Number(variation.platform_blank_margin_percent || 0).toFixed(2)}%</strong></div>
-                <label className="sm:col-span-2"><span className="label">Supplier SKU</span><input className="input-base text-sm" value={variation.supplier_sku || ""} onChange={(event) => updateVariation(variation.id, { supplier_sku: event.target.value })} /></label>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {validScreensForOverrides.length > 0 && (
-        <div className="variation-detail-card variation-override-panel">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
-            <div><div className="font-bold text-sm">Variation-row mockup view overrides</div><p className="text-xs text-zinc-500 mt-1">Only upload these when this {rowLabel.toLowerCase()} needs a different front/back/wrap/base image than the template default.</p></div>
-            <div className="text-[10px] uppercase tracking-widest text-zinc-500">Applies to all {rowValue} variations</div>
-          </div>
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {validScreensForOverrides.map((screen) => {
-              const override = rowScreenOverride(rowValue, screen);
-              const fallback = screen.image_url || "";
-              const baseViewLabel = screen.name || screen.view_key || screen.screen_view || "View";
-              const uploadKey = `${rowValue}-${screen.id || screen.name || "screen"}`;
-              return (
-                <div key={screen.id} className="border border-white/10 bg-black/20 rounded-xl p-3">
-                  <div className="flex items-start justify-between gap-2 mb-3"><div><div className="text-[10px] uppercase tracking-widest text-zinc-500">Base view</div><div className="font-bold text-xs">{baseViewLabel}</div></div><span className={override ? "studio-pill active" : "studio-pill"}>{override ? "Override" : fallback ? "Default" : "Empty"}</span></div>
-                  <div className="grid grid-cols-2 gap-2 mb-3"><div><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Default</div><ImageBox src={fallback} alt={`Base ${baseViewLabel}`} className="aspect-[4/3]" /></div><div><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Override</div><ImageBox src={override} alt={`${rowValue} ${baseViewLabel} override`} className="aspect-[4/3]" /></div></div>
-                  <div className="flex gap-2"><label className="studio-file-button text-[10px] flex-1 justify-center">{uploadingKey === uploadKey ? "Uploading" : override ? "Replace" : "Upload"}<input type="file" accept="image/*" className="hidden" onChange={(event) => uploadRowScreenOverride(rowValue, screen, event.target.files?.[0])} /></label>{override && <button type="button" className="btn-secondary text-[10px]" onClick={() => clearRowScreenOverride(rowValue, screen)}>Clear</button>}</div>
-                </div>
-              );
-            })}
+            ) : (
+              <div className="text-zinc-500 text-sm">Select a variation card to edit production overrides.</div>
+            )}
           </div>
         </div>
       )}
