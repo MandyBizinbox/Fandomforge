@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { CheckSquare, Image as ImageIcon, Square, Wand2, X } from "lucide-react";
+import { CheckSquare, Copy, Image as ImageIcon, Square, Wand2, X } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
 import { toast } from "sonner";
 import {
@@ -8,6 +8,7 @@ import {
   money,
   safeArray,
 } from "./templateStudioUtils";
+import { resolveEffectiveProductionSetup } from "../../lib/templateProductionResolver";
 
 const DEFAULT_BOX = { x_pct: 30, y_pct: 25, width_pct: 40, height_pct: 40 };
 const MIN_BOX_PERCENT = 2;
@@ -29,6 +30,10 @@ function clampNumber(value, min, max) {
   const number = Number(value);
   if (!Number.isFinite(number)) return min;
   return Math.min(max, Math.max(min, number));
+}
+
+function firstTruthy(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "") || "";
 }
 
 function resolveVariationCostPatch(platformCostInput, creatorPriceInput = null) {
@@ -108,11 +113,18 @@ function ImageBox({ src, alt, className = "" }) {
 
 function screenOverrideUrl(variation, screen) {
   const overrides = variation?.mockup_screen_overrides || {};
-  return overrides[screen?.id] || overrides[screen?.view_key] || overrides[screen?.name] || "";
+  return firstTruthy(overrides[screen?.id], overrides[screen?.view_key], overrides[screen?.name], overrides[screen?.screen_view]);
 }
 
 function resolveCanvasImage(variation, screen) {
   return screenOverrideUrl(variation, screen) || imageForVariation(variation) || screen?.image_url || "";
+}
+
+function canvasImageSourceLabel(variation, screen) {
+  if (screenOverrideUrl(variation, screen)) return "Selected view override";
+  if (imageForVariation(variation)) return "Variation image";
+  if (screen?.image_url) return "Template base view";
+  return "No image";
 }
 
 function pointerToPercent(event, element) {
@@ -130,6 +142,7 @@ function VariationPrintAreaBuilder({ variation, screen, onBoxChange, onPhysicalC
   const [drag, setDrag] = useState(null);
   const box = variationBox(variation);
   const image = resolveCanvasImage(variation, screen);
+  const sourceLabel = canvasImageSourceLabel(variation, screen);
 
   const applyBox = (nextBox) => {
     const width = clampNumber(nextBox.width_pct, MIN_BOX_PERCENT, 100);
@@ -185,8 +198,8 @@ function VariationPrintAreaBuilder({ variation, screen, onBoxChange, onPhysicalC
             <p className="text-xs text-zinc-500 mt-1">Drag the box to move it. Drag a corner to resize it for this exact variation.</p>
           </div>
           <div className="text-[10px] uppercase tracking-widest text-zinc-500 text-right">
-            {Math.round(box.x_pct * 10) / 10}% / {Math.round(box.y_pct * 10) / 10}%<br />
-            {Math.round(box.width_pct * 10) / 10}% × {Math.round(box.height_pct * 10) / 10}%
+            Source: {sourceLabel}<br />
+            {Math.round(box.x_pct * 10) / 10}% / {Math.round(box.y_pct * 10) / 10}% · {Math.round(box.width_pct * 10) / 10}% × {Math.round(box.height_pct * 10) / 10}%
           </div>
         </div>
 
@@ -238,6 +251,17 @@ function VariationPrintAreaBuilder({ variation, screen, onBoxChange, onPhysicalC
       </div>
     </div>
   );
+}
+
+function matchingVariationIds(variations, attributeKey, attributeValue) {
+  const wantedKey = String(attributeKey || "").trim().toLowerCase();
+  const wantedValue = String(attributeValue || "").trim().toLowerCase();
+
+  return safeArray(variations)
+    .filter((variation) => Object.entries(variation.attributes || {}).some(([key, value]) => (
+      String(key || "").trim().toLowerCase() === wantedKey && String(value || "").trim().toLowerCase() === wantedValue
+    )))
+    .map((variation) => variation.id);
 }
 
 export default function TemplateVariationMatrix({
@@ -296,6 +320,7 @@ export default function TemplateVariationMatrix({
 
   const validScreensForOverrides = safeArray(screens).filter((screen) => screen && screen.id);
   const activeScreen = validScreensForOverrides.find((screen) => screen.id === activeScreenId) || validScreensForOverrides[0] || null;
+  const effectiveSetup = modalVariation ? resolveEffectiveProductionSetup({ mockup_screens: screens }, modalVariation, { screen: activeScreen }) : null;
 
   const toggleAttribute = (attributeId) => {
     const attribute = safeArray(attributes).find((item) => item.id === attributeId);
@@ -459,6 +484,7 @@ export default function TemplateVariationMatrix({
     if (!file || !screen?.id || !variation?.id) return;
     const uploadKey = `${variation.id}-${screen.id}`;
     setUploadingKey(uploadKey);
+    setActiveScreenId(screen.id);
 
     try {
       const fd = new FormData();
@@ -472,6 +498,55 @@ export default function TemplateVariationMatrix({
     } finally {
       setUploadingKey("");
     }
+  };
+
+  const applyCurrentOverrideToAttributeValue = (sourceVariation, attributeKey, attributeValue, includeImage = false) => {
+    if (!sourceVariation?.id) return;
+
+    const matchingIds = new Set(matchingVariationIds(variations, attributeKey, attributeValue));
+    if (!matchingIds.size) return;
+
+    const sourceOverride = variationOverride(sourceVariation);
+    const patch = {
+      print_width_mm: variationPrintWidth(sourceVariation),
+      print_height_mm: variationPrintHeight(sourceVariation),
+      width_mm: variationPrintWidth(sourceVariation),
+      height_mm: variationPrintHeight(sourceVariation),
+      print_area_width_mm: variationPrintWidth(sourceVariation),
+      print_area_height_mm: variationPrintHeight(sourceVariation),
+      print_area_x_pct: sourceOverride.x_pct ?? variationBox(sourceVariation).x_pct,
+      print_area_y_pct: sourceOverride.y_pct ?? variationBox(sourceVariation).y_pct,
+      print_area_width_pct: sourceOverride.width_pct ?? variationBox(sourceVariation).width_pct,
+      print_area_height_pct: sourceOverride.height_pct ?? variationBox(sourceVariation).height_pct,
+      x_pct: sourceOverride.x_pct ?? variationBox(sourceVariation).x_pct,
+      y_pct: sourceOverride.y_pct ?? variationBox(sourceVariation).y_pct,
+      width_pct: sourceOverride.width_pct ?? variationBox(sourceVariation).width_pct,
+      height_pct: sourceOverride.height_pct ?? variationBox(sourceVariation).height_pct,
+      standard_print_size_key: variationPrintSizeKey(sourceVariation),
+      print_size: variationPrintSizeKey(sourceVariation),
+      print_area_overrides: {
+        ...(sourceVariation.print_area_overrides || {}),
+        default: {
+          ...sourceOverride,
+          inherited_from_attribute: `${attributeKey}=${attributeValue}`,
+          source: "bulk_attribute_override",
+        },
+      },
+    };
+
+    onVariationsChange(safeArray(variations).map((variation) => {
+      if (!matchingIds.has(variation.id)) return variation;
+      return {
+        ...variation,
+        ...patch,
+        image_url: includeImage ? sourceVariation.image_url || variation.image_url : variation.image_url,
+        mockup_screen_overrides: includeImage
+          ? { ...(variation.mockup_screen_overrides || {}), ...(sourceVariation.mockup_screen_overrides || {}) }
+          : variation.mockup_screen_overrides,
+      };
+    }));
+
+    toast.success(`Applied ${includeImage ? "image and print area" : "print area"} to ${matchingIds.size} variation(s) where ${attributeKey} = ${attributeValue}`);
   };
 
   return (
@@ -634,7 +709,7 @@ export default function TemplateVariationMatrix({
                           {validScreensForOverrides.map((screen) => <option key={screen.id} value={screen.id}>{screen.name || screen.view_key || screen.screen_view || "View"}</option>)}
                         </select>
                       </label>
-                      <p className="text-xs text-zinc-500">The builder uses the variation image first. If missing, it uses the selected variation view override, then the template base view.</p>
+                      <p className="text-xs text-zinc-500">The builder now uses the selected view override first, then the variation image, then the template base view.</p>
                     </div>
                   </div>
                 )}
@@ -648,6 +723,34 @@ export default function TemplateVariationMatrix({
               </div>
 
               <div className="space-y-5">
+                <div className="border border-white/10 bg-black/20 rounded-xl p-4">
+                  <div className="font-bold text-sm mb-3">Effective production setup</div>
+                  <div className="space-y-2 text-xs text-zinc-400">
+                    <div className="flex justify-between gap-3"><span>Image source</span><strong>{canvasImageSourceLabel(modalVariation, activeScreen)}</strong></div>
+                    <div className="flex justify-between gap-3"><span>Print area source</span><strong>{effectiveSetup?.sourceMap?.printArea || "exact variation"}</strong></div>
+                    <div className="flex justify-between gap-3"><span>Matching rules</span><strong>{safeArray(effectiveSetup?.matchingRules).length}</strong></div>
+                  </div>
+                </div>
+
+                <div className="border border-white/10 bg-black/20 rounded-xl p-4">
+                  <div className="font-bold text-sm mb-2">Apply this setup to matching variations</div>
+                  <p className="text-xs text-zinc-500 mb-3">Use this for T-shirt size rules: configure one 2XL card, then apply the print area to all colours where Size = 2XL.</p>
+                  <div className="space-y-2">
+                    {Object.entries(modalVariation.attributes || {}).map(([key, value]) => {
+                      const count = matchingVariationIds(variations, key, value).length;
+                      return (
+                        <div key={`${key}-${value}`} className="border border-white/10 rounded-xl p-3">
+                          <div className="font-bold text-xs mb-2">{key} = {value} · {count} variation(s)</div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button type="button" className="btn-secondary text-[10px]" onClick={() => applyCurrentOverrideToAttributeValue(modalVariation, key, value, false)}><Copy size={12} /> Apply print area</button>
+                            <button type="button" className="btn-secondary text-[10px]" onClick={() => applyCurrentOverrideToAttributeValue(modalVariation, key, value, true)}><Copy size={12} /> Apply image + area</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="border border-white/10 bg-black/20 rounded-xl p-4">
                   <div className="font-bold text-sm mb-3">Blank pricing and supplier</div>
                   <div className="grid grid-cols-2 gap-2">
@@ -668,8 +771,9 @@ export default function TemplateVariationMatrix({
                         const override = screenOverrideUrl(modalVariation, screen);
                         const fallback = screen.image_url || "";
                         const uploadKey = `${modalVariation.id}-${screen.id}`;
+                        const isActive = activeScreen?.id === screen.id;
                         return (
-                          <div key={screen.id} className="border border-white/10 rounded-xl p-3">
+                          <div key={screen.id} className={isActive ? "border border-[#FF3B30] rounded-xl p-3" : "border border-white/10 rounded-xl p-3"}>
                             <div className="flex items-start justify-between gap-2 mb-2">
                               <div>
                                 <div className="text-[10px] uppercase tracking-widest text-zinc-500">Base view</div>
@@ -679,13 +783,14 @@ export default function TemplateVariationMatrix({
                             </div>
                             <div className="grid grid-cols-2 gap-2 mb-3">
                               <div><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Default</div><ImageBox src={fallback} alt="Default view" className="aspect-[4/3]" /></div>
-                              <div><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Override</div><ImageBox src={override} alt="Override view" className="aspect-[4/3]" /></div>
+                              <button type="button" onClick={() => setActiveScreenId(screen.id)} className="text-left"><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Override</div><ImageBox src={override} alt="Override view" className="aspect-[4/3]" /></button>
                             </div>
                             <div className="flex gap-2">
                               <label className="studio-file-button text-[10px] flex-1 justify-center">
                                 {uploadingKey === uploadKey ? "Uploading" : override ? "Replace" : "Upload"}
                                 <input type="file" accept="image/*" className="hidden" onChange={(event) => uploadScreenOverride(modalVariation, screen, event.target.files?.[0])} />
                               </label>
+                              <button type="button" className="btn-secondary text-[10px]" onClick={() => setActiveScreenId(screen.id)}>Use in builder</button>
                               {override && <button type="button" className="btn-secondary text-[10px]" onClick={() => clearScreenOverride(modalVariation, screen)}>Clear</button>}
                             </div>
                           </div>
