@@ -12,6 +12,8 @@ import {
   calculateAreaPrintCost,
 } from "./productBuilderUtils";
 
+const TEXT_RENDER_MIN = 24;
+const TEXT_RENDER_MAX = 1200;
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value || 0)));
 const round = (value) => Math.round(Number(value || 0) * 10) / 10;
 const TEXT_FONT_OPTIONS = [
@@ -55,6 +57,10 @@ function areaPct(area, key) {
   if (pct !== undefined && pct !== null && pct !== "") return Number(pct || 0);
   if (direct !== undefined && direct !== null && direct !== "") return Number(direct || 0);
   return 0;
+}
+
+function screenLabel(screen = {}) {
+  return screen.name || screen.label || screen.view_key || screen.screen_view || "View";
 }
 
 function defaultPlacement(area) {
@@ -174,14 +180,14 @@ function normaliseTextSettings(settings = {}) {
     text_content: String(settings.text_content || settings.text || "Custom Text").slice(0, 240),
     text_font_family: settings.text_font_family || "Roboto",
     text_font_weight: String(settings.text_font_weight || "700"),
-    text_font_size: Number(settings.text_font_size || 150),
+    text_font_size: clamp(settings.text_font_size || 180, TEXT_RENDER_MIN, TEXT_RENDER_MAX),
     text_color: settings.text_color || "#111111",
   };
 }
 
 function estimateTextWidth(line, fontSize, fontFamily) {
   const family = String(fontFamily || "").toLowerCase();
-  const factor = family.includes("courier") ? 0.62 : family.includes("impact") || family.includes("anton") ? 0.58 : family.includes("brush") || family.includes("pacifico") || family.includes("lobster") ? 0.52 : 0.56;
+  const factor = family.includes("courier") ? 0.62 : family.includes("impact") || family.includes("anton") ? 0.58 : family.includes("pacifico") || family.includes("lobster") ? 0.52 : 0.56;
   return Math.max(1, String(line || "").length * fontSize * factor);
 }
 
@@ -190,7 +196,7 @@ function buildTextLayerAsset(settings = {}) {
   ensureGoogleFontLink(next.text_font_family);
   const lines = next.text_content.split(/\r?\n/).filter((line) => line.trim() !== "");
   const safeLines = lines.length ? lines : ["Custom Text"];
-  const fontSize = clamp(next.text_font_size, 24, 320);
+  const fontSize = clamp(next.text_font_size, TEXT_RENDER_MIN, TEXT_RENDER_MAX);
   const paddingX = Math.ceil(fontSize * 0.14);
   const paddingY = Math.ceil(fontSize * 0.16);
   const lineHeight = Math.ceil(fontSize * 1.15);
@@ -232,7 +238,7 @@ async function drawTextLayer(ctx, slot, x, y, w, h) {
   const weight = settings.text_font_weight;
   await ensureFontReady(family, weight, settings.text_font_size);
 
-  let fontSize = clamp(settings.text_font_size, 24, 320);
+  let fontSize = clamp(settings.text_font_size, TEXT_RENDER_MIN, TEXT_RENDER_MAX);
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
   ctx.fillStyle = settings.text_color;
@@ -314,6 +320,25 @@ function TextLayerPreview({ slot }) {
   );
 }
 
+function ResizeHandle({ position, onMouseDown }) {
+  const positionClasses = {
+    nw: "-left-2 -top-2 cursor-nwse-resize",
+    ne: "-right-2 -top-2 cursor-nesw-resize",
+    sw: "-left-2 -bottom-2 cursor-nesw-resize",
+    se: "-right-2 -bottom-2 cursor-nwse-resize",
+  };
+  return <button type="button" aria-label={`Resize ${position}`} className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`} onMouseDown={onMouseDown} />;
+}
+
+function NumericControl({ label, value, onChange }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <input className="input-base" type="number" step="1" value={Number(value || 0)} onChange={(event) => onChange(Number(event.target.value || 0))} />
+    </div>
+  );
+}
+
 export default function ProductArtworkStudio({
   template,
   printOptions,
@@ -324,14 +349,16 @@ export default function ProductArtworkStudio({
 }) {
   const [activeGroupId, setActiveGroupId] = useState(asArray(artworkGroups)[0]?.id || "");
   const [activeSlotId, setActiveSlotId] = useState("");
+  const [activeScreenId, setActiveScreenId] = useState(asArray(template?.mockup_screens)[0]?.id || "");
+  const [activePrintAreaId, setActivePrintAreaId] = useState("");
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [dragState, setDragState] = useState(null);
-  const areaRef = useRef(null);
+  const areaRefs = useRef({});
 
   const groups = asArray(artworkGroups);
   const variations = asArray(selectedVariations);
-
+  const screens = asArray(template?.mockup_screens).filter((screen) => screen?.id);
   const activeGroup = useMemo(() => groups.find((group) => group.id === activeGroupId) || groups[0] || null, [groups, activeGroupId]);
   const representativeVariationId = getGroupRepresentativeVariationId(activeGroup, variations);
   const representativeVariation = useMemo(
@@ -340,7 +367,6 @@ export default function ProductArtworkStudio({
   );
 
   const printAreas = useMemo(() => {
-    const screens = asArray(template?.mockup_screens);
     return asArray(template?.print_areas)
       .filter((area) => area?.id && area?.screen_id)
       .map((area) => {
@@ -355,7 +381,8 @@ export default function ProductArtworkStudio({
           ...override,
           id: area.id,
           sourceMap: effective.sourceMap,
-          effective_base_image_url: effective.canvasImageUrl,
+          effective_base_image_url: effective.canvasImageUrl || screen.image_url || area.image_url || "",
+          screen_label: screenLabel(screen),
           x_pct: override.x_pct ?? area.x_pct ?? area.x ?? 0,
           y_pct: override.y_pct ?? area.y_pct ?? area.y ?? 0,
           width_pct: override.width_pct ?? area.width_pct ?? area.width ?? 0,
@@ -369,28 +396,27 @@ export default function ProductArtworkStudio({
           standard_print_size_key: override.standard_print_size_key ?? area.standard_print_size_key ?? "",
         };
       });
-  }, [template, representativeVariation]);
+  }, [template, representativeVariation, screens]);
 
-  const neckLabelAreas = printAreas.filter(isNeckLabelArea);
-  const normalPrintAreas = printAreas.filter((area) => !isNeckLabelArea(area));
   const slots = asArray(activeGroup?.artworks);
+  const activeScreen = screens.find((screen) => screen.id === activeScreenId) || screens[0] || null;
+  const currentScreenId = activeScreen?.id || "";
+  const areasForScreen = printAreas.filter((area) => area.screen_id === currentScreenId);
+  const currentScreenSlots = slots.filter((slot) => areasForScreen.some((area) => area.id === slot.print_area_id));
+  const neckLabelAreas = areasForScreen.filter(isNeckLabelArea);
+  const normalPrintAreas = areasForScreen.filter((area) => !isNeckLabelArea(area));
 
   const activeSlot = useMemo(() => {
     if (!slots.length) return null;
-    return slots.find((slot) => slot.id === activeSlotId) || slots[0];
-  }, [slots, activeSlotId]);
+    return slots.find((slot) => slot.id === activeSlotId) || currentScreenSlots[0] || null;
+  }, [slots, activeSlotId, currentScreenSlots]);
 
   const activeArea = useMemo(() => {
-    if (!activeSlot) return null;
-    return printAreas.find((area) => area.id === activeSlot.print_area_id) || null;
-  }, [printAreas, activeSlot]);
+    if (activeSlot) return printAreas.find((area) => area.id === activeSlot.print_area_id) || null;
+    return areasForScreen.find((area) => area.id === activePrintAreaId) || areasForScreen[0] || null;
+  }, [printAreas, activeSlot, areasForScreen, activePrintAreaId]);
 
-  const sameAreaSlots = useMemo(
-    () => slots.filter((slot) => activeArea && slot.print_area_id === activeArea.id),
-    [slots, activeArea]
-  );
-
-  const activeImage = activeArea?.effective_base_image_url || "";
+  const activeImage = areasForScreen.find((area) => area.effective_base_image_url)?.effective_base_image_url || activeScreen?.image_url || "";
   const activePlacement = sanitizePlacement(activeSlot?.placement, activeArea);
 
   const allowedOptions = useMemo(() => {
@@ -404,25 +430,43 @@ export default function ProductArtworkStudio({
 
   const hasUploadedArtwork = Boolean(activeSlot?.original_url);
   const missingPrintMethod = Boolean(activeSlot && hasUploadedArtwork && !activeSlot.print_option_id);
-  const canGenerateMockup = Boolean(activeArea && activeImage && sameAreaSlots.some((slot) => slot.original_url && slot.print_option_id));
+  const canGenerateMockup = Boolean(activeImage && currentScreenSlots.some((slot) => slot.original_url && slot.print_option_id));
 
   useEffect(() => {
     slots.filter((slot) => slot.text_layer).forEach((slot) => ensureGoogleFontLink(slot.text_font_family || "Roboto"));
   }, [slots]);
-
-  const fitHeightForAspect = (widthPercent, aspectRatio) => {
-    const rect = areaRef.current?.getBoundingClientRect?.();
-    const areaRatio = rect?.height ? rect.width / rect.height : 1;
-    return round(clamp((Number(widthPercent || 50) * areaRatio) / Number(aspectRatio || 1), 2, 120));
-  };
 
   useEffect(() => {
     if (!activeGroupId && groups[0]?.id) setActiveGroupId(groups[0].id);
   }, [activeGroupId, groups]);
 
   useEffect(() => {
-    if (!activeSlotId && slots[0]?.id) setActiveSlotId(slots[0].id);
-  }, [activeSlotId, slots]);
+    if (!activeScreenId && screens[0]?.id) setActiveScreenId(screens[0].id);
+  }, [activeScreenId, screens]);
+
+  useEffect(() => {
+    const selectedSlotArea = activeSlot ? printAreas.find((area) => area.id === activeSlot.print_area_id) : null;
+    if (selectedSlotArea?.screen_id && selectedSlotArea.screen_id !== activeScreenId) {
+      setActiveScreenId(selectedSlotArea.screen_id);
+    }
+  }, [activeSlot, printAreas, activeScreenId]);
+
+  useEffect(() => {
+    if (!activePrintAreaId && areasForScreen[0]?.id) setActivePrintAreaId(areasForScreen[0].id);
+    if (activePrintAreaId && !areasForScreen.some((area) => area.id === activePrintAreaId)) {
+      setActivePrintAreaId(areasForScreen[0]?.id || "");
+    }
+  }, [areasForScreen, activePrintAreaId]);
+
+  const areaRatioFor = (areaId) => {
+    const rect = areaRefs.current[areaId]?.getBoundingClientRect?.();
+    return rect?.height ? rect.width / rect.height : 1;
+  };
+
+  const fitHeightForAspect = (areaId, widthPercent, aspectRatio) => {
+    const ratio = areaRatioFor(areaId);
+    return round(clamp((Number(widthPercent || 50) * ratio) / Number(aspectRatio || 1), 2, 120));
+  };
 
   const setGroups = (nextGroups) => {
     const cleaned = nextGroups.map((group, index) => ({ ...group, sort_order: index }));
@@ -474,7 +518,7 @@ export default function ProductArtworkStudio({
       return null;
     }
     if (!area) {
-      toast.error("Add print areas to the template first.");
+      toast.error("Add print areas to the selected product view first.");
       return null;
     }
 
@@ -484,7 +528,7 @@ export default function ProductArtworkStudio({
       print_area_id: area.id,
       print_option_id: "",
       screen_id: area.screen_id || "",
-      screen_view: area.screen_view || area.view_key || "",
+      screen_view: area.screen_view || area.view_key || area.screen_label || "",
       area_key: area.area_key || area.key || "",
       standard_print_size_key: area.standard_print_size_key || "",
       width_mm: area.width_mm || "",
@@ -503,24 +547,30 @@ export default function ProductArtworkStudio({
       ...patch,
     };
 
-    const defaultOption = allowedOptions.length === 1 && area.id === activeArea?.id ? allowedOptions[0] : null;
+    const areaOptionIds = asArray(area?.allowed_print_option_ids);
+    const templateOptionIds = asArray(template?.print_option_ids);
+    const allowedIds = areaOptionIds.length ? areaOptionIds : templateOptionIds;
+    const defaultOptions = printOptions.filter((option) => allowedIds.includes(option.id) && (option.status || "active") === "active");
+    const defaultOption = defaultOptions.length === 1 ? defaultOptions[0] : null;
     const withMethod = defaultOption ? { ...next, ...optionPatchForSlot(next, area, defaultOption) } : next;
     setGroupSlots(activeGroup.id, [...slots, withMethod]);
     setActiveSlotId(withMethod.id);
+    setActivePrintAreaId(area.id);
+    setActiveScreenId(area.screen_id || currentScreenId);
     return withMethod;
   };
 
   const addSlot = (areaId) => {
-    const area = printAreas.find((item) => item.id === areaId) || printAreas[0];
+    const area = areasForScreen.find((item) => item.id === areaId) || areasForScreen[0];
     createSlot(area);
   };
 
   const addTextLayer = () => {
-    const area = activeArea || printAreas[0];
+    const area = activeArea || areasForScreen[0];
     const text = window.prompt("Text to add", "Custom Text") || "Custom Text";
     const asset = buildTextLayerAsset({ text_content: text });
     const width = 45;
-    const height = fitHeightForAspect(width, asset.artwork_aspect_ratio);
+    const height = fitHeightForAspect(area?.id, width, asset.artwork_aspect_ratio);
     createSlot(area, {
       ...asset,
       placement: { ...defaultPlacement(area), x: 10, y: 10, width, height },
@@ -541,7 +591,7 @@ export default function ProductArtworkStudio({
     const placement = sanitizePlacement(activeSlot.placement, activeArea);
     const nextPlacement = activeSlot.lock_aspect_ratio === false
       ? placement
-      : { ...placement, height: fitHeightForAspect(placement.width, asset.artwork_aspect_ratio) };
+      : { ...placement, height: fitHeightForAspect(activeArea.id, placement.width, asset.artwork_aspect_ratio) };
     patchSlot(activeSlot.id, { ...asset, placement: nextPlacement });
   };
 
@@ -549,7 +599,8 @@ export default function ProductArtworkStudio({
     if (!activeGroup) return;
     const next = slots.filter((slot) => slot.id !== slotId);
     setGroupSlots(activeGroup.id, next);
-    setActiveSlotId(next[0]?.id || "");
+    const nextSlot = next.find((slot) => slot.screen_id === currentScreenId) || next[0];
+    setActiveSlotId(nextSlot?.id || "");
   };
 
   useEffect(() => {
@@ -562,9 +613,12 @@ export default function ProductArtworkStudio({
   useEffect(() => {
     if (!dragState) return undefined;
     const handleMove = (event) => {
-      if (!areaRef.current || !activeSlot || !activeArea) return;
+      const slot = slots.find((item) => item.id === dragState.slotId);
+      const area = printAreas.find((item) => item.id === slot?.print_area_id);
+      const areaElement = areaRefs.current[area?.id];
+      if (!slot || !area || !areaElement) return;
       event.preventDefault();
-      const rect = areaRef.current.getBoundingClientRect();
+      const rect = areaElement.getBoundingClientRect();
       const dx = ((event.clientX - dragState.startX) / rect.width) * 100;
       const dy = ((event.clientY - dragState.startY) / rect.height) * 100;
       const start = dragState.startPlacement;
@@ -587,14 +641,11 @@ export default function ProductArtworkStudio({
           next.height = start.height - dy;
         }
 
-        if (activeSlot.lock_aspect_ratio !== false && Number(activeSlot.artwork_aspect_ratio || 0) > 0) {
+        if (slot.lock_aspect_ratio !== false && Number(slot.artwork_aspect_ratio || 0) > 0) {
           const areaRatio = rect.width / Math.max(1, rect.height);
-          const layerRatio = Number(activeSlot.artwork_aspect_ratio || 1);
-          if (Math.abs(dx) >= Math.abs(dy)) {
-            next.height = next.width * (areaRatio / layerRatio);
-          } else {
-            next.width = next.height * (layerRatio / areaRatio);
-          }
+          const layerRatio = Number(slot.artwork_aspect_ratio || 1);
+          if (Math.abs(dx) >= Math.abs(dy)) next.height = next.width * (areaRatio / layerRatio);
+          else next.width = next.height * (layerRatio / areaRatio);
         }
       }
 
@@ -602,11 +653,11 @@ export default function ProductArtworkStudio({
         const cx = rect.left + ((start.x + start.width / 2) / 100) * rect.width;
         const cy = rect.top + ((start.y + start.height / 2) / 100) * rect.height;
         const angle = Math.atan2(event.clientY - cy, event.clientX - cx) * (180 / Math.PI) + 90;
-        patchPlacement(activeSlot.id, { rotation: round(angle) });
+        patchPlacement(slot.id, { rotation: round(angle) });
         return;
       }
 
-      patchPlacement(activeSlot.id, {
+      patchPlacement(slot.id, {
         x: round(clamp(next.x, -100, 200)),
         y: round(clamp(next.y, -100, 200)),
         width: round(clamp(next.width, 2, 250)),
@@ -621,18 +672,22 @@ export default function ProductArtworkStudio({
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
-  }, [dragState, activeSlot, activeArea]);
+  }, [dragState, slots, printAreas]);
 
-  const startDrag = (event, type, handle = "") => {
-    if (!activeSlot || !activeArea) return;
+  const startDrag = (event, slot, type, handle = "") => {
+    const area = printAreas.find((item) => item.id === slot?.print_area_id);
+    if (!slot || !area) return;
     event.preventDefault();
     event.stopPropagation();
+    setActiveSlotId(slot.id);
+    setActivePrintAreaId(area.id);
     setDragState({
+      slotId: slot.id,
       type,
       handle,
       startX: event.clientX,
       startY: event.clientY,
-      startPlacement: sanitizePlacement(activeSlot.placement, activeArea),
+      startPlacement: sanitizePlacement(slot.placement, area),
     });
   };
 
@@ -678,12 +733,12 @@ export default function ProductArtworkStudio({
   };
 
   const generateMockup = async () => {
-    if (!activeArea || !activeImage || !sameAreaSlots.length) {
-      toast.error("Select a print area with at least one layer first.");
+    if (!activeImage || !areasForScreen.length) {
+      toast.error("Select a product view with at least one print area first.");
       return;
     }
 
-    const drawableSlots = sameAreaSlots.filter((slot) => slot.original_url && slot.print_option_id);
+    const drawableSlots = currentScreenSlots.filter((slot) => slot.original_url && slot.print_option_id);
     if (!drawableSlots.length) {
       toast.error("Add artwork/text and select a print method first.");
       return;
@@ -698,18 +753,14 @@ export default function ProductArtworkStudio({
       const ctx = canvas.getContext("2d");
       ctx.drawImage(baseImage, 0, 0, canvas.width, canvas.height);
 
-      const areaX = (areaPct(activeArea, "x") / 100) * canvas.width;
-      const areaY = (areaPct(activeArea, "y") / 100) * canvas.height;
-      const areaW = (areaPct(activeArea, "width") / 100) * canvas.width;
-      const areaH = (areaPct(activeArea, "height") / 100) * canvas.height;
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(areaX, areaY, areaW, areaH);
-      ctx.clip();
-
       for (const slot of drawableSlots) {
-        const placement = sanitizePlacement(slot.placement, activeArea);
+        const area = printAreas.find((item) => item.id === slot.print_area_id);
+        if (!area) continue;
+        const areaX = (areaPct(area, "x") / 100) * canvas.width;
+        const areaY = (areaPct(area, "y") / 100) * canvas.height;
+        const areaW = (areaPct(area, "width") / 100) * canvas.width;
+        const areaH = (areaPct(area, "height") / 100) * canvas.height;
+        const placement = sanitizePlacement(slot.placement, area);
         const artX = areaX + (Number(placement.x || 0) / 100) * areaW;
         const artY = areaY + (Number(placement.y || 0) / 100) * areaH;
         const artW = (Number(placement.width || 100) / 100) * areaW;
@@ -717,6 +768,9 @@ export default function ProductArtworkStudio({
         const rotation = (Number(placement.rotation || 0) * Math.PI) / 180;
 
         ctx.save();
+        ctx.beginPath();
+        ctx.rect(areaX, areaY, areaW, areaH);
+        ctx.clip();
         ctx.translate(artX + artW / 2, artY + artH / 2);
         ctx.rotate(rotation);
         if (slot.text_layer) {
@@ -727,23 +781,30 @@ export default function ProductArtworkStudio({
         }
         ctx.restore();
       }
-      ctx.restore();
 
       const blob = await blobFromCanvas(canvas);
       if (!blob) throw new Error("Could not generate mockup image");
       const fd = new FormData();
-      const safeName = `${activeGroup?.label || "group"}-${activeArea.id}`.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const safeName = `${activeGroup?.label || "group"}-${screenLabel(activeScreen)}`.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       fd.append("file", new File([blob], `mockup-${safeName}.png`, { type: "image/png" }));
       fd.append("subdir", "product-mockups");
       const response = await http.post("/files/image", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      const updatedSlots = slots.map((slot) => (slot.print_area_id === activeArea.id ? { ...slot, mockup_image_url: response.data.url } : slot));
+      const updatedSlots = slots.map((slot) => (slot.screen_id === currentScreenId ? { ...slot, mockup_image_url: response.data.url } : slot));
       setGroupSlots(activeGroup.id, updatedSlots);
-      toast.success("Composite mockup generated");
+      toast.success(`${screenLabel(activeScreen)} mockup generated`);
     } catch (error) {
       toast.error(error.message || "Could not generate mockup");
     } finally {
       setGenerating(false);
     }
+  };
+
+  const selectView = (screenId) => {
+    setActiveScreenId(screenId);
+    const firstArea = printAreas.find((area) => area.screen_id === screenId);
+    setActivePrintAreaId(firstArea?.id || "");
+    const firstSlot = slots.find((slot) => slot.screen_id === screenId || slot.print_area_id === firstArea?.id);
+    setActiveSlotId(firstSlot?.id || "");
   };
 
   return (
@@ -752,27 +813,40 @@ export default function ProductArtworkStudio({
         <div>
           <div className="overline mb-1">Artwork Studio V2</div>
           <p className="text-sm text-zinc-500 max-w-4xl">
-            Add image layers or text layers to each print area. Text layers use curated Google Fonts in preview and generated mockups.
+            Build artwork per product view. Front, back, side, wrap and neck-label views remain separate, with their own print areas and mockups.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-zinc-400">
           <span className="border border-white/10 px-3 py-2 rounded-lg">Groups: {groups.length}</span>
-          <span className="border border-white/10 px-3 py-2 rounded-lg">Layers: {slots.length}</span>
-          <span className="border border-white/10 px-3 py-2 rounded-lg">Active: {activeArea?.name || "None"}</span>
-          {activeArea?.sourceMap?.printArea && <span className="border border-[#34C759]/30 text-[#B8F5C3] px-3 py-2 rounded-lg">Area: {activeArea.sourceMap.printArea}</span>}
+          <span className="border border-white/10 px-3 py-2 rounded-lg">View: {screenLabel(activeScreen)}</span>
+          <span className="border border-white/10 px-3 py-2 rounded-lg">Areas: {areasForScreen.length}</span>
+          <span className="border border-white/10 px-3 py-2 rounded-lg">Layers: {currentScreenSlots.length}</span>
         </div>
       </header>
+
+      <div className="border border-white/10 bg-black/20 rounded-xl p-3 flex flex-wrap gap-2">
+        {screens.map((screen) => {
+          const active = screen.id === currentScreenId;
+          const count = slots.filter((slot) => slot.screen_id === screen.id || printAreas.find((area) => area.id === slot.print_area_id)?.screen_id === screen.id).length;
+          return (
+            <button key={screen.id} type="button" onClick={() => selectView(screen.id)} className={active ? "studio-pill active" : "studio-pill"}>
+              {screenLabel(screen)} · {count} layer(s)
+            </button>
+          );
+        })}
+        {!screens.length && <div className="text-xs text-zinc-500">No template views configured.</div>}
+      </div>
 
       <div className="grid grid-cols-1 2xl:grid-cols-[330px_minmax(720px,1fr)_380px] gap-4">
         <aside className="border border-white/10 bg-black/20 p-4 rounded-xl space-y-4">
           <section>
             <div className="overline mb-3">Artwork Groups</div>
-            <div className="space-y-2 max-h-[260px] overflow-auto pr-1">
+            <div className="space-y-2 max-h-[220px] overflow-auto pr-1">
               {groups.map((group) => {
                 const ready = asArray(group.artworks).filter((slot) => slot.original_url && slot.print_option_id).length;
                 const active = activeGroup?.id === group.id;
                 return (
-                  <button key={group.id} type="button" onClick={() => { setActiveGroupId(group.id); setActiveSlotId(asArray(group.artworks)[0]?.id || ""); }} className={`w-full text-left border rounded-xl p-3 ${active ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}>
+                  <button key={group.id} type="button" onClick={() => { setActiveGroupId(group.id); setActiveSlotId(asArray(group.artworks).find((slot) => slot.screen_id === currentScreenId)?.id || ""); }} className={`w-full text-left border rounded-xl p-3 ${active ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}>
                     <div className="font-bold text-sm">{group.label}</div>
                     <div className="text-xs text-zinc-500 mt-1">{group.scope_type}</div>
                     <div className={`text-[10px] uppercase tracking-widest mt-2 ${ready ? "text-[#34C759]" : "text-zinc-500"}`}>{ready} ready layer(s)</div>
@@ -784,12 +858,22 @@ export default function ProductArtworkStudio({
           </section>
 
           <section className="border-t border-white/10 pt-4">
+            <div className="overline mb-3">Print areas in {screenLabel(activeScreen)}</div>
+            <div className="space-y-2 mb-4">
+              {areasForScreen.map((area) => (
+                <button key={area.id} type="button" onClick={() => { setActivePrintAreaId(area.id); setActiveSlotId(slots.find((slot) => slot.print_area_id === area.id)?.id || ""); }} className={activeArea?.id === area.id ? "studio-pill active w-full justify-start" : "studio-pill w-full justify-start"}>
+                  {area.name || area.area_key || "Print area"} · {area.width_mm || 0}×{area.height_mm || 0}mm
+                </button>
+              ))}
+              {!areasForScreen.length && <div className="text-xs text-zinc-500 border border-dashed border-white/15 p-4 rounded-lg">No print areas for this view yet.</div>}
+            </div>
+
             <div className="overline mb-3">Add Layers</div>
-            <select className="input-base mb-2" value="" onChange={(e) => e.target.value && addSlot(e.target.value)} disabled={!activeGroup}>
+            <select className="input-base mb-2" value="" onChange={(event) => event.target.value && addSlot(event.target.value)} disabled={!activeGroup || !areasForScreen.length}>
               <option value="">Add image layer to print area</option>
               {normalPrintAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
             </select>
-            <button type="button" className="btn-secondary w-full mb-3" onClick={addTextLayer} disabled={!activeGroup || !printAreas.length}><Type size={14} /> Add Text Layer</button>
+            <button type="button" className="btn-secondary w-full mb-3" onClick={addTextLayer} disabled={!activeGroup || !areasForScreen.length}><Type size={14} /> Add Text Layer</button>
 
             {neckLabelAreas.length > 0 && (
               <div className="mb-3 rounded-xl border border-[#FF7A1A]/30 bg-[#FF7A1A]/10 p-3">
@@ -806,14 +890,14 @@ export default function ProductArtworkStudio({
           </section>
 
           <section className="border-t border-white/10 pt-4">
-            <div className="overline mb-3">Layers</div>
-            <div className="space-y-2 max-h-[460px] overflow-auto pr-1">
-              {slots.map((slot) => {
+            <div className="overline mb-3">Layers on this view</div>
+            <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
+              {currentScreenSlots.map((slot) => {
                 const area = printAreas.find((item) => item.id === slot.print_area_id);
                 const option = printOptions.find((item) => item.id === slot.print_option_id);
                 const active = activeSlot?.id === slot.id;
                 return (
-                  <button key={slot.id} type="button" onClick={() => setActiveSlotId(slot.id)} className={`w-full text-left border rounded-xl p-3 ${active ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}>
+                  <button key={slot.id} type="button" onClick={() => { setActiveSlotId(slot.id); setActivePrintAreaId(area?.id || ""); }} className={`w-full text-left border rounded-xl p-3 ${active ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="font-bold text-sm">{slot.text_layer ? "Text" : "Image"} · {area?.name || "Print area"}</div>
                       {slot.text_layer ? <Type size={14} className="text-zinc-500" /> : <ImageIcon size={14} className="text-zinc-500" />}
@@ -823,7 +907,7 @@ export default function ProductArtworkStudio({
                   </button>
                 );
               })}
-              {!slots.length && <div className="text-xs text-zinc-500 border border-dashed border-white/15 p-4 rounded-lg">Add image or text layers for this group.</div>}
+              {!currentScreenSlots.length && <div className="text-xs text-zinc-500 border border-dashed border-white/15 p-4 rounded-lg">Add image or text layers for this view.</div>}
             </div>
           </section>
         </aside>
@@ -831,41 +915,51 @@ export default function ProductArtworkStudio({
         <main className="border border-white/10 bg-black min-h-[760px] flex items-center justify-center overflow-hidden rounded-xl p-4">
           {activeImage ? (
             <div className="relative inline-block max-w-full max-h-[860px] select-none leading-none align-middle">
-              <img src={assetUrl(activeImage)} alt="Product view" className="block h-auto w-auto max-h-[860px] max-w-full object-contain" draggable="false" />
-              {activeArea && (
-                <div ref={areaRef} className="absolute border-2 border-[#FF3B30] bg-[#FF3B30]/10 overflow-visible" style={{ left: `${areaPct(activeArea, "x")}%`, top: `${areaPct(activeArea, "y")}%`, width: `${areaPct(activeArea, "width")}%`, height: `${areaPct(activeArea, "height")}%` }}>
-                  <div className="absolute -top-8 left-0 z-30 bg-[#FF3B30] text-white text-[10px] uppercase tracking-widest px-2 py-1 whitespace-nowrap">
-                    {activeArea.name} · {activeArea.width_mm || 0}×{activeArea.height_mm || 0}mm
-                  </div>
+              <img src={assetUrl(activeImage)} alt={screenLabel(activeScreen)} className="block h-auto w-auto max-h-[860px] max-w-full object-contain" draggable="false" />
+              {areasForScreen.map((area) => {
+                const areaActive = activeArea?.id === area.id;
+                const areaSlots = currentScreenSlots.filter((slot) => slot.print_area_id === area.id);
+                return (
+                  <div
+                    key={area.id}
+                    ref={(element) => { if (element) areaRefs.current[area.id] = element; }}
+                    className={`absolute border-2 ${areaActive ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-[#FF3B30]/50 bg-[#FF3B30]/5"} overflow-visible`}
+                    style={{ left: `${areaPct(area, "x")}%`, top: `${areaPct(area, "y")}%`, width: `${areaPct(area, "width")}%`, height: `${areaPct(area, "height")}%` }}
+                    onMouseDown={(event) => { event.stopPropagation(); setActivePrintAreaId(area.id); }}
+                  >
+                    <div className="absolute -top-8 left-0 z-30 bg-[#FF3B30] text-white text-[10px] uppercase tracking-widest px-2 py-1 whitespace-nowrap">
+                      {area.name} · {area.width_mm || 0}×{area.height_mm || 0}mm
+                    </div>
 
-                  {sameAreaSlots.map((slot) => {
-                    if (!slot.original_url) return null;
-                    const placement = sanitizePlacement(slot.placement, activeArea);
-                    const active = activeSlot?.id === slot.id;
-                    return (
-                      <div key={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center" }} onMouseDown={(event) => { setActiveSlotId(slot.id); startDrag(event, "move"); }}>
-                        {slot.text_layer ? (
-                          <TextLayerPreview slot={slot} />
-                        ) : (
-                          <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-contain pointer-events-none" draggable="false" />
-                        )}
-                        {active && (
-                          <>
-                            <ResizeHandle position="nw" onMouseDown={(event) => startDrag(event, "resize", "nw")} />
-                            <ResizeHandle position="ne" onMouseDown={(event) => startDrag(event, "resize", "ne")} />
-                            <ResizeHandle position="sw" onMouseDown={(event) => startDrag(event, "resize", "sw")} />
-                            <ResizeHandle position="se" onMouseDown={(event) => startDrag(event, "resize", "se")} />
-                            <button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onMouseDown={(event) => startDrag(event, "rotate")}><RotateCcw size={14} /></button>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                    {areaSlots.map((slot) => {
+                      if (!slot.original_url) return null;
+                      const placement = sanitizePlacement(slot.placement, area);
+                      const active = activeSlot?.id === slot.id;
+                      return (
+                        <div key={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center" }} onMouseDown={(event) => startDrag(event, slot, "move")}>
+                          {slot.text_layer ? (
+                            <TextLayerPreview slot={slot} />
+                          ) : (
+                            <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-contain pointer-events-none" draggable="false" />
+                          )}
+                          {active && (
+                            <>
+                              <ResizeHandle position="nw" onMouseDown={(event) => startDrag(event, slot, "resize", "nw")} />
+                              <ResizeHandle position="ne" onMouseDown={(event) => startDrag(event, slot, "resize", "ne")} />
+                              <ResizeHandle position="sw" onMouseDown={(event) => startDrag(event, slot, "resize", "sw")} />
+                              <ResizeHandle position="se" onMouseDown={(event) => startDrag(event, slot, "resize", "se")} />
+                              <button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onMouseDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
           ) : (
-            <div className="text-center text-zinc-600 p-10"><ImageIcon className="mx-auto mb-4" size={56} /><div className="font-display text-3xl uppercase">No product view</div><p className="text-sm mt-2">Select a group and add a layer with a resolved template view.</p></div>
+            <div className="text-center text-zinc-600 p-10"><ImageIcon className="mx-auto mb-4" size={56} /><div className="font-display text-3xl uppercase">No product view</div><p className="text-sm mt-2">Configure a base image/view for this template screen.</p></div>
           )}
         </main>
 
@@ -876,7 +970,7 @@ export default function ProductArtworkStudio({
                 <div>
                   <div className="overline mb-1">Selected Layer</div>
                   <h3 className="font-display text-2xl uppercase">{activeSlot.text_layer ? "Text" : "Image"} Layer</h3>
-                  <p className="text-xs text-zinc-500 mt-1">{activeArea.name} · {activeArea.width_mm || 0}mm × {activeArea.height_mm || 0}mm</p>
+                  <p className="text-xs text-zinc-500 mt-1">{screenLabel(activeScreen)} · {activeArea.name} · {activeArea.width_mm || 0}mm × {activeArea.height_mm || 0}mm</p>
                 </div>
                 <button type="button" className="text-zinc-500 hover:text-[#FF3B30]" onClick={() => removeSlot(activeSlot.id)}><Trash2 size={16} /></button>
               </div>
@@ -892,18 +986,18 @@ export default function ProductArtworkStudio({
                   <div className="font-bold text-sm">Text editor</div>
                   <label>
                     <span className="label">Text</span>
-                    <textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(e) => updateTextLayer({ text_content: e.target.value })} />
+                    <textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(event) => updateTextLayer({ text_content: event.target.value })} />
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <label>
                       <span className="label">Font</span>
-                      <select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(e) => updateTextLayer({ text_font_family: e.target.value })}>
+                      <select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(event) => updateTextLayer({ text_font_family: event.target.value })}>
                         {TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}
                       </select>
                     </label>
                     <label>
                       <span className="label">Weight</span>
-                      <select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(e) => updateTextLayer({ text_font_weight: e.target.value })}>
+                      <select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(event) => updateTextLayer({ text_font_weight: event.target.value })}>
                         <option value="400">Regular</option>
                         <option value="600">Semi-bold</option>
                         <option value="700">Bold</option>
@@ -911,22 +1005,22 @@ export default function ProductArtworkStudio({
                       </select>
                     </label>
                     <label>
-                      <span className="label">SVG font size</span>
-                      <input className="input-base" type="number" min="24" max="320" step="4" value={Number(activeSlot.text_font_size || 150)} onChange={(e) => updateTextLayer({ text_font_size: Number(e.target.value || 150) })} />
+                      <span className="label">Text render size</span>
+                      <input className="input-base" type="number" min={TEXT_RENDER_MIN} max={TEXT_RENDER_MAX} step="10" value={Number(activeSlot.text_font_size || 180)} onChange={(event) => updateTextLayer({ text_font_size: Number(event.target.value || 180) })} />
                     </label>
                     <label>
                       <span className="label">Colour</span>
-                      <input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(e) => updateTextLayer({ text_color: e.target.value })} />
+                      <input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(event) => updateTextLayer({ text_color: event.target.value })} />
                     </label>
                   </div>
-                  <p className="text-[11px] text-zinc-500">Google Fonts load into the page preview and are drawn directly into the final canvas mockup.</p>
+                  <p className="text-[11px] text-zinc-500">Use the green canvas handles to resize text on the product. Render size controls sharpness/detail, not final product size.</p>
                 </div>
               )}
 
               <div>
                 <label className="label">Print method for selected layer</label>
-                <select className="input-base" value={activeSlot.print_option_id || ""} onChange={(e) => {
-                  const option = allowedOptions.find((item) => item.id === e.target.value);
+                <select className="input-base" value={activeSlot.print_option_id || ""} onChange={(event) => {
+                  const option = allowedOptions.find((item) => item.id === event.target.value);
                   patchSlot(activeSlot.id, optionPatchForSlot(activeSlot, activeArea, option || {}));
                 }}>
                   <option value="">Select method</option>
@@ -939,7 +1033,7 @@ export default function ProductArtworkStudio({
               {!activeSlot.text_layer && (
                 <div>
                   <label className="label">Upload image layer</label>
-                  <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="input-base" onChange={(e) => uploadArtwork(e.target.files?.[0] || null)} />
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="input-base" onChange={(event) => uploadArtwork(event.target.files?.[0] || null)} />
                   {uploading && <div className="text-xs text-zinc-500 mt-2">Uploading…</div>}
                   {activeSlot.original_url && <a href={assetUrl(activeSlot.original_url)} target="_blank" rel="noreferrer" className="block text-xs text-[#FF3B30] mt-2 truncate">{activeSlot.file_name || activeSlot.original_url}</a>}
                 </div>
@@ -950,7 +1044,7 @@ export default function ProductArtworkStudio({
               <div className="border-t border-white/10 pt-4">
                 <div className="overline mb-2">Placement</div>
                 <p className="text-xs text-zinc-500 mb-3 flex items-center gap-2"><Move size={13} /> Drag the layer on the preview. Aspect ratio is locked by default.</p>
-                <label className="flex items-center gap-2 text-xs text-zinc-300 mb-3"><input type="checkbox" checked={activeSlot.lock_aspect_ratio !== false} onChange={(e) => patchSlot(activeSlot.id, { lock_aspect_ratio: e.target.checked })} /> Lock aspect ratio</label>
+                <label className="flex items-center gap-2 text-xs text-zinc-300 mb-3"><input type="checkbox" checked={activeSlot.lock_aspect_ratio !== false} onChange={(event) => patchSlot(activeSlot.id, { lock_aspect_ratio: event.target.checked })} /> Lock aspect ratio</label>
                 <div className="grid grid-cols-2 gap-2">
                   <NumericControl label="X %" value={activePlacement.x} onChange={(value) => patchPlacement(activeSlot.id, { x: value })} />
                   <NumericControl label="Y %" value={activePlacement.y} onChange={(value) => patchPlacement(activeSlot.id, { y: value })} />
@@ -965,35 +1059,16 @@ export default function ProductArtworkStudio({
                 </div>
               </div>
 
-              <button type="button" className="btn-primary w-full" disabled={generating || !canGenerateMockup} onClick={generateMockup}><RefreshCw size={14} /> {generating ? "Generating…" : "Generate Composite Mockup"}</button>
-              {!canGenerateMockup && <p className="text-xs text-zinc-500">At least one layer in this print area needs artwork and a print method.</p>}
+              <button type="button" className="btn-primary w-full" disabled={generating || !canGenerateMockup} onClick={generateMockup}><RefreshCw size={14} /> {generating ? "Generating…" : `Generate ${screenLabel(activeScreen)} Mockup`}</button>
+              {!canGenerateMockup && <p className="text-xs text-zinc-500">At least one layer on this view needs artwork and a print method.</p>}
 
               {activeSlot.mockup_image_url && <div className="border border-white/10 p-3 bg-black/40 rounded-xl"><div className="overline mb-2">Generated Mockup</div><img src={assetUrl(activeSlot.mockup_image_url)} alt="Generated mockup" className="w-full max-h-56 object-contain bg-black" /></div>}
             </div>
           ) : (
-            <div className="text-zinc-500 text-sm"><div className="overline mb-3">Inspector</div><p>Select a group and add an image or text layer.</p>{printAreas.length > 0 && activeGroup && <button type="button" className="btn-primary w-full mt-4" onClick={() => addSlot(printAreas[0].id)}><Plus size={14} /> Add First Layer</button>}</div>
+            <div className="text-zinc-500 text-sm"><div className="overline mb-3">Inspector</div><p>Select a product view and add an image or text layer.</p>{areasForScreen.length > 0 && activeGroup && <button type="button" className="btn-primary w-full mt-4" onClick={() => addSlot(areasForScreen[0].id)}><Plus size={14} /> Add First Layer</button>}</div>
           )}
         </aside>
       </div>
-    </div>
-  );
-}
-
-function ResizeHandle({ position, onMouseDown }) {
-  const positionClasses = {
-    nw: "-left-2 -top-2 cursor-nwse-resize",
-    ne: "-right-2 -top-2 cursor-nesw-resize",
-    sw: "-left-2 -bottom-2 cursor-nesw-resize",
-    se: "-right-2 -bottom-2 cursor-nwse-resize",
-  };
-  return <button type="button" aria-label={`Resize ${position}`} className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`} onMouseDown={onMouseDown} />;
-}
-
-function NumericControl({ label, value, onChange }) {
-  return (
-    <div>
-      <label className="label">{label}</label>
-      <input className="input-base" type="number" step="1" value={Number(value || 0)} onChange={(e) => onChange(Number(e.target.value || 0))} />
     </div>
   );
 }
