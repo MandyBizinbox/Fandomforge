@@ -25,6 +25,25 @@ function firstTruthy(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== "") || "";
 }
 
+function templateProductTypeValue(template = {}) {
+  return firstTruthy(
+    template.product_type_name,
+    template.product_type,
+    template.product_type_slug,
+    template.product_type_id
+  );
+}
+
+function templateProductTypeLabel(template = {}) {
+  return firstTruthy(
+    template.product_type_name,
+    template.product_type,
+    template.product_type_slug,
+    template.product_type_id,
+    "Unassigned product type"
+  );
+}
+
 function firstVariationOverrideImage(variation = {}) {
   return Object.values(variation.mockup_screen_overrides || {}).find(Boolean) || "";
 }
@@ -166,6 +185,7 @@ export default function ProductTemplatesPage() {
   const [archivingId, setArchivingId] = useState("");
   const [status, setStatus] = useState("all");
   const [readinessFilter, setReadinessFilter] = useState("all");
+  const [productTypeFilter, setProductTypeFilter] = useState("all");
   const navigate = useNavigate();
 
   const load = async () => {
@@ -192,9 +212,25 @@ export default function ProductTemplatesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
+  const productTypeOptions = useMemo(() => {
+    const map = new Map();
+    safeArray(templates).forEach((template) => {
+      const value = templateProductTypeValue(template);
+      if (!value) return;
+      const key = String(value);
+      if (!map.has(key)) map.set(key, templateProductTypeLabel(template));
+    });
+    return Array.from(map.entries()).sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  }, [templates]);
+
   const filteredTemplates = useMemo(
-    () => safeArray(templates).filter((template) => readinessMatchesFilter(template, readinessFilter, printOptions)),
-    [templates, readinessFilter, printOptions]
+    () =>
+      safeArray(templates).filter((template) => {
+        const matchesReadiness = readinessMatchesFilter(template, readinessFilter, printOptions);
+        const matchesProductType = productTypeFilter === "all" || String(templateProductTypeValue(template)) === String(productTypeFilter);
+        return matchesReadiness && matchesProductType;
+      }),
+    [templates, readinessFilter, printOptions, productTypeFilter]
   );
 
   const stats = useMemo(() => templateStats(templates, printOptions), [templates, printOptions]);
@@ -266,6 +302,12 @@ export default function ProductTemplatesPage() {
             <option value="inactive">Inactive</option>
             <option value="archived">Archived</option>
           </select>
+          <select className="input-base md:w-56" value={productTypeFilter} onChange={(e) => setProductTypeFilter(e.target.value)}>
+            <option value="all">All product types</option>
+            {productTypeOptions.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
           <select className="input-base md:w-56" value={readinessFilter} onChange={(e) => setReadinessFilter(e.target.value)}>
             <option value="all">All readiness</option>
             <option value="launch_ready">Launch-ready templates</option>
@@ -319,10 +361,7 @@ export default function ProductTemplatesPage() {
             const views = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted).length;
 
             return (
-              <div
-                key={template.id}
-                className={`text-left border border-white/15 bg-white/[0.03] hover:border-[#FF3B30] transition-colors ${isArchived ? "opacity-60" : ""}`}
-              >
+              <div key={template.id} className={`text-left border border-white/15 bg-white/[0.03] hover:border-[#FF3B30] transition-colors ${isArchived ? "opacity-60" : ""}`}>
                 <button type="button" onClick={() => navigate(`/admin/product-templates/${template.id}`)} className="block w-full text-left">
                   <div className="aspect-[4/3] bg-black border-b border-white/10 flex items-center justify-center overflow-hidden">
                     {image ? <img src={assetUrl(image)} alt={template.name} className="w-full h-full object-contain" /> : <ImageIcon className="text-zinc-700" size={44} />}
@@ -335,6 +374,7 @@ export default function ProductTemplatesPage() {
                       <div>
                         <h2 className="font-display text-2xl uppercase leading-tight">{template.name}</h2>
                         <p className="text-xs text-zinc-500 mt-1">{template.brand || "No brand"} {template.blank_sku ? `· ${template.blank_sku}` : ""}</p>
+                        <p className="text-[11px] text-zinc-600 mt-1">{templateProductTypeLabel(template)}</p>
                       </div>
                       <StatusBadge status={template.status || "draft"} />
                     </div>
@@ -365,9 +405,7 @@ export default function ProductTemplatesPage() {
                   </button>
 
                   <div className="mt-4 grid grid-cols-3 gap-2">
-                    <button type="button" onClick={() => navigate(`/admin/product-templates/${template.id}`)} className="btn-secondary text-xs">
-                      Edit
-                    </button>
+                    <button type="button" onClick={() => navigate(`/admin/product-templates/${template.id}`)} className="btn-secondary text-xs">Edit</button>
                     <button type="button" onClick={(event) => duplicateTemplate(event, template)} disabled={duplicatingId === template.id} className="btn-secondary text-xs">
                       <Copy size={13} /> {duplicatingId === template.id ? "Duplicating…" : "Duplicate"}
                     </button>
