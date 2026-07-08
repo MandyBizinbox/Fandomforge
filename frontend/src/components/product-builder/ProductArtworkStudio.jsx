@@ -14,6 +14,17 @@ import {
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value || 0)));
 const round = (value) => Math.round(Number(value || 0) * 10) / 10;
+const TEXT_FONT_OPTIONS = [
+  "Arial",
+  "Impact",
+  "Georgia",
+  "Times New Roman",
+  "Trebuchet MS",
+  "Verdana",
+  "Courier New",
+  "Comic Sans MS",
+  "Brush Script MT",
+];
 
 function areaPct(area, key) {
   if (!area) return 0;
@@ -96,14 +107,57 @@ function readImageFileDimensions(file) {
   });
 }
 
-function svgTextDataUrl(text = "Custom Text") {
-  const safeText = String(text || "Custom Text").slice(0, 80);
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="600" viewBox="0 0 1600 600">
-      <rect width="1600" height="600" fill="transparent"/>
-      <text x="800" y="330" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="150" font-weight="700" fill="#111111">${safeText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</text>
-    </svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+function escapeSvg(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function normaliseTextSettings(settings = {}) {
+  return {
+    text_content: String(settings.text_content || settings.text || "Custom Text").slice(0, 240),
+    text_font_family: settings.text_font_family || "Arial",
+    text_font_weight: String(settings.text_font_weight || "700"),
+    text_font_size: Number(settings.text_font_size || 150),
+    text_color: settings.text_color || "#111111",
+  };
+}
+
+function estimateTextWidth(line, fontSize, fontFamily) {
+  const family = String(fontFamily || "").toLowerCase();
+  const factor = family.includes("courier") ? 0.62 : family.includes("impact") ? 0.58 : family.includes("brush") ? 0.52 : 0.56;
+  return Math.max(1, String(line || "").length * fontSize * factor);
+}
+
+function buildTextLayerAsset(settings = {}) {
+  const next = normaliseTextSettings(settings);
+  const lines = next.text_content.split(/\r?\n/).filter((line) => line.trim() !== "");
+  const safeLines = lines.length ? lines : ["Custom Text"];
+  const fontSize = clamp(next.text_font_size, 24, 320);
+  const paddingX = Math.ceil(fontSize * 0.14);
+  const paddingY = Math.ceil(fontSize * 0.16);
+  const lineHeight = Math.ceil(fontSize * 1.15);
+  const width = Math.ceil(Math.max(...safeLines.map((line) => estimateTextWidth(line, fontSize, next.text_font_family))) + paddingX * 2);
+  const height = Math.ceil(safeLines.length * lineHeight + paddingY * 2);
+  const tspans = safeLines.map((line, index) => (
+    `<tspan x="${paddingX}" y="${paddingY + fontSize + index * lineHeight}">${escapeSvg(line)}</tspan>`
+  )).join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="transparent"/><text font-family="${escapeSvg(next.text_font_family)}" font-size="${fontSize}" font-weight="${escapeSvg(next.text_font_weight)}" fill="${escapeSvg(next.text_color)}">${tspans}</text></svg>`;
+
+  return {
+    original_url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+    file_name: `${next.text_content.slice(0, 24).replace(/[^a-z0-9]+/gi, "-") || "text"}.svg`,
+    mime_type: "image/svg+xml",
+    text_layer: true,
+    ...next,
+    text_font_size: fontSize,
+    original_width_px: width,
+    original_height_px: height,
+    artwork_aspect_ratio: width && height ? width / height : 1,
+    lock_aspect_ratio: true,
+  };
 }
 
 function drawImageContain(ctx, image, x, y, w, h) {
@@ -247,6 +301,12 @@ export default function ProductArtworkStudio({
   const missingPrintMethod = Boolean(activeSlot && hasUploadedArtwork && !activeSlot.print_option_id);
   const canGenerateMockup = Boolean(activeArea && activeImage && sameAreaSlots.some((slot) => slot.original_url && slot.print_option_id));
 
+  const fitHeightForAspect = (widthPercent, aspectRatio) => {
+    const rect = areaRef.current?.getBoundingClientRect?.();
+    const areaRatio = rect?.height ? rect.width / rect.height : 1;
+    return round(clamp((Number(widthPercent || 50) * areaRatio) / Number(aspectRatio || 1), 2, 120));
+  };
+
   useEffect(() => {
     if (!activeGroupId && groups[0]?.id) setActiveGroupId(groups[0].id);
   }, [activeGroupId, groups]);
@@ -349,18 +409,31 @@ export default function ProductArtworkStudio({
   const addTextLayer = () => {
     const area = activeArea || printAreas[0];
     const text = window.prompt("Text to add", "Custom Text") || "Custom Text";
-    const dataUrl = svgTextDataUrl(text);
+    const asset = buildTextLayerAsset({ text_content: text });
+    const width = 45;
+    const height = fitHeightForAspect(width, asset.artwork_aspect_ratio);
     createSlot(area, {
-      original_url: dataUrl,
-      file_name: `${text.slice(0, 24) || "text"}.svg`,
-      mime_type: "image/svg+xml",
-      text_layer: true,
-      text_content: text,
-      original_width_px: 1600,
-      original_height_px: 600,
-      artwork_aspect_ratio: 1600 / 600,
-      placement: { ...defaultPlacement(area), x: 10, y: 35, width: 80, height: 30 },
+      ...asset,
+      placement: { ...defaultPlacement(area), x: 10, y: 10, width, height },
     });
+  };
+
+  const updateTextLayer = (patch) => {
+    if (!activeSlot?.text_layer || !activeArea) return;
+    const nextSettings = normaliseTextSettings({
+      text_content: activeSlot.text_content,
+      text_font_family: activeSlot.text_font_family,
+      text_font_weight: activeSlot.text_font_weight,
+      text_font_size: activeSlot.text_font_size,
+      text_color: activeSlot.text_color,
+      ...patch,
+    });
+    const asset = buildTextLayerAsset(nextSettings);
+    const placement = sanitizePlacement(activeSlot.placement, activeArea);
+    const nextPlacement = activeSlot.lock_aspect_ratio === false
+      ? placement
+      : { ...placement, height: fitHeightForAspect(placement.width, asset.artwork_aspect_ratio) };
+    patchSlot(activeSlot.id, { ...asset, placement: nextPlacement });
   };
 
   const removeSlot = (slotId) => {
@@ -696,6 +769,42 @@ export default function ProductArtworkStudio({
                 <div className="font-display text-3xl">{activeSlot.calculated_print_cost !== undefined ? money(activeSlot.calculated_print_cost || 0) : "Pending"}</div>
                 <div className="text-xs text-[#B8F5C3]/80 mt-1">{activeSlot.area_cm2 || 0}cm² · {activeSlot.print_width_mm || 0}×{activeSlot.print_height_mm || 0}mm</div>
               </div>
+
+              {activeSlot.text_layer && (
+                <div className="border border-white/10 bg-black/30 rounded-xl p-3 space-y-3">
+                  <div className="font-bold text-sm">Text editor</div>
+                  <label>
+                    <span className="label">Text</span>
+                    <textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(e) => updateTextLayer({ text_content: e.target.value })} />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label>
+                      <span className="label">Font</span>
+                      <select className="input-base" value={activeSlot.text_font_family || "Arial"} onChange={(e) => updateTextLayer({ text_font_family: e.target.value })}>
+                        {TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="label">Weight</span>
+                      <select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(e) => updateTextLayer({ text_font_weight: e.target.value })}>
+                        <option value="400">Regular</option>
+                        <option value="600">Semi-bold</option>
+                        <option value="700">Bold</option>
+                        <option value="900">Heavy</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="label">SVG font size</span>
+                      <input className="input-base" type="number" min="24" max="320" step="4" value={Number(activeSlot.text_font_size || 150)} onChange={(e) => updateTextLayer({ text_font_size: Number(e.target.value || 150) })} />
+                    </label>
+                    <label>
+                      <span className="label">Colour</span>
+                      <input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(e) => updateTextLayer({ text_color: e.target.value })} />
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-zinc-500">The SVG is regenerated with tight bounds around the text, so the selection box now follows the text shape much better.</p>
+                </div>
+              )}
 
               <div>
                 <label className="label">Print method for selected layer</label>
