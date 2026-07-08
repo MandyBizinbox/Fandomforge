@@ -25,23 +25,66 @@ function firstTruthy(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== "") || "";
 }
 
-function templateProductTypeValue(template = {}) {
-  return firstTruthy(
-    template.product_type_name,
+function collectionFromResponse(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+}
+
+function looksLikeId(value) {
+  const text = String(value || "");
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text) || /^[0-9a-f]{24}$/i.test(text);
+}
+
+function productTypeLabel(type = {}) {
+  return firstTruthy(type.name, type.label, type.title, type.display_name, type.slug, type.id, "Unnamed product type");
+}
+
+function productTypeKeys(type = {}) {
+  return [type.id, type._id, type.slug, type.key, type.name].filter(Boolean).map(String);
+}
+
+function buildProductTypeLookup(productTypes = []) {
+  const map = new Map();
+  safeArray(productTypes).forEach((type) => {
+    const label = productTypeLabel(type);
+    productTypeKeys(type).forEach((key) => {
+      if (!map.has(key)) map.set(key, label);
+    });
+  });
+  return map;
+}
+
+function templateProductTypeKeys(template = {}) {
+  return [
+    template.product_type_id,
     template.product_type,
     template.product_type_slug,
-    template.product_type_id
+    template.product_type_name,
+  ].filter(Boolean).map(String);
+}
+
+function templateProductTypeValue(template = {}) {
+  return firstTruthy(
+    template.product_type_id,
+    template.product_type,
+    template.product_type_slug,
+    template.product_type_name
   );
 }
 
-function templateProductTypeLabel(template = {}) {
-  return firstTruthy(
-    template.product_type_name,
-    template.product_type,
-    template.product_type_slug,
-    template.product_type_id,
-    "Unassigned product type"
-  );
+function templateProductTypeLabel(template = {}, productTypeLookup = new Map()) {
+  const keys = templateProductTypeKeys(template);
+  for (const key of keys) {
+    const label = productTypeLookup.get(String(key));
+    if (label) return label;
+  }
+
+  const fallback = firstTruthy(template.product_type_name, template.product_type, template.product_type_slug, template.product_type_id);
+  if (!fallback) return "Unassigned product type";
+  return looksLikeId(fallback) ? "Unknown product type" : fallback;
 }
 
 function firstVariationOverrideImage(variation = {}) {
@@ -179,6 +222,7 @@ function readinessMatchesFilter(template, filter, globalPrintOptions = []) {
 
 export default function ProductTemplatesPage() {
   const [templates, setTemplates] = useState([]);
+  const [productTypes, setProductTypes] = useState([]);
   const [printOptions, setPrintOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [duplicatingId, setDuplicatingId] = useState("");
@@ -192,15 +236,18 @@ export default function ProductTemplatesPage() {
     setLoading(true);
     try {
       const qs = status !== "all" ? `?status=${status}` : "";
-      const [templateResponse, printOptionResponse] = await Promise.all([
+      const [templateResponse, printOptionResponse, productTypeResponse] = await Promise.all([
         http.get(`/admin/product-templates${qs}`),
         http.get("/print-options").catch(() => ({ data: [] })),
+        http.get("/admin/product-types").catch(() => http.get("/product-types").catch(() => ({ data: [] }))),
       ]);
-      setTemplates(safeArray(templateResponse.data));
-      setPrintOptions(safeArray(printOptionResponse.data));
+      setTemplates(collectionFromResponse(templateResponse.data));
+      setPrintOptions(collectionFromResponse(printOptionResponse.data));
+      setProductTypes(collectionFromResponse(productTypeResponse.data));
     } catch (error) {
       setTemplates([]);
       setPrintOptions([]);
+      setProductTypes([]);
       toast.error(error.response?.data?.detail || "Could not load product templates");
     } finally {
       setLoading(false);
@@ -212,22 +259,35 @@ export default function ProductTemplatesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
+  const productTypeLookup = useMemo(() => buildProductTypeLookup(productTypes), [productTypes]);
+
   const productTypeOptions = useMemo(() => {
     const map = new Map();
+
+    safeArray(productTypes).forEach((type) => {
+      const label = productTypeLabel(type);
+      const key = String(firstTruthy(type.id, type._id, type.slug, type.name));
+      if (key) map.set(key, label);
+    });
+
     safeArray(templates).forEach((template) => {
       const value = templateProductTypeValue(template);
       if (!value) return;
       const key = String(value);
-      if (!map.has(key)) map.set(key, templateProductTypeLabel(template));
+      if (!map.has(key)) map.set(key, templateProductTypeLabel(template, productTypeLookup));
     });
-    return Array.from(map.entries()).sort((a, b) => String(a[1]).localeCompare(String(b[1])));
-  }, [templates]);
+
+    return Array.from(map.entries())
+      .filter(([, label]) => label && !looksLikeId(label))
+      .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  }, [templates, productTypes, productTypeLookup]);
 
   const filteredTemplates = useMemo(
     () =>
       safeArray(templates).filter((template) => {
         const matchesReadiness = readinessMatchesFilter(template, readinessFilter, printOptions);
-        const matchesProductType = productTypeFilter === "all" || String(templateProductTypeValue(template)) === String(productTypeFilter);
+        const keys = templateProductTypeKeys(template);
+        const matchesProductType = productTypeFilter === "all" || keys.includes(String(productTypeFilter));
         return matchesReadiness && matchesProductType;
       }),
     [templates, readinessFilter, printOptions, productTypeFilter]
@@ -374,7 +434,7 @@ export default function ProductTemplatesPage() {
                       <div>
                         <h2 className="font-display text-2xl uppercase leading-tight">{template.name}</h2>
                         <p className="text-xs text-zinc-500 mt-1">{template.brand || "No brand"} {template.blank_sku ? `· ${template.blank_sku}` : ""}</p>
-                        <p className="text-[11px] text-zinc-600 mt-1">{templateProductTypeLabel(template)}</p>
+                        <p className="text-[11px] text-zinc-600 mt-1">{templateProductTypeLabel(template, productTypeLookup)}</p>
                       </div>
                       <StatusBadge status={template.status || "draft"} />
                     </div>
