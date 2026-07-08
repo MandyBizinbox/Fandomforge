@@ -1,16 +1,187 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Copy, Plus, Brush, Image as ImageIcon } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Plus, Brush, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { http, assetUrl } from "../../lib/api";
 import StatusBadge from "../StatusBadge";
 import { money, safeArray } from "./templateStudioUtils";
+
+const ACTIVE_V1_METHOD_KEYS = new Set([
+  "sublimation",
+  "dtf",
+  "dtf transfer",
+  "dtf transfers",
+  "uv dtf",
+  "uv_dtf",
+  "htv",
+  "heat transfer vinyl",
+  "adhesive vinyl",
+  "adhesive_vinyl",
+  "vinyl sticker",
+  "sticker",
+  "stickers",
+]);
+
+const INACTIVE_METHOD_KEYS = ["laser", "screen print", "screen printing", "screen_print", "embroidery"];
+
+function normalise(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function methodKey(option = {}) {
+  return normalise(option.print_method || option.method || option.method_key || option.rule_name || option.name || option.id);
+}
+
+function isActiveV1PrintOption(option = {}) {
+  if (!option || option.status === "inactive" || option.status === "archived") return false;
+  const key = methodKey(option);
+  if (!key) return false;
+  if (INACTIVE_METHOD_KEYS.some((inactive) => key.includes(inactive))) return false;
+  return ACTIVE_V1_METHOD_KEYS.has(key) || [...ACTIVE_V1_METHOD_KEYS].some((activeKey) => key.includes(activeKey));
+}
+
+function firstTruthy(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "") || "";
+}
+
+function firstVariationOverrideImage(variation = {}) {
+  return Object.values(variation.mockup_screen_overrides || {}).find(Boolean) || "";
+}
+
+function templateImage(template = {}) {
+  return firstTruthy(
+    template.creator_catalogue_thumbnail_url,
+    template.product_image_url,
+    template.mockup_url,
+    safeArray(template.mockup_images)[0],
+    safeArray(template.variations).find((variation) => variation.image_url)?.image_url,
+    safeArray(template.variations).map(firstVariationOverrideImage).find(Boolean),
+    safeArray(template.mockup_screens).find((screen) => screen.image_url)?.image_url
+  );
+}
+
+function hasVariationImage(variation = {}) {
+  return Boolean(variation.image_url || variation.product_image_url || variation.mockup_image_url || firstVariationOverrideImage(variation));
+}
+
+function blankCost(template = {}) {
+  const enabledVariations = safeArray(template.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
+  const variationCosts = enabledVariations
+    .map((variation) => Number(variation.creator_blank_price ?? variation.base_blank_cost ?? variation.platform_blank_cost ?? variation.cost ?? 0))
+    .filter((value) => value > 0);
+
+  if (variationCosts.length) return Math.min(...variationCosts);
+
+  return Number(
+    template.creator_blank_price ??
+    template.base_blank_cost ??
+    template.base_price ??
+    template.platform_blank_cost ??
+    0
+  );
+}
+
+function templatePrintOptions(template = {}) {
+  return safeArray(template.print_options).filter((option) => option?.id || option?.method || option?.print_method || option?.rule_name);
+}
+
+function activeV1Options(template = {}) {
+  return templatePrintOptions(template).filter(isActiveV1PrintOption);
+}
+
+function readiness(template = {}) {
+  const enabledVariations = safeArray(template.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
+  const activeScreens = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted);
+  const activeAreas = safeArray(template.print_areas).filter((area) => area.status !== "archived" && !area.archived && !area.deleted);
+  const activeMethods = activeV1Options(template);
+
+  const checks = {
+    mainImage: Boolean(templateImage(template)),
+    variationImages: enabledVariations.length === 0 || enabledVariations.some(hasVariationImage),
+    blankCost: blankCost(template) > 0,
+    activePrintMethod: activeMethods.length > 0,
+    printAreas: activeAreas.length > 0,
+    printAreaViews: activeScreens.length > 0,
+    mockup: Boolean(template.mockup_url || safeArray(template.mockup_images)[0] || activeScreens.some((screen) => screen.image_url)),
+    creatorPricing: activeMethods.some((option) => Number(option.creator_print_price ?? option.print_cost_max ?? option.platform_print_cost ?? 0) > 0) && blankCost(template) > 0,
+  };
+
+  const missing = [];
+  if (!checks.mainImage) missing.push("image");
+  if (!checks.variationImages) missing.push("variation images");
+  if (!checks.blankCost) missing.push("blank cost");
+  if (!checks.activePrintMethod) missing.push("V1 print method");
+  if (!checks.printAreas) missing.push("print areas");
+  if (!checks.printAreaViews) missing.push("print area views");
+  if (!checks.mockup) missing.push("mockups");
+  if (!checks.creatorPricing) missing.push("creator pricing");
+
+  const statusKey = normalise(template.status);
+  const pricingReady = checks.blankCost && checks.activePrintMethod && checks.creatorPricing;
+  const launchReady = statusKey === "launch ready" || statusKey === "launch_ready" || (statusKey === "active" && missing.length === 0);
+
+  let label = "Draft";
+  if (statusKey === "inactive" || statusKey === "archived") label = "Inactive";
+  else if (launchReady) label = "Launch ready";
+  else if (!checks.mainImage) label = "Needs images";
+  else if (!checks.variationImages) label = "Needs variation images";
+  else if (!checks.printAreas || !checks.printAreaViews) label = "Needs print areas";
+  else if (!checks.blankCost || !checks.creatorPricing) label = "Needs pricing";
+  else if (!checks.mockup) label = "Needs mockups";
+  else if (pricingReady) label = "Pricing ready";
+
+  return { checks, missing, pricingReady, launchReady, label, activeMethods };
+}
+
+function countWhere(templates, predicate) {
+  return safeArray(templates).filter((template) => predicate(readiness(template), template)).length;
+}
+
+function templateStats(templates) {
+  const rows = safeArray(templates);
+  return {
+    total: rows.length,
+    active: rows.filter((template) => !["inactive", "archived"].includes(normalise(template.status))).length,
+    launchReady: countWhere(rows, (ready) => ready.launchReady),
+    missingImages: countWhere(rows, (ready) => !ready.checks.mainImage),
+    missingVariationImages: countWhere(rows, (ready) => !ready.checks.variationImages),
+    missingBlankCost: countWhere(rows, (ready) => !ready.checks.blankCost),
+    missingPrintAreas: countWhere(rows, (ready) => !ready.checks.printAreas || !ready.checks.printAreaViews),
+    missingMockups: countWhere(rows, (ready) => !ready.checks.mockup),
+    missingCreatorPricing: countWhere(rows, (ready) => !ready.checks.creatorPricing),
+    inactiveMethods: countWhere(rows, (ready, template) => templatePrintOptions(template).some((option) => INACTIVE_METHOD_KEYS.some((inactive) => methodKey(option).includes(inactive)))),
+    manualReview: countWhere(rows, (ready) => !ready.launchReady),
+  };
+}
+
+function readinessMatchesFilter(template, filter) {
+  if (filter === "all") return true;
+  const ready = readiness(template);
+
+  if (filter === "launch_ready") return ready.launchReady;
+  if (filter === "pricing_ready") return ready.pricingReady;
+  if (filter === "needs_images") return !ready.checks.mainImage;
+  if (filter === "needs_variation_images") return !ready.checks.variationImages;
+  if (filter === "needs_blank_cost") return !ready.checks.blankCost;
+  if (filter === "needs_print_areas") return !ready.checks.printAreas || !ready.checks.printAreaViews;
+  if (filter === "needs_mockups") return !ready.checks.mockup;
+  if (filter === "needs_creator_pricing") return !ready.checks.creatorPricing;
+  if (filter === "inactive_methods") return templatePrintOptions(template).some((option) => INACTIVE_METHOD_KEYS.some((inactive) => methodKey(option).includes(inactive)));
+  if (filter === "manual_review") return !ready.launchReady;
+
+  return true;
+}
 
 export default function ProductTemplatesPage() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [duplicatingId, setDuplicatingId] = useState("");
   const [status, setStatus] = useState("all");
+  const [readinessFilter, setReadinessFilter] = useState("all");
   const navigate = useNavigate();
 
   const load = async () => {
@@ -21,6 +192,7 @@ export default function ProductTemplatesPage() {
       setTemplates(safeArray(response.data));
     } catch (error) {
       setTemplates([]);
+      toast.error(error.response?.data?.detail || "Could not load product templates");
     } finally {
       setLoading(false);
     }
@@ -30,6 +202,13 @@ export default function ProductTemplatesPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
+
+  const filteredTemplates = useMemo(
+    () => safeArray(templates).filter((template) => readinessMatchesFilter(template, readinessFilter)),
+    [templates, readinessFilter]
+  );
+
+  const stats = useMemo(() => templateStats(templates), [templates]);
 
   const duplicateTemplate = async (event, template) => {
     event.preventDefault();
@@ -62,12 +241,27 @@ export default function ProductTemplatesPage() {
             Build blank product templates with variation images, production costs, mockup views and printable areas.
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <select className="input-base md:w-44" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="all">All statuses</option>
             <option value="active">Active</option>
+            <option value="launch_ready">Launch ready</option>
             <option value="draft">Draft</option>
+            <option value="inactive">Inactive</option>
             <option value="archived">Archived</option>
+          </select>
+          <select className="input-base md:w-56" value={readinessFilter} onChange={(e) => setReadinessFilter(e.target.value)}>
+            <option value="all">All readiness</option>
+            <option value="launch_ready">Launch-ready templates</option>
+            <option value="pricing_ready">Pricing ready</option>
+            <option value="needs_images">Missing images</option>
+            <option value="needs_variation_images">Missing variation images</option>
+            <option value="needs_blank_cost">Missing blank cost</option>
+            <option value="needs_print_areas">Missing print areas/views</option>
+            <option value="needs_mockups">Missing mockups</option>
+            <option value="needs_creator_pricing">Missing creator pricing</option>
+            <option value="inactive_methods">Using inactive methods</option>
+            <option value="manual_review">Manual review required</option>
           </select>
           <button type="button" onClick={() => navigate("/admin/product-templates/new")} className="btn-primary">
             <Plus size={14} /> New Template
@@ -75,21 +269,38 @@ export default function ProductTemplatesPage() {
         </div>
       </div>
 
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-0 border border-white/10 mb-6">
+        <ReadinessStat label="Total templates" value={stats.total} />
+        <ReadinessStat label="Active templates" value={stats.active} />
+        <ReadinessStat label="Launch-ready" value={stats.launchReady} positive />
+        <ReadinessStat label="Missing images" value={stats.missingImages} warning />
+        <ReadinessStat label="Missing pricing" value={stats.missingCreatorPricing} warning />
+        <ReadinessStat label="Missing variation images" value={stats.missingVariationImages} warning />
+        <ReadinessStat label="Missing blank cost" value={stats.missingBlankCost} warning />
+        <ReadinessStat label="Missing print areas" value={stats.missingPrintAreas} warning />
+        <ReadinessStat label="Missing mockups" value={stats.missingMockups} warning />
+        <ReadinessStat label="Manual review" value={stats.manualReview} warning />
+      </div>
+
       {loading ? (
         <div className="card text-zinc-400">Loading templates...</div>
-      ) : templates.length === 0 ? (
+      ) : filteredTemplates.length === 0 ? (
         <div className="card text-center py-12">
           <Brush className="mx-auto mb-4 text-[#FF3B30]" size={40} />
-          <div className="font-display text-3xl uppercase mb-2">No templates yet</div>
-          <p className="text-zinc-400 text-sm mb-6">Create your first production-safe blank product template.</p>
+          <div className="font-display text-3xl uppercase mb-2">No templates found</div>
+          <p className="text-zinc-400 text-sm mb-6">Adjust the filters or create your first production-safe blank product template.</p>
           <button type="button" onClick={() => navigate("/admin/product-templates/new")} className="btn-primary mx-auto">
             <Plus size={14} /> Create Template
           </button>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
-          {templates.map((template) => {
-            const image = template.product_image_url || template.mockup_url || template.mockup_screens?.find((screen) => screen.image_url)?.image_url;
+          {filteredTemplates.map((template) => {
+            const image = templateImage(template);
+            const ready = readiness(template);
+            const areas = safeArray(template.print_areas).filter((area) => area.status !== "archived" && !area.archived && !area.deleted).length;
+            const views = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted).length;
+
             return (
               <div
                 key={template.id}
@@ -122,10 +333,33 @@ export default function ProductTemplatesPage() {
                       </div>
                       <StatusBadge status={template.status || "draft"} />
                     </div>
+
+                    <div className="mb-4 border border-white/10 bg-black/20 rounded-xl p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs uppercase tracking-widest text-zinc-500">Readiness</div>
+                          <div className="font-bold text-sm mt-1">{ready.label}</div>
+                        </div>
+                        {ready.launchReady ? (
+                          <CheckCircle2 size={22} className="text-[#34C759]" />
+                        ) : (
+                          <AlertTriangle size={22} className="text-[#FFB020]" />
+                        )}
+                      </div>
+                      <div className="text-[11px] text-zinc-500 mt-2">
+                        {ready.missing.length ? `Needs ${ready.missing.join(", ")}` : "All launch checks pass."}
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-3 gap-2 text-xs text-zinc-400">
-                      <div className="border border-white/10 p-2"><span className="overline block mb-1">Cost</span>{money(template.base_blank_cost || template.base_price)}</div>
+                      <div className="border border-white/10 p-2"><span className="overline block mb-1">Cost</span>{money(blankCost(template))}</div>
                       <div className="border border-white/10 p-2"><span className="overline block mb-1">Vars</span>{safeArray(template.variations).length}</div>
-                      <div className="border border-white/10 p-2"><span className="overline block mb-1">Areas</span>{safeArray(template.print_areas).length}</div>
+                      <div className="border border-white/10 p-2"><span className="overline block mb-1">Areas</span>{areas}/{views}</div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs text-zinc-400 mt-2">
+                      <div className="border border-white/10 p-2"><span className="overline block mb-1">V1 methods</span>{ready.activeMethods.length}</div>
+                      <div className="border border-white/10 p-2"><span className="overline block mb-1">Creator pricing</span>{ready.checks.creatorPricing ? "Ready" : "Missing"}</div>
                     </div>
                   </button>
 
@@ -152,6 +386,15 @@ export default function ProductTemplatesPage() {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function ReadinessStat({ label, value, positive = false, warning = false }) {
+  return (
+    <div className="p-4 border-r border-b border-white/10">
+      <div className="overline mb-2">{label}</div>
+      <div className={`font-display text-3xl ${positive ? "text-[#34C759]" : warning && value > 0 ? "text-[#FFB020]" : ""}`}>{value}</div>
     </div>
   );
 }
