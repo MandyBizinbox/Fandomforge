@@ -31,6 +31,14 @@ function getAttrValue(variation, names, fallback = "") {
   return match ? match[1] : fallback;
 }
 
+function attrNames(attribute, fallback) {
+  return [attribute?.name, attribute?.slug, attribute?.id, fallback].filter(Boolean);
+}
+
+function attrLabel(attribute, fallback = "Attribute") {
+  return attribute?.name || attribute?.slug || fallback;
+}
+
 function variationLabel(variation) {
   const values = Object.values(variation?.attributes || {}).filter(Boolean);
   return values.length ? values.join(" / ") : "Variation";
@@ -99,7 +107,7 @@ export default function TemplateVariationMatrix({
 }) {
   const [bulkCost, setBulkCost] = useState("");
   const [bulkCreatorPrice, setBulkCreatorPrice] = useState("");
-  const [expandedColor, setExpandedColor] = useState(null);
+  const [expandedRow, setExpandedRow] = useState(null);
   const [uploadingKey, setUploadingKey] = useState("");
   const [detailSearch, setDetailSearch] = useState("");
 
@@ -107,11 +115,6 @@ export default function TemplateVariationMatrix({
     () => safeArray(attributes).filter((attribute) => safeArray(selectedAttributeIds).includes(attribute.id)),
     [attributes, selectedAttributeIds]
   );
-
-  const colorAttribute = findAttributeByKind(selectedAttributes, "colour") || findAttributeByKind(selectedAttributes, "color");
-  const sizeAttribute = findAttributeByKind(selectedAttributes, "size");
-  const colorName = colorAttribute?.name || colorAttribute?.slug || "Colour";
-  const sizeName = sizeAttribute?.name || sizeAttribute?.slug || "Size";
 
   const selectedValuesFor = (attribute) => {
     if (!attribute) return [];
@@ -121,25 +124,34 @@ export default function TemplateVariationMatrix({
     return hasExplicitValues ? safeArray(selectedAttributeValues[key]) : safeArray(attribute?.values);
   };
 
-  const colors = colorAttribute
-    ? selectedValuesFor(colorAttribute)
-    : Array.from(new Set(safeArray(variations).map((variation) => getAttrValue(variation, [colorName, "Colour", "Color"], "Default")))).filter(Boolean);
-  const sizes = sizeAttribute ? selectedValuesFor(sizeAttribute) : [];
-  const matrixColumns = sizeAttribute ? sizes : [DEFAULT_COLUMN];
-  const hasColorRows = Boolean(colorAttribute);
-  const hasSizeColumns = Boolean(sizeAttribute);
-  const simpleListMode = !hasColorRows;
-  const colourOnlyMode = hasColorRows && !hasSizeColumns;
+  const colorAttribute = findAttributeByKind(selectedAttributes, "colour") || findAttributeByKind(selectedAttributes, "color");
+  const sizeAttribute = findAttributeByKind(selectedAttributes, "size");
+  const rowAttribute = colorAttribute || selectedAttributes[0] || null;
+  const columnAttribute =
+    (sizeAttribute && rowAttribute && sizeAttribute.id !== rowAttribute.id ? sizeAttribute : null) ||
+    selectedAttributes.find((attribute) => rowAttribute && attribute.id !== rowAttribute.id) ||
+    null;
 
-  const variationByColorSize = useMemo(() => {
+  const rowLabel = attrLabel(rowAttribute, "Variation");
+  const columnLabel = attrLabel(columnAttribute, "Option");
+  const rowValues = rowAttribute
+    ? selectedValuesFor(rowAttribute)
+    : Array.from(new Set(safeArray(variations).map((variation) => variationLabel(variation)))).filter(Boolean);
+  const columnValues = columnAttribute ? selectedValuesFor(columnAttribute) : [DEFAULT_COLUMN];
+  const hasRowAxis = Boolean(rowAttribute);
+  const hasColumnAxis = Boolean(columnAttribute);
+  const singleAxisMode = hasRowAxis && !hasColumnAxis;
+  const simpleListMode = !hasRowAxis;
+
+  const variationByRowColumn = useMemo(() => {
     const map = new Map();
     safeArray(variations).forEach((variation) => {
-      const color = getAttrValue(variation, [colorName, "Colour", "Color"], "Default");
-      const size = hasSizeColumns ? getAttrValue(variation, [sizeName, "Size"], DEFAULT_COLUMN) : DEFAULT_COLUMN;
-      map.set(`${color}|||${size}`, variation);
+      const rowValue = rowAttribute ? getAttrValue(variation, attrNames(rowAttribute, rowLabel), DEFAULT_COLUMN) : variationLabel(variation);
+      const columnValue = columnAttribute ? getAttrValue(variation, attrNames(columnAttribute, columnLabel), DEFAULT_COLUMN) : DEFAULT_COLUMN;
+      map.set(`${rowValue}|||${columnValue}`, variation);
     });
     return map;
-  }, [variations, colorName, sizeName, hasSizeColumns]);
+  }, [variations, rowAttribute, columnAttribute, rowLabel, columnLabel]);
 
   const activeCount = safeArray(variations).filter((variation) => variation.enabled !== false).length;
   const selectedAttrValues = selectedAttributes
@@ -225,44 +237,44 @@ export default function TemplateVariationMatrix({
     onVariationsChange(safeArray(variations).map((variation) => ({ ...variation, enabled, status: enabled ? "active" : "draft" })));
   };
 
-  const rowVariations = (color) => matrixColumns.map((size) => variationByColorSize.get(`${color}|||${size}`)).filter(Boolean);
-  const rowActiveCount = (color) => rowVariations(color).filter((variation) => variation.enabled !== false).length;
+  const rowVariations = (rowValue) => columnValues.map((columnValue) => variationByRowColumn.get(`${rowValue}|||${columnValue}`)).filter(Boolean);
+  const rowActiveCount = (rowValue) => rowVariations(rowValue).filter((variation) => variation.enabled !== false).length;
 
-  const setRowEnabled = (color, enabled) => {
-    setVariationsEnabled(rowVariations(color).map((variation) => variation.id), enabled);
+  const setRowEnabled = (rowValue, enabled) => {
+    setVariationsEnabled(rowVariations(rowValue).map((variation) => variation.id), enabled);
   };
 
-  const setColumnEnabled = (size, enabled) => {
+  const setColumnEnabled = (columnValue, enabled) => {
     const ids = safeArray(variations)
-      .filter((variation) => !hasSizeColumns || getAttrValue(variation, [sizeName, "Size"], DEFAULT_COLUMN) === size)
+      .filter((variation) => !hasColumnAxis || getAttrValue(variation, attrNames(columnAttribute, columnLabel), DEFAULT_COLUMN) === columnValue)
       .map((variation) => variation.id);
     setVariationsEnabled(ids, enabled);
   };
 
-  const updateRowCost = (color, cost) => {
-    const rowIds = new Set(rowVariations(color).map((variation) => variation.id));
+  const updateRowCost = (rowValue, cost) => {
+    const rowIds = new Set(rowVariations(rowValue).map((variation) => variation.id));
     onVariationsChange(safeArray(variations).map((variation) => (rowIds.has(variation.id) ? { ...variation, ...resolveVariationCostPatch(cost) } : variation)));
   };
 
-  const updateRowCreatorPrice = (color, creatorPrice) => {
-    const rowIds = new Set(rowVariations(color).map((variation) => variation.id));
+  const updateRowCreatorPrice = (rowValue, creatorPrice) => {
+    const rowIds = new Set(rowVariations(rowValue).map((variation) => variation.id));
     onVariationsChange(safeArray(variations).map((variation) => (rowIds.has(variation.id) ? { ...variation, ...resolveVariationCostPatch(variationPlatformCost(variation), creatorPrice) } : variation)));
   };
 
-  const updateColumnCost = (size, cost) => {
+  const updateColumnCost = (columnValue, cost) => {
     onVariationsChange(
       safeArray(variations).map((variation) => {
-        const variationSize = hasSizeColumns ? getAttrValue(variation, [sizeName, "Size"], DEFAULT_COLUMN) : DEFAULT_COLUMN;
-        return variationSize === size ? { ...variation, ...resolveVariationCostPatch(cost) } : variation;
+        const value = hasColumnAxis ? getAttrValue(variation, attrNames(columnAttribute, columnLabel), DEFAULT_COLUMN) : DEFAULT_COLUMN;
+        return value === columnValue ? { ...variation, ...resolveVariationCostPatch(cost) } : variation;
       })
     );
   };
 
-  const updateColumnCreatorPrice = (size, creatorPrice) => {
+  const updateColumnCreatorPrice = (columnValue, creatorPrice) => {
     onVariationsChange(
       safeArray(variations).map((variation) => {
-        const variationSize = hasSizeColumns ? getAttrValue(variation, [sizeName, "Size"], DEFAULT_COLUMN) : DEFAULT_COLUMN;
-        return variationSize === size ? { ...variation, ...resolveVariationCostPatch(variationPlatformCost(variation), creatorPrice) } : variation;
+        const value = hasColumnAxis ? getAttrValue(variation, attrNames(columnAttribute, columnLabel), DEFAULT_COLUMN) : DEFAULT_COLUMN;
+        return value === columnValue ? { ...variation, ...resolveVariationCostPatch(variationPlatformCost(variation), creatorPrice) } : variation;
       })
     );
   };
@@ -295,17 +307,17 @@ export default function TemplateVariationMatrix({
     }
   };
 
-  const uploadColourImage = (color, file) => {
-    uploadVariationImage(rowVariations(color).map((variation) => variation.id), file, `${color} variation image`);
+  const uploadRowImage = (rowValue, file) => {
+    uploadVariationImage(rowVariations(rowValue).map((variation) => variation.id), file, `${rowValue} variation image`);
   };
 
-  const colorImage = (color) => {
-    const item = rowVariations(color).find((variation) => imageForVariation(variation));
+  const rowImage = (rowValue) => {
+    const item = rowVariations(rowValue).find((variation) => imageForVariation(variation));
     return imageForVariation(item);
   };
 
-  const colourScreenOverride = (color, screen) => {
-    const found = rowVariations(color).find((variation) => {
+  const rowScreenOverride = (rowValue, screen) => {
+    const found = rowVariations(rowValue).find((variation) => {
       const overrides = variation.mockup_screen_overrides || {};
       return overrides[screen.id] || overrides[screen.view_key] || overrides[screen.name];
     });
@@ -313,8 +325,8 @@ export default function TemplateVariationMatrix({
     return overrides[screen.id] || overrides[screen.view_key] || overrides[screen.name] || "";
   };
 
-  const setColourScreenOverride = (color, screen, imageUrl) => {
-    const rowIds = new Set(rowVariations(color).map((variation) => variation.id));
+  const setRowScreenOverride = (rowValue, screen, imageUrl) => {
+    const rowIds = new Set(rowVariations(rowValue).map((variation) => variation.id));
     onVariationsChange(
       safeArray(variations).map((variation) => {
         if (!rowIds.has(variation.id)) return variation;
@@ -323,8 +335,8 @@ export default function TemplateVariationMatrix({
     );
   };
 
-  const clearColourScreenOverride = (color, screen) => {
-    const rowIds = new Set(rowVariations(color).map((variation) => variation.id));
+  const clearRowScreenOverride = (rowValue, screen) => {
+    const rowIds = new Set(rowVariations(rowValue).map((variation) => variation.id));
     onVariationsChange(
       safeArray(variations).map((variation) => {
         if (!rowIds.has(variation.id)) return variation;
@@ -337,9 +349,9 @@ export default function TemplateVariationMatrix({
     );
   };
 
-  const uploadColourScreenOverride = async (color, screen, file) => {
+  const uploadRowScreenOverride = async (rowValue, screen, file) => {
     if (!file || !screen?.id) return;
-    const uploadKey = `${color}-${screen.id || screen.name || "screen"}`;
+    const uploadKey = `${rowValue}-${screen.id || screen.name || "screen"}`;
     setUploadingKey(uploadKey);
 
     try {
@@ -347,8 +359,8 @@ export default function TemplateVariationMatrix({
       fd.append("file", file);
       fd.append("subdir", "template-variation-views");
       const response = await http.post("/files/image", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      setColourScreenOverride(color, screen, response.data.url);
-      toast.success(`${color} ${screen.name || screen.view_key || screen.screen_view || "view"} image uploaded`);
+      setRowScreenOverride(rowValue, screen, response.data.url);
+      toast.success(`${rowValue} ${screen.name || screen.view_key || screen.screen_view || "view"} image uploaded`);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not upload variation view image");
     } finally {
@@ -362,8 +374,8 @@ export default function TemplateVariationMatrix({
         <div>
           <div className="overline mb-1">Variations</div>
           <h2 className="font-display text-2xl uppercase">Variation Matrix</h2>
-          <p className="text-xs text-zinc-500 mt-1">Configure supplier variation images, blank costs, creator prices, SKUs and colour-specific mockup overrides.</p>
-          {colourOnlyMode && <p className="text-xs text-[#FFB020] mt-2">Colour-only mode active. Use the arrow on each colour row to open image, pricing and override controls.</p>}
+          <p className="text-xs text-zinc-500 mt-1">Configure supplier variation images, blank costs, creator prices, SKUs and variation-specific mockup overrides.</p>
+          {singleAxisMode && <p className="text-xs text-[#FFB020] mt-2">Single-axis mode active. Use the arrow on each {rowLabel.toLowerCase()} row to open image, pricing and override controls.</p>}
         </div>
         <button type="button" onClick={generateVariations} className="btn-primary text-xs"><Wand2 size={14} /> Generate</button>
       </div>
@@ -376,13 +388,13 @@ export default function TemplateVariationMatrix({
               <button key={attribute.id} type="button" onClick={() => toggleAttribute(attribute.id)} className={safeArray(selectedAttributeIds).includes(attribute.id) ? "studio-pill active" : "studio-pill"}>{attribute.name}</button>
             ))}
           </div>
-          <p className="text-xs text-zinc-500 mt-3">{selectedAttrValues || "Select variation attributes. Colour-only products such as mugs are supported."}</p>
+          <p className="text-xs text-zinc-500 mt-3">{selectedAttrValues || "Select one or more variation attributes. Any attribute set supports variation images."}</p>
 
           {selectedAttributes.length > 0 && (
             <div className="mt-5 space-y-4 border-t border-white/10 pt-4">
               <div>
                 <div className="label">Attribute values to generate</div>
-                <p className="text-xs text-zinc-500 mt-1">Untick supplier colours/sizes that are not available for this specific template before generating.</p>
+                <p className="text-xs text-zinc-500 mt-1">Untick supplier values that are not available for this specific template before generating.</p>
               </div>
 
               {selectedAttributes.map((attribute) => {
@@ -443,16 +455,17 @@ export default function TemplateVariationMatrix({
         <SimpleVariationList variations={visibleSimpleVariations} detailSearch={detailSearch} setDetailSearch={setDetailSearch} updateVariation={updateVariation} toggleVariation={toggleVariation} uploadVariationImage={uploadVariationImage} />
       ) : (
         <div className="variation-matrix-board">
-          {hasSizeColumns && (
+          {hasColumnAxis && (
             <div className="variation-size-bar">
-              <div className="variation-size-bar-spacer">Colour</div>
-              <div className="variation-size-grid" style={{ gridTemplateColumns: `repeat(${matrixColumns.length}, minmax(120px, 1fr))` }}>
-                {matrixColumns.map((size) => (
-                  <div key={size} className="variation-size-header-card">
-                    <div className="font-bold">{size}</div>
-                    <div className="variation-mini-actions"><button type="button" onClick={() => setColumnEnabled(size, true)}>All</button><button type="button" onClick={() => setColumnEnabled(size, false)}>None</button></div>
-                    <input className="studio-mini-input mt-2" type="number" placeholder="Platform cost" onBlur={(event) => event.target.value && updateColumnCost(size, event.target.value)} />
-                    <input className="studio-mini-input mt-2" type="number" placeholder="Creator price" onBlur={(event) => event.target.value && updateColumnCreatorPrice(size, event.target.value)} />
+              <div className="variation-size-bar-spacer">{rowLabel}</div>
+              <div className="variation-size-grid" style={{ gridTemplateColumns: `repeat(${columnValues.length}, minmax(120px, 1fr))` }}>
+                {columnValues.map((columnValue) => (
+                  <div key={columnValue} className="variation-size-header-card">
+                    <div className="font-bold">{columnValue}</div>
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">{columnLabel}</div>
+                    <div className="variation-mini-actions"><button type="button" onClick={() => setColumnEnabled(columnValue, true)}>All</button><button type="button" onClick={() => setColumnEnabled(columnValue, false)}>None</button></div>
+                    <input className="studio-mini-input mt-2" type="number" placeholder="Platform cost" onBlur={(event) => event.target.value && updateColumnCost(columnValue, event.target.value)} />
+                    <input className="studio-mini-input mt-2" type="number" placeholder="Creator price" onBlur={(event) => event.target.value && updateColumnCreatorPrice(columnValue, event.target.value)} />
                   </div>
                 ))}
               </div>
@@ -460,41 +473,42 @@ export default function TemplateVariationMatrix({
           )}
 
           <div className="variation-row-stack">
-            {colors.map((color) => {
-              const image = colorImage(color);
-              const rowExpanded = expandedColor === color;
-              const activeInRow = rowActiveCount(color);
-              const totalInRow = rowVariations(color).length;
+            {rowValues.map((rowValue) => {
+              const image = rowImage(rowValue);
+              const rowExpanded = expandedRow === rowValue;
+              const activeInRow = rowActiveCount(rowValue);
+              const totalInRow = rowVariations(rowValue).length;
 
               return (
-                <div key={color} className="variation-colour-row">
+                <div key={rowValue} className="variation-colour-row">
                   <div className="variation-colour-card">
-                    <button type="button" className="variation-expand-button" onClick={() => setExpandedColor(rowExpanded ? null : color)} title={rowExpanded ? "Close row details" : "Open row details"}>{rowExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
-                    <ImageBox src={image} alt={color} className="variation-colour-image" />
+                    <button type="button" className="variation-expand-button" onClick={() => setExpandedRow(rowExpanded ? null : rowValue)} title={rowExpanded ? "Close row details" : "Open row details"}>{rowExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
+                    <ImageBox src={image} alt={rowValue} className="variation-colour-image" />
                     <div className="variation-colour-meta">
-                      <div className="font-bold leading-tight">{color}</div>
+                      <div className="text-[10px] uppercase tracking-widest text-zinc-500">{rowLabel}</div>
+                      <div className="font-bold leading-tight">{rowValue}</div>
                       <div className="text-xs text-zinc-500">{activeInRow} of {totalInRow} active</div>
                       <div className="variation-mini-actions mt-2">
-                        <label className="studio-file-button text-[10px]">{uploadingKey.startsWith(`${color} variation`) ? "Uploading" : "Upload colour image"}<input type="file" accept="image/*" className="hidden" onChange={(event) => uploadColourImage(color, event.target.files?.[0])} /></label>
-                        <button type="button" onClick={() => setRowEnabled(color, true)}>All</button>
-                        <button type="button" onClick={() => setRowEnabled(color, false)}>None</button>
+                        <label className="studio-file-button text-[10px]">{uploadingKey.startsWith(`${rowValue} variation`) ? "Uploading" : "Upload row image"}<input type="file" accept="image/*" className="hidden" onChange={(event) => uploadRowImage(rowValue, event.target.files?.[0])} /></label>
+                        <button type="button" onClick={() => setRowEnabled(rowValue, true)}>All</button>
+                        <button type="button" onClick={() => setRowEnabled(rowValue, false)}>None</button>
                       </div>
                     </div>
                     <div className="variation-row-cost-box">
-                      <label><span>Row platform cost</span><input className="studio-mini-input" type="number" placeholder="Actual cost" onBlur={(event) => event.target.value && updateRowCost(color, event.target.value)} /></label>
-                      <label><span>Row creator price</span><input className="studio-mini-input" type="number" placeholder="Creator pays" onBlur={(event) => event.target.value && updateRowCreatorPrice(color, event.target.value)} /></label>
+                      <label><span>Row platform cost</span><input className="studio-mini-input" type="number" placeholder="Actual cost" onBlur={(event) => event.target.value && updateRowCost(rowValue, event.target.value)} /></label>
+                      <label><span>Row creator price</span><input className="studio-mini-input" type="number" placeholder="Creator pays" onBlur={(event) => event.target.value && updateRowCreatorPrice(rowValue, event.target.value)} /></label>
                     </div>
                   </div>
 
-                  {hasSizeColumns && (
-                    <div className="variation-size-grid" style={{ gridTemplateColumns: `repeat(${matrixColumns.length}, minmax(120px, 1fr))` }}>
-                      {matrixColumns.map((size) => {
-                        const variation = variationByColorSize.get(`${color}|||${size}`);
-                        if (!variation) return <div key={size} className="variation-cell missing">—</div>;
+                  {hasColumnAxis && (
+                    <div className="variation-size-grid" style={{ gridTemplateColumns: `repeat(${columnValues.length}, minmax(120px, 1fr))` }}>
+                      {columnValues.map((columnValue) => {
+                        const variation = variationByRowColumn.get(`${rowValue}|||${columnValue}`);
+                        if (!variation) return <div key={columnValue} className="variation-cell missing">—</div>;
                         const enabled = variation.enabled !== false;
                         return (
                           <div key={variation.id} className={enabled ? "variation-cell active" : "variation-cell"}>
-                            <button type="button" onClick={() => toggleVariation(variation)} className="variation-cell-toggle" title={`${color} / ${size}`}>{enabled ? <CheckSquare size={16} /> : <Square size={16} />}<span>{enabled ? "On" : "Off"}</span></button>
+                            <button type="button" onClick={() => toggleVariation(variation)} className="variation-cell-toggle" title={`${rowValue} / ${columnValue}`}>{enabled ? <CheckSquare size={16} /> : <Square size={16} />}<span>{enabled ? "On" : "Off"}</span></button>
                             <input className="studio-mini-input" type="number" step="0.01" value={variationPlatformCost(variation)} onChange={(event) => updateVariation(variation.id, { ...resolveVariationCostPatch(event.target.value, variation.creator_blank_price) })} />
                           </div>
                         );
@@ -503,7 +517,7 @@ export default function TemplateVariationMatrix({
                   )}
 
                   {rowExpanded && (
-                    <VariationRowDetail color={color} matrixColumns={matrixColumns} hasSizeColumns={hasSizeColumns} variationByColorSize={variationByColorSize} validScreensForOverrides={validScreensForOverrides} uploadingKey={uploadingKey} colourScreenOverride={colourScreenOverride} uploadColourScreenOverride={uploadColourScreenOverride} clearColourScreenOverride={clearColourScreenOverride} updateVariation={updateVariation} toggleVariation={toggleVariation} uploadVariationImage={uploadVariationImage} />
+                    <VariationRowDetail rowValue={rowValue} rowLabel={rowLabel} columnValues={columnValues} columnLabel={columnLabel} hasColumnAxis={hasColumnAxis} variationByRowColumn={variationByRowColumn} validScreensForOverrides={validScreensForOverrides} uploadingKey={uploadingKey} rowScreenOverride={rowScreenOverride} uploadRowScreenOverride={uploadRowScreenOverride} clearRowScreenOverride={clearRowScreenOverride} updateVariation={updateVariation} toggleVariation={toggleVariation} uploadVariationImage={uploadVariationImage} />
                   )}
                 </div>
               );
@@ -518,7 +532,7 @@ export default function TemplateVariationMatrix({
 function SimpleVariationList({ variations, detailSearch, setDetailSearch, updateVariation, toggleVariation, uploadVariationImage }) {
   return (
     <div className="studio-subpanel">
-      <p className="text-zinc-400 text-sm mb-4">No Colour attribute is selected. Edit generated variations below.</p>
+      <p className="text-zinc-400 text-sm mb-4">No matrix axis is selected. Edit generated variations below.</p>
       <input className="input-base mb-4" value={detailSearch} onChange={(event) => setDetailSearch(event.target.value)} placeholder="Search variations" />
       <div className="variation-list-editor">
         {safeArray(variations).map((variation) => (
@@ -534,8 +548,8 @@ function SimpleVariationList({ variations, detailSearch, setDetailSearch, update
   );
 }
 
-function VariationRowDetail({ color, matrixColumns, hasSizeColumns, variationByColorSize, validScreensForOverrides, uploadingKey, colourScreenOverride, uploadColourScreenOverride, clearColourScreenOverride, updateVariation, toggleVariation, uploadVariationImage }) {
-  const variations = matrixColumns.map((size) => ({ size, variation: variationByColorSize.get(`${color}|||${size}`) })).filter((item) => item.variation);
+function VariationRowDetail({ rowValue, rowLabel, columnValues, columnLabel, hasColumnAxis, variationByRowColumn, validScreensForOverrides, uploadingKey, rowScreenOverride, uploadRowScreenOverride, clearRowScreenOverride, updateVariation, toggleVariation, uploadVariationImage }) {
+  const variations = columnValues.map((columnValue) => ({ columnValue, variation: variationByRowColumn.get(`${rowValue}|||${columnValue}`) })).filter((item) => item.variation);
 
   return (
     <div className="variation-row-detail space-y-5">
@@ -549,10 +563,10 @@ function VariationRowDetail({ color, matrixColumns, hasSizeColumns, variationByC
         </div>
 
         <div className="grid lg:grid-cols-2 gap-3">
-          {variations.map(({ size, variation }) => (
+          {variations.map(({ columnValue, variation }) => (
             <div key={variation.id} className="border border-white/10 bg-black/20 rounded-xl p-4">
               <div className="flex items-start justify-between gap-3 mb-4">
-                <div className="flex items-center gap-3 min-w-0"><ImageBox src={imageForVariation(variation)} alt={variationLabel(variation)} className="w-16 h-16 shrink-0" /><div><div className="font-bold text-sm">{hasSizeColumns ? `${color} / ${size}` : color}</div><div className="text-xs text-zinc-500 break-all">{variation.id}</div></div></div>
+                <div className="flex items-center gap-3 min-w-0"><ImageBox src={imageForVariation(variation)} alt={variationLabel(variation)} className="w-16 h-16 shrink-0" /><div><div className="font-bold text-sm">{hasColumnAxis ? `${rowValue} / ${columnValue}` : rowValue}</div><div className="text-[11px] text-zinc-500">{rowLabel}{hasColumnAxis ? ` · ${columnLabel}` : ""}</div><div className="text-xs text-zinc-500 break-all">{variation.id}</div></div></div>
                 <button type="button" onClick={() => toggleVariation(variation)} className={variation.enabled === false ? "studio-pill" : "studio-pill active"}>{variation.enabled === false ? "Disabled" : "Enabled"}</button>
               </div>
 
@@ -572,20 +586,20 @@ function VariationRowDetail({ color, matrixColumns, hasSizeColumns, variationByC
       {validScreensForOverrides.length > 0 && (
         <div className="variation-detail-card variation-override-panel">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
-            <div><div className="font-bold text-sm">Colour-specific mockup view overrides</div><p className="text-xs text-zinc-500 mt-1">Only upload these when this colour needs a different front/back/wrap/base image than the template default.</p></div>
-            <div className="text-[10px] uppercase tracking-widest text-zinc-500">Applies to all {color} variations</div>
+            <div><div className="font-bold text-sm">Variation-row mockup view overrides</div><p className="text-xs text-zinc-500 mt-1">Only upload these when this {rowLabel.toLowerCase()} needs a different front/back/wrap/base image than the template default.</p></div>
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500">Applies to all {rowValue} variations</div>
           </div>
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
             {validScreensForOverrides.map((screen) => {
-              const override = colourScreenOverride(color, screen);
+              const override = rowScreenOverride(rowValue, screen);
               const fallback = screen.image_url || "";
               const baseViewLabel = screen.name || screen.view_key || screen.screen_view || "View";
-              const uploadKey = `${color}-${screen.id || screen.name || "screen"}`;
+              const uploadKey = `${rowValue}-${screen.id || screen.name || "screen"}`;
               return (
                 <div key={screen.id} className="border border-white/10 bg-black/20 rounded-xl p-3">
                   <div className="flex items-start justify-between gap-2 mb-3"><div><div className="text-[10px] uppercase tracking-widest text-zinc-500">Base view</div><div className="font-bold text-xs">{baseViewLabel}</div></div><span className={override ? "studio-pill active" : "studio-pill"}>{override ? "Override" : fallback ? "Default" : "Empty"}</span></div>
-                  <div className="grid grid-cols-2 gap-2 mb-3"><div><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Default</div><ImageBox src={fallback} alt={`Base ${baseViewLabel}`} className="aspect-[4/3]" /></div><div><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Override</div><ImageBox src={override} alt={`${color} ${baseViewLabel} override`} className="aspect-[4/3]" /></div></div>
-                  <div className="flex gap-2"><label className="studio-file-button text-[10px] flex-1 justify-center">{uploadingKey === uploadKey ? "Uploading" : override ? "Replace" : "Upload"}<input type="file" accept="image/*" className="hidden" onChange={(event) => uploadColourScreenOverride(color, screen, event.target.files?.[0])} /></label>{override && <button type="button" className="btn-secondary text-[10px]" onClick={() => clearColourScreenOverride(color, screen)}>Clear</button>}</div>
+                  <div className="grid grid-cols-2 gap-2 mb-3"><div><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Default</div><ImageBox src={fallback} alt={`Base ${baseViewLabel}`} className="aspect-[4/3]" /></div><div><div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Override</div><ImageBox src={override} alt={`${rowValue} ${baseViewLabel} override`} className="aspect-[4/3]" /></div></div>
+                  <div className="flex gap-2"><label className="studio-file-button text-[10px] flex-1 justify-center">{uploadingKey === uploadKey ? "Uploading" : override ? "Replace" : "Upload"}<input type="file" accept="image/*" className="hidden" onChange={(event) => uploadRowScreenOverride(rowValue, screen, event.target.files?.[0])} /></label>{override && <button type="button" className="btn-secondary text-[10px]" onClick={() => clearRowScreenOverride(rowValue, screen)}>Clear</button>}</div>
                 </div>
               );
             })}
