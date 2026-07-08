@@ -7,6 +7,12 @@ const STANDARD_VIEW_OPTIONS = [
   { value: "right_sleeve", label: "Right Sleeve" },
   { value: "pocket", label: "Pocket" },
   { value: "neck_label", label: "Neck Label" },
+  { value: "full_wrap", label: "Full Wrap" },
+  { value: "mug_wrap", label: "Mug Wrap" },
+  { value: "handle_side", label: "Handle Side" },
+  { value: "top", label: "Top" },
+  { value: "bottom", label: "Bottom" },
+  { value: "custom", label: "Custom" },
   { value: "other", label: "Other / Custom" },
 ];
 
@@ -21,6 +27,8 @@ export const PRINT_AREA_OPTIONS = [
   { value: "left_sleeve", label: "Left Sleeve", defaultView: "left_sleeve", defaultSize: "sleeve_15x5_landscape" },
   { value: "right_sleeve", label: "Right Sleeve", defaultView: "right_sleeve", defaultSize: "sleeve_15x5_landscape" },
   { value: "side", label: "Side Print", defaultView: "side", defaultSize: "a4_portrait" },
+  { value: "full_wrap", label: "Full Wrap", defaultView: "full_wrap", defaultSize: "custom" },
+  { value: "mug_wrap", label: "Mug Wrap", defaultView: "mug_wrap", defaultSize: "custom" },
   { value: "custom", label: "Custom", defaultView: "front", defaultSize: "custom" },
 ];
 
@@ -236,62 +244,4 @@ export function buildVariationCombinations(
   };
 
   return walk(0, {}).flat().map((variation, index) => ({ ...variation, sort_order: index }));
-}
-
-
-export function groupVariationsByAttribute(variations, attributeName) {
-  const groups = new Map();
-  safeArray(variations).forEach((variation) => {
-    const key = variation?.attributes?.[attributeName] || "Ungrouped";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(variation);
-  });
-  return Array.from(groups.entries()).map(([name, items]) => ({ name, items }));
-}
-
-export function clampPercent(value, min = 0, max = 100) {
-  return Math.max(min, Math.min(max, Number(value || 0)));
-}
-
-export function normalizeArea(area = {}) {
-  const viewKey = area.view_key || area.screen_view || area.view || "front";
-  const areaKey = area.area_key || "custom";
-  const presetKey = normalisePrintSizeKey(area.standard_print_size_key || area.print_size || "custom");
-  const preset = getPrintSizePreset(presetKey);
-  const dpi = Number(area.dpi || 300);
-
-  const x = clampPercent(Number(area.x_pct ?? area.x ?? 30), 0, 100);
-  const y = clampPercent(Number(area.y_pct ?? area.y ?? 25), 0, 100);
-  const width = clampPercent(Number(area.width_pct ?? area.width ?? 30), 1, 100);
-  const height = clampPercent(Number(area.height_pct ?? area.height ?? 30), 1, 100);
-
-  return {
-    ...area,
-    id: area.id || newId("area"),
-    name: area.name || getPrintAreaOption(areaKey).label || "Print Area",
-    screen_id: area.screen_id || "",
-    screen_view: viewKey,
-    view_key: viewKey,
-    area_key: areaKey,
-    print_size: presetKey,
-    standard_print_size_key: presetKey,
-
-    // Keep both frontend legacy fields and backend percentage fields in sync.
-    x,
-    y,
-    width,
-    height,
-    x_pct: x,
-    y_pct: y,
-    width_pct: width,
-    height_pct: height,
-
-    width_mm: Number(area.width_mm || preset.width_mm || 0),
-    height_mm: Number(area.height_mm || preset.height_mm || 0),
-    dpi,
-    fit_mode: area.fit_mode || "contain",
-    required: Boolean(area.required),
-    allowed_print_option_ids: safeArray(area.allowed_print_option_ids),
-    notes: area.notes || "",
-  };
 }
