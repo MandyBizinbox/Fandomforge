@@ -81,6 +81,14 @@ function imageForVariation(variation) {
   return variation?.image_url || variation?.product_image_url || variation?.mockup_image_url || "";
 }
 
+function variationPrintWidth(variation) {
+  return variation?.print_width_mm ?? variation?.width_mm ?? variation?.print_area_width_mm ?? "";
+}
+
+function variationPrintHeight(variation) {
+  return variation?.print_height_mm ?? variation?.height_mm ?? variation?.print_area_height_mm ?? "";
+}
+
 function ImageBox({ src, alt, className = "" }) {
   return (
     <div className={`bg-black border border-white/10 rounded-lg overflow-hidden flex items-center justify-center ${className}`}>
@@ -222,6 +230,30 @@ export default function TemplateVariationMatrix({
 
   const updateVariation = (variationId, patch) => {
     onVariationsChange(safeArray(variations).map((variation) => (variation.id === variationId ? { ...variation, ...patch } : variation)));
+  };
+
+  const updateVariationPrintSize = (variation, patch) => {
+    const width = patch.print_width_mm ?? variationPrintWidth(variation);
+    const height = patch.print_height_mm ?? variationPrintHeight(variation);
+    updateVariation(variation.id, {
+      ...patch,
+      print_width_mm: width,
+      print_height_mm: height,
+      width_mm: width,
+      height_mm: height,
+      print_area_width_mm: width,
+      print_area_height_mm: height,
+      standard_print_size_key: patch.standard_print_size_key ?? variation.standard_print_size_key ?? `${width || "custom"}x${height || "custom"}`,
+      print_area_overrides: {
+        ...(variation.print_area_overrides || {}),
+        default: {
+          ...(variation.print_area_overrides?.default || {}),
+          width_mm: width,
+          height_mm: height,
+          standard_print_size_key: patch.standard_print_size_key ?? variation.standard_print_size_key ?? `${width || "custom"}x${height || "custom"}`,
+        },
+      },
+    });
   };
 
   const toggleVariation = (variation) => {
@@ -374,7 +406,7 @@ export default function TemplateVariationMatrix({
         <div>
           <div className="overline mb-1">Variations</div>
           <h2 className="font-display text-2xl uppercase">Variation Matrix</h2>
-          <p className="text-xs text-zinc-500 mt-1">Configure supplier variation images, blank costs, creator prices, SKUs and variation-specific mockup overrides.</p>
+          <p className="text-xs text-zinc-500 mt-1">Configure supplier variation images, print size overrides, blank costs, creator prices, SKUs and variation-specific mockup overrides.</p>
           {singleAxisMode && <p className="text-xs text-[#FFB020] mt-2">Single-axis mode active. Use the arrow on each {rowLabel.toLowerCase()} row to open image, pricing and override controls.</p>}
         </div>
         <button type="button" onClick={generateVariations} className="btn-primary text-xs"><Wand2 size={14} /> Generate</button>
@@ -452,7 +484,7 @@ export default function TemplateVariationMatrix({
       {safeArray(variations).length === 0 ? (
         <div className="studio-empty-state"><Wand2 size={24} className="text-zinc-600" /><p className="font-bold uppercase tracking-widest text-sm">No variations generated yet</p><p className="text-zinc-500 text-sm">Select one or more attributes, then click Generate.</p></div>
       ) : simpleListMode ? (
-        <SimpleVariationList variations={visibleSimpleVariations} detailSearch={detailSearch} setDetailSearch={setDetailSearch} updateVariation={updateVariation} toggleVariation={toggleVariation} uploadVariationImage={uploadVariationImage} />
+        <SimpleVariationList variations={visibleSimpleVariations} detailSearch={detailSearch} setDetailSearch={setDetailSearch} updateVariation={updateVariation} toggleVariation={toggleVariation} uploadVariationImage={uploadVariationImage} updateVariationPrintSize={updateVariationPrintSize} />
       ) : (
         <div className="variation-matrix-board">
           {hasColumnAxis && (
@@ -510,6 +542,7 @@ export default function TemplateVariationMatrix({
                           <div key={variation.id} className={enabled ? "variation-cell active" : "variation-cell"}>
                             <button type="button" onClick={() => toggleVariation(variation)} className="variation-cell-toggle" title={`${rowValue} / ${columnValue}`}>{enabled ? <CheckSquare size={16} /> : <Square size={16} />}<span>{enabled ? "On" : "Off"}</span></button>
                             <input className="studio-mini-input" type="number" step="0.01" value={variationPlatformCost(variation)} onChange={(event) => updateVariation(variation.id, { ...resolveVariationCostPatch(event.target.value, variation.creator_blank_price) })} />
+                            <div className="text-[10px] text-zinc-500 mt-1">{variationPrintWidth(variation) || "—"}×{variationPrintHeight(variation) || "—"}mm</div>
                           </div>
                         );
                       })}
@@ -517,7 +550,7 @@ export default function TemplateVariationMatrix({
                   )}
 
                   {rowExpanded && (
-                    <VariationRowDetail rowValue={rowValue} rowLabel={rowLabel} columnValues={columnValues} columnLabel={columnLabel} hasColumnAxis={hasColumnAxis} variationByRowColumn={variationByRowColumn} validScreensForOverrides={validScreensForOverrides} uploadingKey={uploadingKey} rowScreenOverride={rowScreenOverride} uploadRowScreenOverride={uploadRowScreenOverride} clearRowScreenOverride={clearRowScreenOverride} updateVariation={updateVariation} toggleVariation={toggleVariation} uploadVariationImage={uploadVariationImage} />
+                    <VariationRowDetail rowValue={rowValue} rowLabel={rowLabel} columnValues={columnValues} columnLabel={columnLabel} hasColumnAxis={hasColumnAxis} variationByRowColumn={variationByRowColumn} validScreensForOverrides={validScreensForOverrides} uploadingKey={uploadingKey} rowScreenOverride={rowScreenOverride} uploadRowScreenOverride={uploadRowScreenOverride} clearRowScreenOverride={clearRowScreenOverride} updateVariation={updateVariation} updateVariationPrintSize={updateVariationPrintSize} toggleVariation={toggleVariation} uploadVariationImage={uploadVariationImage} />
                   )}
                 </div>
               );
@@ -529,7 +562,7 @@ export default function TemplateVariationMatrix({
   );
 }
 
-function SimpleVariationList({ variations, detailSearch, setDetailSearch, updateVariation, toggleVariation, uploadVariationImage }) {
+function SimpleVariationList({ variations, detailSearch, setDetailSearch, updateVariation, toggleVariation, uploadVariationImage, updateVariationPrintSize }) {
   return (
     <div className="studio-subpanel">
       <p className="text-zinc-400 text-sm mb-4">No matrix axis is selected. Edit generated variations below.</p>
@@ -540,6 +573,8 @@ function SimpleVariationList({ variations, detailSearch, setDetailSearch, update
             <div className="flex items-center gap-3 min-w-0"><ImageBox src={imageForVariation(variation)} alt={variationLabel(variation)} className="variation-colour-image shrink-0" /><div><div className="font-bold text-sm">{variationLabel(variation)}</div><div className="text-xs text-zinc-500">{variation.supplier_sku || "No supplier SKU"}</div></div></div>
             <label className="studio-file-button text-[10px]">Upload image<input type="file" accept="image/*" className="hidden" onChange={(event) => uploadVariationImage([variation.id], event.target.files?.[0], variationLabel(variation))} /></label>
             <input className="studio-mini-input" type="number" step="0.01" value={variationPlatformCost(variation)} onChange={(event) => updateVariation(variation.id, { ...resolveVariationCostPatch(event.target.value, variation.creator_blank_price) })} />
+            <input className="studio-mini-input" type="number" step="0.1" placeholder="Print width mm" value={variationPrintWidth(variation)} onChange={(event) => updateVariationPrintSize(variation, { print_width_mm: event.target.value })} />
+            <input className="studio-mini-input" type="number" step="0.1" placeholder="Print height mm" value={variationPrintHeight(variation)} onChange={(event) => updateVariationPrintSize(variation, { print_height_mm: event.target.value })} />
             <button type="button" onClick={() => toggleVariation(variation)} className={variation.enabled === false ? "matrix-toggle compact" : "matrix-toggle compact active"}>{variation.enabled === false ? "Off" : "On"}</button>
           </div>
         ))}
@@ -548,7 +583,7 @@ function SimpleVariationList({ variations, detailSearch, setDetailSearch, update
   );
 }
 
-function VariationRowDetail({ rowValue, rowLabel, columnValues, columnLabel, hasColumnAxis, variationByRowColumn, validScreensForOverrides, uploadingKey, rowScreenOverride, uploadRowScreenOverride, clearRowScreenOverride, updateVariation, toggleVariation, uploadVariationImage }) {
+function VariationRowDetail({ rowValue, rowLabel, columnValues, columnLabel, hasColumnAxis, variationByRowColumn, validScreensForOverrides, uploadingKey, rowScreenOverride, uploadRowScreenOverride, clearRowScreenOverride, updateVariation, updateVariationPrintSize, toggleVariation, uploadVariationImage }) {
   const variations = columnValues.map((columnValue) => ({ columnValue, variation: variationByRowColumn.get(`${rowValue}|||${columnValue}`) })).filter((item) => item.variation);
 
   return (
@@ -556,8 +591,8 @@ function VariationRowDetail({ rowValue, rowLabel, columnValues, columnLabel, has
       <div className="variation-detail-card">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
-            <div className="font-bold text-sm">Variation image and blank pricing</div>
-            <p className="text-xs text-zinc-500 mt-1">This is the supplier variation image, blank cost, creator blank price and supplier SKU setup.</p>
+            <div className="font-bold text-sm">Variation image, print size and blank pricing</div>
+            <p className="text-xs text-zinc-500 mt-1">Each generated combination is its own production record. Set images and print dimensions per variation where needed.</p>
           </div>
           <div className="text-[10px] uppercase tracking-widest text-zinc-500">{variations.length} record(s)</div>
         </div>
@@ -572,6 +607,10 @@ function VariationRowDetail({ rowValue, rowLabel, columnValues, columnLabel, has
 
               <div className="grid sm:grid-cols-2 gap-2">
                 <label className="sm:col-span-2 studio-file-button justify-center text-xs">Upload this variation image<input type="file" accept="image/*" className="hidden" onChange={(event) => uploadVariationImage([variation.id], event.target.files?.[0], variationLabel(variation))} /></label>
+                <label><span className="label">Variation print width mm</span><input className="input-base text-sm" type="number" step="0.1" value={variationPrintWidth(variation)} onChange={(event) => updateVariationPrintSize(variation, { print_width_mm: event.target.value })} /></label>
+                <label><span className="label">Variation print height mm</span><input className="input-base text-sm" type="number" step="0.1" value={variationPrintHeight(variation)} onChange={(event) => updateVariationPrintSize(variation, { print_height_mm: event.target.value })} /></label>
+                <label className="sm:col-span-2"><span className="label">Print size key / label</span><input className="input-base text-sm" value={variation.standard_print_size_key || ""} onChange={(event) => updateVariationPrintSize(variation, { standard_print_size_key: event.target.value })} placeholder="e.g. 5cm, 7cm, 50x50mm" /></label>
+                <div className="sm:col-span-2 text-[11px] text-zinc-500 border border-white/10 bg-black/20 rounded-xl p-3">These values override the template print dimensions for this variation. Use this for items such as White 5cm, White 7cm, Clear 5cm and Clear 7cm.</div>
                 <label><span className="label">Platform blank cost</span><input className="input-base text-sm" type="number" step="0.01" value={variationPlatformCost(variation)} onChange={(event) => updateVariation(variation.id, { ...resolveVariationCostPatch(event.target.value, variation.creator_blank_price) })} /></label>
                 <label><span className="label">Creator blank price</span><input className="input-base text-sm" type="number" step="0.01" value={variationCreatorPrice(variation)} onChange={(event) => updateVariation(variation.id, { ...resolveVariationCostPatch(variationPlatformCost(variation), event.target.value) })} /></label>
                 <div className="variation-profit-summary"><span>Profit</span><strong>{money(variationCreatorPrice(variation) - variationPlatformCost(variation))}</strong></div>
