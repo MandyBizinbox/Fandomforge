@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
-import { CheckSquare, Square } from "lucide-react";
+import { CheckSquare, Image as ImageIcon, Square } from "lucide-react";
+import { assetUrl } from "../../lib/api";
 import {
   asArray,
   getVariationCost,
@@ -8,6 +9,61 @@ import {
   getVariationSizeGroupSections,
   money,
 } from "./productBuilderUtils";
+
+function firstTruthy(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "") || "";
+}
+
+function getVariationOverrideImage(variation = {}) {
+  const overrides = variation.mockup_screen_overrides || {};
+  return Object.values(overrides).find(Boolean) || "";
+}
+
+function getTemplateFallbackImage(template = {}) {
+  return firstTruthy(
+    template.creator_catalogue_thumbnail_url,
+    template.product_image_url,
+    template.mockup_url,
+    asArray(template.mockup_images)[0],
+    asArray(template.mockup_screens).find((screen) => screen.image_url)?.image_url
+  );
+}
+
+function getVariationImage(variation = {}, template = {}, row = null) {
+  const rowImage = asArray(row?.items).find((item) => item.image_url)?.image_url;
+  const rowOverride = asArray(row?.items).map(getVariationOverrideImage).find(Boolean);
+
+  return firstTruthy(
+    variation.image_url,
+    variation.product_image_url,
+    variation.mockup_image_url,
+    getVariationOverrideImage(variation),
+    rowImage,
+    rowOverride,
+    getTemplateFallbackImage(template)
+  );
+}
+
+function VariationImagePreview({ image, label, size = "md" }) {
+  const sizeClass = size === "sm" ? "w-10 h-10" : "w-14 h-14";
+
+  return (
+    <div className={`${sizeClass} shrink-0 rounded-lg border border-white/10 bg-black/40 flex items-center justify-center overflow-hidden`}>
+      {image ? (
+        <img
+          src={assetUrl(image)}
+          alt={label || "Variation"}
+          className="w-full h-full object-contain"
+          onError={(event) => {
+            event.currentTarget.style.display = "none";
+          }}
+        />
+      ) : (
+        <ImageIcon size={size === "sm" ? 16 : 20} className="text-zinc-700" />
+      )}
+    </div>
+  );
+}
 
 export default function ProductVariationMatrix({ template, selectedIds, onChange, hasTemplateVariations = true }) {
   const [filter, setFilter] = useState("");
@@ -95,9 +151,9 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
             <table className="w-full text-sm product-variation-table">
               <thead>
                 <tr className="bg-white/[0.04] border-b border-white/10">
-                  <th className="text-left p-3 sticky left-0 z-10 bg-[#111] min-w-[180px]">Colour</th>
+                  <th className="text-left p-3 sticky left-0 z-10 bg-[#111] min-w-[230px]">Colour</th>
                   {section.sizes.map((size) => (
-                    <th key={size} className="p-3 min-w-[110px] text-center">
+                    <th key={size} className="p-3 min-w-[120px] text-center">
                       <button type="button" className="text-xs uppercase tracking-widest text-zinc-300 hover:text-[#FF3B30]" onClick={() => toggleColumn(size)}>
                         {size}
                       </button>
@@ -109,6 +165,8 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
                 {section.rows.map((row) => {
                   const rowIds = row.items.map((variation) => variation.id);
                   const selectedCount = rowIds.filter((id) => selected.has(id)).length;
+                  const rowImage = getVariationImage(row.items[0], template, row);
+
                   return (
                     <tr key={`${section.label}-${row.colour}`} className="border-b border-white/5 hover:bg-white/[0.02]">
                       <td className="p-3 sticky left-0 z-10 bg-[#0f0f0f] align-top">
@@ -116,9 +174,13 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
                           <span className="mt-1 text-[#FF3B30]">
                             {selectedCount === rowIds.length && rowIds.length > 0 ? <CheckSquare size={16} /> : <Square size={16} />}
                           </span>
-                          <span>
-                            <span className="font-bold text-white block">{row.colour}</span>
-                            <span className="text-xs text-zinc-500">{selectedCount}/{rowIds.length} selected</span>
+                          <VariationImagePreview image={rowImage} label={row.colour} />
+                          <span className="min-w-0">
+                            <span className="font-bold text-white block truncate">{row.colour}</span>
+                            <span className="text-xs text-zinc-500 block">{selectedCount}/{rowIds.length} selected</span>
+                            <span className="text-[10px] uppercase tracking-widest text-zinc-600 block mt-1">
+                              {rowImage ? "Variation image ready" : "Using placeholder"}
+                            </span>
                           </span>
                         </button>
                       </td>
@@ -128,6 +190,7 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
                           return <td key={size} className="p-3 text-center text-zinc-700">—</td>;
                         }
                         const active = selected.has(variation.id);
+                        const variationImage = getVariationImage(variation, template, row);
                         return (
                           <td key={variation.id} className="p-2 text-center align-top">
                             <button
@@ -135,6 +198,9 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
                               onClick={() => toggleOne(variation.id)}
                               className={`w-full rounded-lg border p-2 transition ${active ? "border-[#FF3B30] bg-[#FF3B30]/15" : "border-white/10 bg-black/30 hover:border-white/30"}`}
                             >
+                              <div className="flex justify-center mb-2">
+                                <VariationImagePreview image={variationImage} label={`${row.colour} ${size}`} size="sm" />
+                              </div>
                               <span className={`block text-xs uppercase tracking-widest ${active ? "text-white" : "text-zinc-500"}`}>{active ? "On" : "Off"}</span>
                               <span className="block text-[11px] text-zinc-500 mt-1">{money(getVariationCost(variation, template))}</span>
                             </button>
