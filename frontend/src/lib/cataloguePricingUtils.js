@@ -46,6 +46,61 @@ const COST_KEYS = [
   "calculated_print_cost",
   "raw_print_cost",
   "minimum_print_cost",
+  "min_print_cost",
+  "minimum_cost",
+  "minimum_price",
+  "min_cost",
+];
+
+const RATE_KEYS = [
+  "cost_per_cm2",
+  "cost_per_cm",
+  "rate_per_cm2",
+  "price_per_cm2",
+  "print_cost_per_cm2",
+  "platform_cost_per_cm2",
+  "creator_cost_per_cm2",
+  "area_cost_per_cm2",
+  "area_rate_per_cm2",
+  "material_cost_per_cm2",
+  "cost_per_square_cm",
+  "price_per_square_cm",
+  "per_cm2",
+  "cm2_rate",
+];
+
+const AREA_KEYS = [
+  "area_cm2",
+  "print_area_cm2",
+  "charged_area_cm2",
+  "dynamic_area_cm2",
+  "default_area_cm2",
+  "area_square_cm",
+  "print_area_square_cm",
+];
+
+const WIDTH_KEYS = [
+  "width_mm",
+  "print_width_mm",
+  "print_area_width_mm",
+  "charged_width_mm",
+  "printable_width_mm",
+  "max_width_mm",
+  "default_width_mm",
+  "artwork_width_mm",
+  "placement_box_width_mm",
+];
+
+const HEIGHT_KEYS = [
+  "height_mm",
+  "print_height_mm",
+  "print_area_height_mm",
+  "charged_height_mm",
+  "printable_height_mm",
+  "max_height_mm",
+  "default_height_mm",
+  "artwork_height_mm",
+  "placement_box_height_mm",
 ];
 
 export function safeArray(value) {
@@ -65,15 +120,42 @@ function isFilled(value) {
   return value !== undefined && value !== null && value !== "";
 }
 
-function positiveNumber(value) {
+function parseNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === "string") {
+    const cleaned = value
+      .replace(/R/gi, "")
+      .replace(/%/g, "")
+      .replace(/\s+/g, "")
+      .replace(/,/g, ".");
+    const number = Number(cleaned);
+    return Number.isFinite(number) ? number : 0;
+  }
+
   const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : 0;
+  return Number.isFinite(number) ? number : 0;
+}
+
+function positiveNumber(value) {
+  const number = parseNumber(value);
+  return number > 0 ? number : 0;
 }
 
 function firstPositive(...values) {
   for (const value of values) {
     const number = positiveNumber(value);
     if (number > 0) return number;
+  }
+  return 0;
+}
+
+function firstPositiveByKeys(source = {}, keys = []) {
+  for (const key of keys) {
+    const value = positiveNumber(source?.[key]);
+    if (value > 0) return value;
   }
   return 0;
 }
@@ -123,28 +205,34 @@ export function isActiveV1PrintOption(option = {}) {
   return keys.some((key) => ACTIVE_METHOD_KEYS.has(key) || [...ACTIVE_METHOD_KEYS].some((active) => key.includes(active)));
 }
 
+function copyPositiveNumericFallback(merged, globalOption, localOption, keys) {
+  keys.forEach((key) => {
+    if (positiveNumber(localOption?.[key]) <= 0 && positiveNumber(globalOption?.[key]) > 0) {
+      merged[key] = globalOption[key];
+    }
+  });
+}
+
 function mergeOption(globalOption = {}, localOption = {}, id = "") {
   const merged = { ...globalOption, ...localOption };
   if (id || localOption.id || globalOption.id) merged.id = id || localOption.id || globalOption.id;
 
-  COST_KEYS.forEach((key) => {
-    if (positiveNumber(localOption[key]) <= 0 && positiveNumber(globalOption[key]) > 0) {
-      merged[key] = globalOption[key];
-    }
-  });
-
-  [
-    "calculation_type",
+  copyPositiveNumericFallback(merged, globalOption, localOption, COST_KEYS);
+  copyPositiveNumericFallback(merged, globalOption, localOption, RATE_KEYS);
+  copyPositiveNumericFallback(merged, globalOption, localOption, AREA_KEYS);
+  copyPositiveNumericFallback(merged, globalOption, localOption, WIDTH_KEYS);
+  copyPositiveNumericFallback(merged, globalOption, localOption, HEIGHT_KEYS);
+  copyPositiveNumericFallback(merged, globalOption, localOption, [
     "sheet_width_mm",
     "sheet_height_mm",
     "sheet_cost",
-    "cost_per_cm2",
-    "minimum_print_cost",
     "waste_percentage",
     "markup_percentage",
+  ]);
+
+  [
+    "calculation_type",
     "standard_print_size_key",
-    "width_mm",
-    "height_mm",
     "dpi",
     "fit_mode",
     "print_positions",
@@ -199,39 +287,23 @@ function optionArea(template = {}, option = {}) {
     areas.find((area) => optionAreaId && String(area.id) === optionAreaId) ||
     areas.find((area) => optionId && safeArray(area.allowed_print_option_ids).map(String).includes(optionId)) ||
     areas.find((area) => optionSizeKey && (area.standard_print_size_key === optionSizeKey || area.print_size === optionSizeKey)) ||
+    areas.find((area) => area.area_key === "full_wrap" || area.area_key === "full_surface" || area.view_key === "mug_wrap" || area.view_key === "full_wrap") ||
+    areas[0] ||
     {}
   );
 }
 
 function optionDimensions(option = {}, area = {}) {
-  const widthMm = firstPositive(
-    option.width_mm,
-    option.print_width_mm,
-    option.print_area_width_mm,
-    option.charged_width_mm,
-    area.width_mm,
-    area.print_width_mm,
-    area.print_area_width_mm,
-    area.charged_width_mm
-  );
-  const heightMm = firstPositive(
-    option.height_mm,
-    option.print_height_mm,
-    option.print_area_height_mm,
-    option.charged_height_mm,
-    area.height_mm,
-    area.print_height_mm,
-    area.print_area_height_mm,
-    area.charged_height_mm
-  );
+  const widthMm = firstPositive(firstPositiveByKeys(option, WIDTH_KEYS), firstPositiveByKeys(area, WIDTH_KEYS));
+  const heightMm = firstPositive(firstPositiveByKeys(option, HEIGHT_KEYS), firstPositiveByKeys(area, HEIGHT_KEYS));
 
   return { widthMm, heightMm };
 }
 
 function applyWasteAndMarkup(cost, option = {}) {
   let resolved = Number(cost || 0);
-  const wastePercentage = positiveNumber(option.waste_percentage);
-  const markupPercentage = positiveNumber(option.markup_percentage);
+  const wastePercentage = firstPositive(option.waste_percentage, option.waste_percent);
+  const markupPercentage = firstPositive(option.markup_percentage, option.markup_percent);
 
   if (wastePercentage > 0) resolved *= 1 + wastePercentage / 100;
   if (markupPercentage > 0) resolved *= 1 + markupPercentage / 100;
@@ -239,7 +311,49 @@ function applyWasteAndMarkup(cost, option = {}) {
   return resolved;
 }
 
+function optionTypeText(option = {}) {
+  return normaliseKey([
+    option.calculation_type,
+    option.pricing_model,
+    option.costing_model,
+    option.standard_print_size_key,
+    option.print_size,
+    option.size_band,
+    option.rule_name,
+  ].filter(isFilled).join(" "));
+}
+
+function isDynamicAreaType(option = {}) {
+  const type = optionTypeText(option);
+  return (
+    type.includes("area fixed") ||
+    type.includes("area fixed rate") ||
+    type.includes("area_fixed") ||
+    type.includes("dynamic area") ||
+    type.includes("dynamic_area") ||
+    type.includes("dynamic area cm2") ||
+    type.includes("dynamic_area_cm2") ||
+    type.includes("cm2") ||
+    type.includes("cm²") ||
+    type.includes("per cm")
+  );
+}
+
+function isAreaFromSheetType(option = {}) {
+  const type = optionTypeText(option);
+  return type.includes("area from sheet") || type.includes("area_from_sheet");
+}
+
+function isFullSheetType(option = {}) {
+  const type = optionTypeText(option);
+  return type === "sheet" || type.includes("full sheet") || type.includes("full_sheet");
+}
+
 export function optionPrice(option = {}, area = {}) {
+  const dynamicArea = isDynamicAreaType(option);
+  const fromSheet = isAreaFromSheetType(option);
+  const fullSheet = isFullSheetType(option);
+
   const explicit = firstPositive(
     option.creator_print_price,
     option.print_cost_max,
@@ -251,31 +365,35 @@ export function optionPrice(option = {}, area = {}) {
     option.raw_print_cost
   );
 
-  if (explicit > 0) return explicit;
+  if (explicit > 0 && !dynamicArea && !fromSheet && !fullSheet) return explicit;
 
-  const type = normaliseKey(option.calculation_type || "fixed");
-  const minimum = positiveNumber(option.minimum_print_cost);
+  const minimum = firstPositiveByKeys(option, ["minimum_print_cost", "min_print_cost", "minimum_cost", "minimum_price", "min_cost"]);
+  const ratePerCm2 = firstPositiveByKeys(option, RATE_KEYS);
   const { widthMm, heightMm } = optionDimensions(option, area);
-  const areaCm2 = firstPositive(option.area_cm2, option.print_area_cm2, option.charged_area_cm2, widthMm && heightMm ? (widthMm * heightMm) / 100 : 0);
-  const areaMm2 = widthMm && heightMm ? widthMm * heightMm : 0;
+  const areaCm2 = firstPositive(
+    firstPositiveByKeys(option, AREA_KEYS),
+    firstPositiveByKeys(area, AREA_KEYS),
+    widthMm && heightMm ? (widthMm * heightMm) / 100 : 0
+  );
+  const areaMm2 = widthMm && heightMm ? widthMm * heightMm : areaCm2 * 100;
 
   let calculated = 0;
 
-  if (type.includes("area fixed") || type.includes("area fixed rate") || type.includes("area_fixed")) {
-    calculated = areaCm2 * positiveNumber(option.cost_per_cm2);
-  } else if (type.includes("area from sheet") || type.includes("area_from_sheet") || type === "sheet") {
-    const sheetWidth = positiveNumber(option.sheet_width_mm);
-    const sheetHeight = positiveNumber(option.sheet_height_mm);
+  if (dynamicArea) {
+    calculated = areaCm2 > 0 && ratePerCm2 > 0 ? areaCm2 * ratePerCm2 : 0;
+  } else if (fromSheet || fullSheet) {
+    const sheetWidth = firstPositive(option.sheet_width_mm, option.sheetWidthMm, option.sheet_width);
+    const sheetHeight = firstPositive(option.sheet_height_mm, option.sheetHeightMm, option.sheet_height);
     const sheetArea = sheetWidth * sheetHeight;
-    const sheetCost = positiveNumber(option.sheet_cost);
+    const sheetCost = firstPositive(option.sheet_cost, option.sheetCost, option.full_sheet_cost);
 
-    if (sheetCost > 0 && sheetArea > 0 && areaMm2 > 0) {
+    if (fromSheet && sheetCost > 0 && sheetArea > 0 && areaMm2 > 0) {
       calculated = (areaMm2 / sheetArea) * sheetCost;
-    } else if (sheetCost > 0 && type === "sheet") {
+    } else if (fullSheet && sheetCost > 0) {
       calculated = sheetCost;
     }
-  } else if (type === "fixed") {
-    calculated = minimum;
+  } else if (explicit > 0) {
+    calculated = explicit;
   }
 
   calculated = applyWasteAndMarkup(calculated, option);
@@ -288,8 +406,8 @@ function optionSizeText(option = {}) {
 
 export function sizeBand(option = {}) {
   const text = normaliseKey(optionSizeText(option));
-  const width = Number(option.width_mm || 0);
-  const height = Number(option.height_mm || 0);
+  const width = positiveNumber(option.width_mm || option.print_width_mm || option.print_area_width_mm || option.max_width_mm);
+  const height = positiveNumber(option.height_mm || option.print_height_mm || option.print_area_height_mm || option.max_height_mm);
   const longest = Math.max(width, height);
 
   if (text.includes("full") || text.includes("wrap") || text.includes("front full") || text.includes("back full") || longest >= 280) {
@@ -309,7 +427,7 @@ export function pricingBands(template = {}, globalPrintOptions = []) {
     const cost = optionPrice(option, area);
     if (cost <= 0) return;
 
-    const band = sizeBand(option);
+    const band = sizeBand({ ...option, ...optionDimensions(option, area) });
     const existing = byBand.get(band);
     if (!existing || cost < existing.estimated_print_cost) {
       byBand.set(band, {
