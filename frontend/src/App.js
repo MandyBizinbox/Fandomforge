@@ -22,6 +22,7 @@ import OrderTracking from "./pages/OrderTracking";
 import ApplyPrinter from "./pages/ApplyPrinter";
 import BandProfileSetup from "./pages/BandProfileSetup";
 import BandDashboard from "./pages/BandDashboard";
+import CreatorCataloguePricing from "./pages/CreatorCataloguePricing";
 import PrinterDashboard from "./pages/PrinterDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import ManagerDashboard from "./pages/ManagerDashboard";
@@ -143,6 +144,15 @@ function AppRoutes() {
         element={
           <Protected roles={["buyer", "creator", "creator", "admin", "super_admin"]}>
             <BandProfileSetup />
+          </Protected>
+        }
+      />
+
+      <Route
+        path="/creator/catalogue-pricing"
+        element={
+          <Protected roles={["creator", "admin", "super_admin"]}>
+            <CreatorCataloguePricing />
           </Protected>
         }
       />
