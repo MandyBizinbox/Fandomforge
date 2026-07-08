@@ -5,22 +5,11 @@ import { toast } from "sonner";
 import { http, assetUrl } from "../../lib/api";
 import StatusBadge from "../StatusBadge";
 import { money, safeArray } from "./templateStudioUtils";
-
-const ACTIVE_V1_METHOD_KEYS = new Set([
-  "sublimation",
-  "dtf",
-  "dtf transfer",
-  "dtf transfers",
-  "uv dtf",
-  "uv_dtf",
-  "htv",
-  "heat transfer vinyl",
-  "adhesive vinyl",
-  "adhesive_vinyl",
-  "vinyl sticker",
-  "sticker",
-  "stickers",
-]);
+import {
+  methodKey as resolvedMethodKey,
+  templatePrintOptions as resolveTemplatePrintOptions,
+  templatePricingInfo,
+} from "../../lib/cataloguePricingUtils";
 
 const INACTIVE_METHOD_KEYS = ["laser", "screen print", "screen printing", "screen_print", "embroidery"];
 
@@ -30,18 +19,6 @@ function normalise(value) {
     .toLowerCase()
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ");
-}
-
-function methodKey(option = {}) {
-  return normalise(option.print_method || option.method || option.method_key || option.rule_name || option.name || option.id);
-}
-
-function isActiveV1PrintOption(option = {}) {
-  if (!option || option.status === "inactive" || option.status === "archived") return false;
-  const key = methodKey(option);
-  if (!key) return false;
-  if (INACTIVE_METHOD_KEYS.some((inactive) => key.includes(inactive))) return false;
-  return ACTIVE_V1_METHOD_KEYS.has(key) || [...ACTIVE_V1_METHOD_KEYS].some((activeKey) => key.includes(activeKey));
 }
 
 function firstTruthy(...values) {
@@ -85,19 +62,20 @@ function blankCost(template = {}) {
   );
 }
 
-function templatePrintOptions(template = {}) {
-  return safeArray(template.print_options).filter((option) => option?.id || option?.method || option?.print_method || option?.rule_name);
+function templatePrintOptions(template = {}, globalPrintOptions = []) {
+  return resolveTemplatePrintOptions(template, globalPrintOptions);
 }
 
-function activeV1Options(template = {}) {
-  return templatePrintOptions(template).filter(isActiveV1PrintOption);
+function activeV1Options(template = {}, globalPrintOptions = []) {
+  return templatePricingInfo(template, globalPrintOptions).activeOptions;
 }
 
-function readiness(template = {}) {
+function readiness(template = {}, globalPrintOptions = []) {
   const enabledVariations = safeArray(template.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
   const activeScreens = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted);
   const activeAreas = safeArray(template.print_areas).filter((area) => area.status !== "archived" && !area.archived && !area.deleted);
-  const activeMethods = activeV1Options(template);
+  const pricingInfo = templatePricingInfo(template, globalPrintOptions);
+  const activeMethods = activeV1Options(template, globalPrintOptions);
 
   const checks = {
     mainImage: Boolean(templateImage(template)),
@@ -107,7 +85,7 @@ function readiness(template = {}) {
     printAreas: activeAreas.length > 0,
     printAreaViews: activeScreens.length > 0,
     mockup: Boolean(template.mockup_url || safeArray(template.mockup_images)[0] || activeScreens.some((screen) => screen.image_url)),
-    creatorPricing: activeMethods.some((option) => Number(option.creator_print_price ?? option.print_cost_max ?? option.platform_print_cost ?? 0) > 0) && blankCost(template) > 0,
+    creatorPricing: pricingInfo.hasPricing && blankCost(template) > 0,
   };
 
   const missing = [];
@@ -134,33 +112,37 @@ function readiness(template = {}) {
   else if (!checks.mockup) label = "Needs mockups";
   else if (pricingReady) label = "Pricing ready";
 
-  return { checks, missing, pricingReady, launchReady, label, activeMethods };
+  return { checks, missing, pricingReady, launchReady, label, activeMethods, pricingInfo };
 }
 
-function countWhere(templates, predicate) {
-  return safeArray(templates).filter((template) => predicate(readiness(template), template)).length;
+function countWhere(templates, predicate, globalPrintOptions = []) {
+  return safeArray(templates).filter((template) => predicate(readiness(template, globalPrintOptions), template)).length;
 }
 
-function templateStats(templates) {
+function templateStats(templates, globalPrintOptions = []) {
   const rows = safeArray(templates);
   return {
     total: rows.length,
     active: rows.filter((template) => !["inactive", "archived"].includes(normalise(template.status))).length,
-    launchReady: countWhere(rows, (ready) => ready.launchReady),
-    missingImages: countWhere(rows, (ready) => !ready.checks.mainImage),
-    missingVariationImages: countWhere(rows, (ready) => !ready.checks.variationImages),
-    missingBlankCost: countWhere(rows, (ready) => !ready.checks.blankCost),
-    missingPrintAreas: countWhere(rows, (ready) => !ready.checks.printAreas || !ready.checks.printAreaViews),
-    missingMockups: countWhere(rows, (ready) => !ready.checks.mockup),
-    missingCreatorPricing: countWhere(rows, (ready) => !ready.checks.creatorPricing),
-    inactiveMethods: countWhere(rows, (ready, template) => templatePrintOptions(template).some((option) => INACTIVE_METHOD_KEYS.some((inactive) => methodKey(option).includes(inactive)))),
-    manualReview: countWhere(rows, (ready) => !ready.launchReady),
+    launchReady: countWhere(rows, (ready) => ready.launchReady, globalPrintOptions),
+    missingImages: countWhere(rows, (ready) => !ready.checks.mainImage, globalPrintOptions),
+    missingVariationImages: countWhere(rows, (ready) => !ready.checks.variationImages, globalPrintOptions),
+    missingBlankCost: countWhere(rows, (ready) => !ready.checks.blankCost, globalPrintOptions),
+    missingPrintAreas: countWhere(rows, (ready) => !ready.checks.printAreas || !ready.checks.printAreaViews, globalPrintOptions),
+    missingMockups: countWhere(rows, (ready) => !ready.checks.mockup, globalPrintOptions),
+    missingCreatorPricing: countWhere(rows, (ready) => !ready.checks.creatorPricing, globalPrintOptions),
+    inactiveMethods: countWhere(
+      rows,
+      (ready, template) => templatePrintOptions(template, globalPrintOptions).some((option) => INACTIVE_METHOD_KEYS.some((inactive) => resolvedMethodKey(option).includes(inactive))),
+      globalPrintOptions
+    ),
+    manualReview: countWhere(rows, (ready) => !ready.launchReady, globalPrintOptions),
   };
 }
 
-function readinessMatchesFilter(template, filter) {
+function readinessMatchesFilter(template, filter, globalPrintOptions = []) {
   if (filter === "all") return true;
-  const ready = readiness(template);
+  const ready = readiness(template, globalPrintOptions);
 
   if (filter === "launch_ready") return ready.launchReady;
   if (filter === "pricing_ready") return ready.pricingReady;
@@ -170,7 +152,7 @@ function readinessMatchesFilter(template, filter) {
   if (filter === "needs_print_areas") return !ready.checks.printAreas || !ready.checks.printAreaViews;
   if (filter === "needs_mockups") return !ready.checks.mockup;
   if (filter === "needs_creator_pricing") return !ready.checks.creatorPricing;
-  if (filter === "inactive_methods") return templatePrintOptions(template).some((option) => INACTIVE_METHOD_KEYS.some((inactive) => methodKey(option).includes(inactive)));
+  if (filter === "inactive_methods") return templatePrintOptions(template, globalPrintOptions).some((option) => INACTIVE_METHOD_KEYS.some((inactive) => resolvedMethodKey(option).includes(inactive)));
   if (filter === "manual_review") return !ready.launchReady;
 
   return true;
@@ -178,6 +160,7 @@ function readinessMatchesFilter(template, filter) {
 
 export default function ProductTemplatesPage() {
   const [templates, setTemplates] = useState([]);
+  const [printOptions, setPrintOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [duplicatingId, setDuplicatingId] = useState("");
   const [status, setStatus] = useState("all");
@@ -188,10 +171,15 @@ export default function ProductTemplatesPage() {
     setLoading(true);
     try {
       const qs = status !== "all" ? `?status=${status}` : "";
-      const response = await http.get(`/admin/product-templates${qs}`);
-      setTemplates(safeArray(response.data));
+      const [templateResponse, printOptionResponse] = await Promise.all([
+        http.get(`/admin/product-templates${qs}`),
+        http.get("/print-options").catch(() => ({ data: [] })),
+      ]);
+      setTemplates(safeArray(templateResponse.data));
+      setPrintOptions(safeArray(printOptionResponse.data));
     } catch (error) {
       setTemplates([]);
+      setPrintOptions([]);
       toast.error(error.response?.data?.detail || "Could not load product templates");
     } finally {
       setLoading(false);
@@ -204,11 +192,11 @@ export default function ProductTemplatesPage() {
   }, [status]);
 
   const filteredTemplates = useMemo(
-    () => safeArray(templates).filter((template) => readinessMatchesFilter(template, readinessFilter)),
-    [templates, readinessFilter]
+    () => safeArray(templates).filter((template) => readinessMatchesFilter(template, readinessFilter, printOptions)),
+    [templates, readinessFilter, printOptions]
   );
 
-  const stats = useMemo(() => templateStats(templates), [templates]);
+  const stats = useMemo(() => templateStats(templates, printOptions), [templates, printOptions]);
 
   const duplicateTemplate = async (event, template) => {
     event.preventDefault();
@@ -297,7 +285,7 @@ export default function ProductTemplatesPage() {
         <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
           {filteredTemplates.map((template) => {
             const image = templateImage(template);
-            const ready = readiness(template);
+            const ready = readiness(template, printOptions);
             const areas = safeArray(template.print_areas).filter((area) => area.status !== "archived" && !area.archived && !area.deleted).length;
             const views = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted).length;
 
