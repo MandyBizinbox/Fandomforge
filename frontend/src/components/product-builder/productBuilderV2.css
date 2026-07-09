@@ -1,0 +1,70 @@
+/* Builder V2 hotfix styles loaded by the product builder modules. */
+
+/* Move navigation above progress in the right sidebar without touching the current React layout yet. */
+.product-builder-aside {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1rem !important;
+}
+
+.product-builder-aside > section {
+  margin-top: 0 !important;
+}
+
+.product-builder-aside > section:last-child {
+  order: -20;
+}
+
+/* Wide workspaces place their navigation/status card below the canvas/pricing area. Pull it above the workspace. */
+.product-builder-layout > section.card.flex {
+  order: -20;
+}
+
+/* Keep the wide workspace cards visually tighter. */
+.product-builder-layout > section.card.flex .grid {
+  align-items: center;
+}
+
+/* Text-layer scaling fix: the selected layer box is the product-size control. */
+[data-testid="product-artwork-studio"] .cursor-move {
+  container-type: size;
+}
+
+[data-testid="product-artwork-studio"] .cursor-move > .pointer-events-none,
+[data-testid="product-artwork-studio"] .cursor-move > .whitespace-pre {
+  font-size: min(40cqw, 84cqh) !important;
+  line-height: 1.05 !important;
+}
+
+/* Pricing cleanup: make the pricing step read like cards instead of a dense table. */
+[data-testid$="product-builder"] .pricing-table,
+[data-testid$="product-builder"] .variation-pricing-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+[data-testid$="product-builder"] .pricing-table td,
+[data-testid$="product-builder"] .pricing-table th,
+[data-testid$="product-builder"] .variation-pricing-table td,
+[data-testid$="product-builder"] .variation-pricing-table th {
+  vertical-align: top;
+}
+
+/* Make review/pricing sections breathe more on the large creator workflow screens. */
+.product-builder-main .card,
+.product-builder-main section.card {
+  border-color: rgba(255,255,255,0.14);
+}
+
+.product-builder-main input[type="number"],
+.product-builder-main input[type="text"],
+.product-builder-main textarea,
+.product-builder-main select {
+  min-height: 42px;
+}
+
+@media (max-width: 1024px) {
+  .product-builder-layout > section.card.flex {
+    order: 0;
+  }
+}
