@@ -13,6 +13,15 @@ function setNativeValue(element, value) {
   element.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function forceLtrField(element) {
+  if (!element) return;
+  element.dir = "ltr";
+  element.setAttribute("dir", "ltr");
+  element.style.direction = "ltr";
+  element.style.unicodeBidi = "isolate";
+  element.style.textAlign = "left";
+}
+
 function moveTemplateDescriptionToSpecs() {
   if (typeof document === "undefined") return;
   const shell = document.querySelector('[data-testid="creator-product-builder"], [data-testid="admin-product-builder"]');
@@ -24,6 +33,9 @@ function moveTemplateDescriptionToSpecs() {
 
   const descriptionValue = String(description.value || "").trim();
   const specsValue = String(specs.value || "").trim();
+
+  forceLtrField(description);
+  forceLtrField(specs);
 
   if (!descriptionValue || specsValue || description.dataset.ffMovedToSpecs === "1") return;
   if (document.activeElement === description || document.activeElement === specs) return;
@@ -41,7 +53,7 @@ function moveTemplateDescriptionToSpecs() {
 function stabiliseMoneyInputs() {
   if (typeof document === "undefined") return;
   const inputs = document.querySelectorAll(
-    '.pricing-step-full-width input[type="number"], [data-testid="variation-pricing-matrix"] input[type="number"]'
+    '.pricing-step-full-width input[type="number"], [data-testid="variation-pricing-matrix"] input[type="number"], .pricing-step-full-width input[data-ff-money-input="1"], [data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"]'
   );
 
   inputs.forEach((input) => {
@@ -51,6 +63,7 @@ function stabiliseMoneyInputs() {
     input.inputMode = "decimal";
     input.autocomplete = "off";
     input.setAttribute("pattern", "[0-9]*[.,]?[0-9]*");
+    forceLtrField(input);
 
     if (!input.dataset.ffMoneyHandlersAttached) {
       input.dataset.ffMoneyHandlersAttached = "1";
@@ -72,9 +85,17 @@ function stabiliseMoneyInputs() {
   });
 }
 
+function stabiliseBuilderInputs() {
+  if (typeof document === "undefined") return;
+  document.querySelectorAll(
+    '.product-builder-main input, .product-builder-main textarea, .product-builder-layout input, .product-builder-layout textarea, [data-testid="product-artwork-studio"] input'
+  ).forEach((element) => forceLtrField(element));
+}
+
 function runBuilderV2Safeguards() {
   moveTemplateDescriptionToSpecs();
   stabiliseMoneyInputs();
+  stabiliseBuilderInputs();
 }
 
 function scheduleBuilderV2Safeguards() {
@@ -89,5 +110,5 @@ if (typeof window !== "undefined" && !window.__fandomForgeBuilderV2RuntimeLoaded
   window.__fandomForgeBuilderV2RuntimeLoaded = true;
   scheduleBuilderV2Safeguards();
   const observer = new MutationObserver(scheduleBuilderV2Safeguards);
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["type", "value", "class"] });
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["type", "value", "class", "dir", "style"] });
 }
