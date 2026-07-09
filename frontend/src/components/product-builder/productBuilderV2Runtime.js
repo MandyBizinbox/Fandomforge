@@ -1,6 +1,6 @@
 // Runtime safeguards for the Builder V2 sprint.
-// This file is intentionally small and side-effect only. It protects the current Builder
-// flow while the larger ProductBuilder component is being refactored.
+// This file is intentionally side-effect only. It protects the current Builder flow
+// while the larger ProductBuilder component is being refactored.
 
 const DRAFT_STORAGE_PREFIX = "ff_builder_v2_draft:";
 const PATH_STORAGE_PREFIX = "ff_builder_v2_path:";
@@ -8,6 +8,7 @@ let safeguardTimer = null;
 let lastSafeguardRun = 0;
 let restoreTimer = null;
 let restoreAttempts = 0;
+let creatingServerDraft = false;
 
 function normaliseText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
@@ -63,7 +64,7 @@ function currentScreenKey() {
   const text = lowerText(main?.textContent || "");
   if (text.includes("choose product type")) return "product_type";
   if (text.includes("choose product option")) return "product_option";
-  if (text.includes("product details") || text.includes("details")) return "details";
+  if (text.includes("product details") || text.includes("create the sellable product shell")) return "details";
   if (text.includes("variation selection")) return "variations";
   if (text.includes("artwork scope")) return "scope";
   if (text.includes("artwork studio")) return "artwork";
@@ -104,25 +105,46 @@ function setPathDraft(patch) {
   writeJson(pathKey(), { ...getPathDraft(), ...patch, saved_at: Date.now() });
 }
 
+function showTransientNotice(message, tone = "info") {
+  let node = document.getElementById("ff-builder-runtime-notice");
+  if (!node) {
+    node = document.createElement("div");
+    node.id = "ff-builder-runtime-notice";
+    node.style.position = "fixed";
+    node.style.right = "18px";
+    node.style.bottom = "18px";
+    node.style.zIndex = "99999";
+    node.style.padding = "12px 14px";
+    node.style.border = "1px solid rgba(255,255,255,0.18)";
+    node.style.background = "#111";
+    node.style.color = "#fff";
+    node.style.fontSize = "12px";
+    node.style.fontWeight = "700";
+    node.style.textTransform = "uppercase";
+    node.style.letterSpacing = "0.08em";
+    document.body.appendChild(node);
+  }
+  node.textContent = message;
+  node.style.borderColor = tone === "error" ? "#FF3B30" : "#34C759";
+  window.setTimeout(() => {
+    if (node?.parentElement) node.parentElement.removeChild(node);
+  }, 3500);
+}
+
 function moveTemplateDescriptionToSpecs() {
   if (typeof document === "undefined") return;
   const shell = builderShell();
   if (!shell) return;
-
   const description = shell.querySelector('[data-format-field="description"]');
   const specs = shell.querySelector('[data-format-field="specs"]');
   if (!description || !specs) return;
-
   const descriptionValue = String(description.value || "").trim();
   const specsValue = String(specs.value || "").trim();
-
   forceLtrField(description);
   forceLtrField(specs);
-
   if (!descriptionValue || specsValue || description.dataset.ffMovedToSpecs === "1") return;
   if (document.activeElement === description || document.activeElement === specs) return;
   if (descriptionValue.length < 12) return;
-
   description.dataset.ffMovedToSpecs = "1";
   specs.dataset.ffReceivedTemplateSpecs = "1";
   setNativeValue(specs, description.value);
@@ -134,7 +156,6 @@ function stabiliseMoneyInputs() {
   const inputs = document.querySelectorAll(
     '.pricing-step-full-width input[type="number"], [data-testid="variation-pricing-matrix"] input[type="number"], .pricing-step-full-width input[data-ff-money-input="1"], [data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"]'
   );
-
   inputs.forEach((input) => {
     if (!(input instanceof HTMLInputElement)) return;
     input.dataset.ffMoneyInput = "1";
@@ -143,7 +164,6 @@ function stabiliseMoneyInputs() {
     input.autocomplete = "off";
     input.setAttribute("pattern", "[0-9]*[.,]?[0-9]*");
     forceLtrField(input);
-
     if (!input.dataset.ffMoneyHandlersAttached) {
       input.dataset.ffMoneyHandlersAttached = "1";
       input.addEventListener("wheel", (event) => {
@@ -175,10 +195,10 @@ function inputForLabelText(text) {
   const labels = [...document.querySelectorAll("label, .label")];
   const label = labels.find((item) => lowerText(item.textContent).includes(text.toLowerCase()));
   if (!label) return null;
-  const nested = label.querySelector?.("input");
+  const nested = label.querySelector?.("input, textarea, select");
   if (nested) return nested;
   const parent = label.parentElement;
-  return parent?.querySelector?.("input") || null;
+  return parent?.querySelector?.("input, textarea, select") || null;
 }
 
 function mutateInputText(input, nextValue) {
@@ -191,16 +211,13 @@ function stabiliseTextRenderSizeInput() {
   if (typeof document === "undefined") return;
   const input = inputForLabelText("Text render size");
   if (!(input instanceof HTMLInputElement)) return;
-
   input.type = "text";
   input.inputMode = "numeric";
   input.autocomplete = "off";
   input.dataset.ffTextRenderInput = "1";
   forceLtrField(input);
-
   if (input.dataset.ffTextRenderHandlersAttached) return;
   input.dataset.ffTextRenderHandlersAttached = "1";
-
   input.addEventListener("focus", () => window.setTimeout(() => input.select(), 0));
   input.addEventListener("beforeinput", (event) => {
     const data = event.data || "";
@@ -267,6 +284,8 @@ function saveBuilderDraft() {
     data[key] = element.value;
     if (element.dataset?.formatField) detailFields[element.dataset.formatField] = element.value;
   });
+  const titleInput = inputForLabelText("Product title");
+  if (titleInput) detailFields.title = titleInput.value;
   writeJson(draftKey(), { saved_at: Date.now(), data, detailFields });
   if (Object.keys(detailFields).length) setPathDraft({ detailFields });
 }
@@ -276,8 +295,12 @@ function restoreDetailsFromDraft() {
   const draft = readJson(draftKey());
   const detailFields = { ...(draft.detailFields || {}), ...(path.detailFields || {}) };
   if (!Object.keys(detailFields).length) return false;
-
   let restored = false;
+  const titleInput = inputForLabelText("Product title");
+  if (titleInput && detailFields.title && String(titleInput.value || "") !== String(detailFields.title)) {
+    setNativeValue(titleInput, detailFields.title);
+    restored = true;
+  }
   document.querySelectorAll("[data-format-field]").forEach((element) => {
     const key = element.dataset.formatField;
     const value = detailFields[key];
@@ -311,25 +334,97 @@ function isNavigationButton(button) {
   return ["next", "previous", "back", "save", "create", "select all", "clear all", "clear visible", "select visible"].some((item) => text === item || text.includes(item));
 }
 
+function isNewBuilderUrl() {
+  return /\/creator\/products\/new\/?$/.test(window.location.pathname) || /\/admin\/products\/new\/?$/.test(window.location.pathname);
+}
+
+function apiUrl(path) {
+  return `${window.location.origin}/api${path}`;
+}
+
+function authHeaders() {
+  const token = window.localStorage.getItem("mf_token");
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function buildServerDraftPayload() {
+  saveBuilderDraft();
+  const path = getPathDraft();
+  const details = path.detailFields || readJson(draftKey()).detailFields || {};
+  const titleInput = inputForLabelText("Product title");
+  const description = document.querySelector('[data-format-field="description"]');
+  const specs = document.querySelector('[data-format-field="specs"]');
+  return {
+    draft_product_id: path.draftProductId || null,
+    product_type_choice: path.productTypeChoice || "",
+    product_option_choice: path.productOptionChoice || "",
+    title: titleInput?.value || details.title || "",
+    description: description?.value || details.description || "",
+    specs: specs?.value || details.specs || "",
+  };
+}
+
+async function createServerDraftAfterDetails() {
+  if (creatingServerDraft || !isNewBuilderUrl()) return false;
+  const payload = buildServerDraftPayload();
+  if (!payload.product_option_choice) {
+    showTransientNotice("Select a product option before draft save", "error");
+    return false;
+  }
+  if (!normaliseText(payload.title)) {
+    showTransientNotice("Enter a product title before draft save", "error");
+    return false;
+  }
+
+  creatingServerDraft = true;
+  showTransientNotice("Saving draft product…");
+  try {
+    const response = await fetch(apiUrl("/builder-drafts/product"), {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || "Draft product save failed");
+    if (!data?.id) throw new Error("Draft product created without id");
+    setPathDraft({ draftProductId: data.id, activeStep: "variations" });
+    showTransientNotice("Draft saved. Opening draft…");
+    window.location.assign(`/creator/products/${data.id}`);
+    return true;
+  } catch (error) {
+    showTransientNotice(error.message || "Could not save draft product", "error");
+    return false;
+  } finally {
+    creatingServerDraft = false;
+  }
+}
+
 function rememberBuilderClick(event) {
   const shell = builderShell();
   if (!shell) return;
   const button = event.target?.closest?.("button");
   if (!button || !shell.contains(button)) return;
-
   const text = normaliseText(button.textContent || "");
   const step = stepFromText(text);
   if (step) {
     setPathDraft({ activeStep: step });
     return;
   }
-
   const screen = currentScreenKey();
   if (screen === "product_type" && !isNavigationButton(button)) {
     setPathDraft({ productTypeChoice: text });
   }
   if (screen === "product_option" && !isNavigationButton(button)) {
     setPathDraft({ productOptionChoice: text });
+  }
+  if (screen === "details" && lowerText(text).includes("next") && isNewBuilderUrl()) {
+    event.preventDefault();
+    event.stopPropagation();
+    createServerDraftAfterDetails();
+    return;
   }
   if (text.toLowerCase().includes("next") || text.toLowerCase().includes("save")) saveBuilderDraft();
 }
@@ -354,13 +449,11 @@ function clickStep(stepKey) {
 
 function replayBuilderPath() {
   const path = getPathDraft();
-  if (!path.productTypeChoice && !path.productOptionChoice && !path.detailFields) return;
+  if (!path.productTypeChoice && !path.productOptionChoice && !path.detailFields && !path.activeStep) return;
   if (restoreAttempts > 40) return;
   restoreAttempts += 1;
-
   const screen = currentScreenKey();
   const main = builderMain();
-
   if (path.productTypeChoice && screen === "product_type") {
     const selected = main?.querySelector?.('button[aria-pressed="true"]');
     if (!selected) {
@@ -371,8 +464,7 @@ function replayBuilderPath() {
       }
     }
   }
-
-  if (path.productOptionChoice) {
+  if (path.productOptionChoice && isNewBuilderUrl()) {
     if (screen !== "product_option" && screen !== "details") {
       clickStep("product_option");
       return;
@@ -388,13 +480,15 @@ function replayBuilderPath() {
       }
     }
   }
-
-  if (path.detailFields) {
+  if (path.detailFields && isNewBuilderUrl()) {
     if (currentScreenKey() !== "details") {
       clickStep("details");
       return;
     }
     restoreDetailsFromDraft();
+  }
+  if (!isNewBuilderUrl() && path.activeStep === "variations" && currentScreenKey() !== "variations") {
+    clickStep("variations");
   }
 }
 
