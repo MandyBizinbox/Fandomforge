@@ -30,9 +30,11 @@ async def lifespan(app: FastAPI):
     try:
         from seed import seed_if_empty
         from seed_production_operations import seed_production_operations
+        from seed_production_rules import seed_production_rules
 
         await seed_if_empty(app.state.db)
         await seed_production_operations(app.state.db)
+        await seed_production_rules(app.state.db)
         logger.info("Seed check complete")
     except Exception as e:
         logger.exception(f"Seed failed: {e}")
@@ -59,15 +61,21 @@ async def health():
 
 
 # Mount sub-routers on /api
+from production_model_compat import install_production_model_compat
+
+install_production_model_compat()
+
 from auth import auth_router
 import routes_main as routes_main_module
 from production_operation_pricing import install_production_operation_pricing
 from order_finance_patches import install_order_finance_patches
 from builder_artwork_costing_patch import install_builder_artwork_costing_patch
+from builder_production_rules_patch import install_builder_production_rules_patch
 
 install_production_operation_pricing(routes_main_module)
 install_order_finance_patches(routes_main_module)
 install_builder_artwork_costing_patch(routes_main_module)
+install_builder_production_rules_patch(routes_main_module)
 
 from routes_main import (
     bands_router, printers_router, product_templates_router, products_router, artworks_router,
@@ -76,6 +84,7 @@ from routes_main import (
 )
 from builder_draft_routes import builder_drafts_router
 from routes_production_operations import production_operations_router
+from routes_production_rules import production_rules_router
 
 api_router.include_router(auth_router)
 api_router.include_router(bands_router)
@@ -96,6 +105,7 @@ api_router.include_router(categories_router)
 api_router.include_router(attributes_router)
 api_router.include_router(print_options_router)
 api_router.include_router(production_operations_router)
+api_router.include_router(production_rules_router)
 
 app.include_router(api_router)
 
