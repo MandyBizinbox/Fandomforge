@@ -55,6 +55,10 @@ function findCardByHeading(text) {
   return [...document.querySelectorAll("section.card, .card")].find((node) => normaliseText(node.textContent).toLowerCase().includes(needle));
 }
 
+function variationPricingCard() {
+  return document.querySelector('[data-testid="variation-pricing-matrix"]');
+}
+
 function extractReviewSlotSummary() {
   const section = findCardByHeading("Production output metadata");
   if (!section || !normaliseText(section.textContent).toLowerCase().includes("artwork slots")) return null;
@@ -84,7 +88,7 @@ function extractReviewSlotSummary() {
 }
 
 function extractPricingFallbackSummary() {
-  const matrix = document.querySelector('[data-testid="variation-pricing-matrix"]');
+  const matrix = variationPricingCard();
   if (!matrix) return null;
   const text = normaliseText(matrix.textContent);
   if (!text.toLowerCase().includes("print cost")) return null;
@@ -95,10 +99,40 @@ function extractPricingFallbackSummary() {
   return { lines: [{ label: "Total printing", total: value, count: 1 }], total: value, source: "pricing_fallback" };
 }
 
-function summaryMarkup(summary, options = {}) {
+function compactSummaryMarkup(summary, options = {}) {
   const lines = summary?.lines || [];
   const total = Number(summary?.total || lines.reduce((sum, row) => sum + Number(row.total || 0), 0));
-  const subtitle = options.subtitle || "Totals are grouped by print method. Combined same-method layers are shown as a single method total.";
+  const subtitle = options.subtitle || "Grouped by print method.";
+  return `
+    <div class="ff-print-method-summary ff-print-method-summary-inline ${options.className || ""}">
+      <div class="ff-print-summary-head">
+        <div>
+          <div class="overline mb-1">Printing Method Totals</div>
+          <h3 class="font-display text-xl uppercase text-white">Print cost summary</h3>
+          <p class="text-xs text-zinc-500 mt-1">${subtitle}</p>
+        </div>
+        <div class="ff-print-summary-total">
+          <div>Total print cost</div>
+          <strong>${formatMoney(total)}</strong>
+        </div>
+      </div>
+      <div class="ff-print-summary-grid">
+        ${lines.map((row) => `
+          <div class="ff-print-summary-pill">
+            <span>${row.label}</span>
+            <strong>${formatMoney(row.total)}</strong>
+            <em>${row.count || 1} charged line${Number(row.count || 1) === 1 ? "" : "s"}</em>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function reviewSummaryMarkup(summary, options = {}) {
+  const lines = summary?.lines || [];
+  const total = Number(summary?.total || lines.reduce((sum, row) => sum + Number(row.total || 0), 0));
+  const subtitle = options.subtitle || "Layer details are collapsed here. Only totals per print method are shown.";
   return `
     <div class="ff-print-method-summary rounded-xl border border-white/10 bg-black/30 p-5 ${options.className || ""}">
       <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
@@ -125,11 +159,31 @@ function summaryMarkup(summary, options = {}) {
   `;
 }
 
-function placeSummaryBefore(target, summary, options = {}) {
+function placeReviewSummaryBefore(target, summary, options = {}) {
   if (!target || !summary?.lines?.length) return;
-  const existing = document.querySelector(options.selector || ".ff-print-method-summary");
-  if (existing) existing.outerHTML = summaryMarkup(summary, options);
-  else target.insertAdjacentHTML("beforebegin", summaryMarkup(summary, options));
+  const existing = document.querySelector(options.selector || ".ff-print-method-summary-review");
+  if (existing) existing.outerHTML = reviewSummaryMarkup(summary, options);
+  else target.insertAdjacentHTML("beforebegin", reviewSummaryMarkup(summary, options));
+}
+
+function insertPricingSummaryInMatrix(matrix, summary) {
+  if (!matrix || !summary?.lines?.length) return;
+  const inner = matrix.querySelector(".p-5") || matrix;
+  let existing = inner.querySelector(".ff-print-method-summary-pricing");
+  const html = compactSummaryMarkup(summary, {
+    className: "ff-print-method-summary-pricing",
+    subtitle: summary.source === "pricing_fallback"
+      ? "Current total print cost used by pricing. Method totals refresh after Review has loaded once."
+      : "Grouped by print method from the current artwork setup.",
+  });
+  if (existing) {
+    existing.outerHTML = html;
+    return;
+  }
+
+  const defaultControls = [...inner.querySelectorAll(".rounded-xl")].find((node) => normaliseText(node.textContent).toLowerCase().includes("default pricing controls"));
+  if (defaultControls) defaultControls.insertAdjacentHTML("beforebegin", html);
+  else inner.insertAdjacentHTML("afterbegin", html);
 }
 
 function applyReviewSummary() {
@@ -138,7 +192,7 @@ function applyReviewSummary() {
   const summary = extractReviewSlotSummary();
   if (!summary) return false;
   writeSummary(summary);
-  placeSummaryBefore(section, summary, {
+  placeReviewSummaryBefore(section, summary, {
     selector: ".ff-print-method-summary-review",
     className: "ff-print-method-summary-review",
     subtitle: "Layer details are collapsed here. Only totals per print method are shown to keep the review step readable.",
@@ -148,17 +202,13 @@ function applyReviewSummary() {
 }
 
 function applyPricingSummary() {
-  const matrix = document.querySelector('[data-testid="variation-pricing-matrix"]');
+  const matrix = variationPricingCard();
   if (!matrix) return false;
   const summary = readSummary() || extractPricingFallbackSummary();
   if (!summary) return false;
-  placeSummaryBefore(matrix, summary, {
-    selector: ".ff-print-method-summary-pricing",
-    className: "ff-print-method-summary-pricing",
-    subtitle: summary.source === "pricing_fallback"
-      ? "Detailed method totals will refresh after the artwork/review step. This shows the current total print cost used in pricing."
-      : "Totals are grouped by print method from the current artwork setup.",
-  });
+  const stray = document.querySelector(".pricing-step-full-width > .ff-print-method-summary-pricing");
+  if (stray) stray.remove();
+  insertPricingSummaryInMatrix(matrix, summary);
   return true;
 }
 
