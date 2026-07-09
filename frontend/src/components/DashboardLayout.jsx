@@ -1,13 +1,39 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { LogOut } from "lucide-react";
+import { Factory, LogOut } from "lucide-react";
 import NotificationBell from "./notifications/NotificationBell";
 
 function formatBadgeCount(value) {
   const count = Number(value || 0);
   if (count > 99) return "99+";
   return String(count);
+}
+
+function withManufacturingRulesLink(links = [], testidPrefix = "dash", notificationPath = "") {
+  const isAdminDashboard = testidPrefix === "admin-dash" || String(notificationPath || "").startsWith("/admin/");
+  if (!isAdminDashboard || links.some((link) => link.key === "manufacturing-rules" || link.to === "/admin/manufacturing-rules")) {
+    return links;
+  }
+
+  const manufacturingLink = {
+    to: "/admin/manufacturing-rules",
+    label: "Manufacturing Rules",
+    key: "manufacturing-rules",
+    icon: <Factory size={14} />,
+  };
+
+  const output = [];
+  let inserted = false;
+  links.forEach((link) => {
+    output.push(link);
+    if (!inserted && link.key === "product-templates") {
+      output.push(manufacturingLink);
+      inserted = true;
+    }
+  });
+
+  return inserted ? output : [...links, manufacturingLink];
 }
 
 export default function DashboardLayout({
@@ -19,6 +45,7 @@ export default function DashboardLayout({
 }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const navLinks = React.useMemo(() => withManufacturingRulesLink(links, testidPrefix, notificationPath), [links, testidPrefix, notificationPath]);
 
   return (
     <div className="min-h-screen admin-workspace flex">
@@ -31,7 +58,7 @@ export default function DashboardLayout({
         </div>
 
         <nav className="flex-1 py-4 overflow-y-auto">
-          {links.map((l, index) => {
+          {navLinks.map((l, index) => {
             if (l.type === "section") {
               return (
                 <div key={`${l.label}-${index}`} className="px-6 pt-5 pb-2 text-[10px] uppercase tracking-[0.22em] text-[var(--ff-muted-text)] font-bold">
