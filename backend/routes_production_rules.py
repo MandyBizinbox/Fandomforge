@@ -1,6 +1,7 @@
 """Production rule API for Builder V2 manufacturing validation."""
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -19,6 +20,22 @@ production_rules_router = APIRouter(prefix="/production-rules")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def make_colour_id(name: str, fallback_hex: str = "") -> str:
+    base = re.sub(r"[^a-z0-9]+", "_", str(name or "").lower()).strip("_")
+    if base:
+        return base
+    return re.sub(r"[^a-z0-9]+", "_", str(fallback_hex or "colour").lower()).strip("_") or "colour"
+
+
+def normalise_hex(value: Any) -> str:
+    raw = str(value or "").strip()
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", raw):
+        return raw.lower()
+    if re.fullmatch(r"#[0-9a-fA-F]{3}", raw):
+        return "#" + "".join(ch * 2 for ch in raw[1:]).lower()
+    raise HTTPException(status_code=400, detail="Colour hex must be #RGB or #RRGGBB")
 
 
 class ProductionMethodUpdate(BaseModel):
@@ -64,6 +81,7 @@ class ProductionSettingsUpdate(BaseModel):
 class StockedColourUpdate(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    id: Optional[str] = None
     name: Optional[str] = None
     hex: Optional[str] = None
     aliases: Optional[List[str]] = None
@@ -144,11 +162,41 @@ async def list_stocked_colours(request: Request, method: Optional[str] = None, a
     return [clean_doc(doc) for doc in docs]
 
 
+@production_rules_router.post("/stocked-colours")
+async def create_stocked_colour(payload: StockedColourUpdate, request: Request, user: User = Depends(require_role("super_admin"))):
+    data = payload.model_dump(exclude_unset=True)
+    name = str(data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Colour name is required")
+    data["hex"] = normalise_hex(data.get("hex"))
+    colour_id = make_colour_id(data.get("id") or name, data.get("hex"))
+    existing = await request.app.state.db.stocked_colours.find_one({"id": colour_id}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=409, detail="Stocked colour already exists")
+    data.update({
+        "id": colour_id,
+        "name": name,
+        "active": bool(data.get("active", True)),
+        "aliases": list(data.get("aliases") or []),
+        "applies_to_methods": list(data.get("applies_to_methods") or []),
+        "sort_order": int(data.get("sort_order") or 999),
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    })
+    await request.app.state.db.stocked_colours.insert_one(data)
+    return clean_doc(await request.app.state.db.stocked_colours.find_one({"id": colour_id}, {"_id": 0}))
+
+
 @production_rules_router.patch("/stocked-colours/{colour_id}")
 async def update_stocked_colour(colour_id: str, payload: StockedColourUpdate, request: Request, user: User = Depends(require_role("super_admin"))):
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
+    updates.pop("id", None)
+    if "hex" in updates and updates["hex"] is not None:
+        updates["hex"] = normalise_hex(updates["hex"])
+    if "name" in updates and updates["name"] is not None:
+        updates["name"] = str(updates["name"]).strip()
     updates["updated_at"] = now_iso()
     result = await request.app.state.db.stocked_colours.update_one({"id": colour_id}, {"$set": updates})
     if result.matched_count == 0:
