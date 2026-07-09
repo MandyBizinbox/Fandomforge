@@ -1,12 +1,11 @@
 import React, { useMemo, useState } from "react";
-import { CheckSquare, Image as ImageIcon, Square } from "lucide-react";
+import { Check, CheckSquare, Image as ImageIcon, Square } from "lucide-react";
 import { assetUrl } from "../../lib/api";
 import {
   asArray,
+  getVariationAttributes,
   getVariationCost,
-  getVariationMatrix,
-  getVariationSize,
-  getVariationSizeGroupSections,
+  getVariationLabel,
   money,
 } from "./productBuilderUtils";
 
@@ -29,57 +28,98 @@ function getTemplateFallbackImage(template = {}) {
   );
 }
 
-function getVariationImage(variation = {}, template = {}, row = null) {
-  const rowImage = asArray(row?.items).find((item) => item.image_url)?.image_url;
-  const rowOverride = asArray(row?.items).map(getVariationOverrideImage).find(Boolean);
-
+function getVariationImage(variation = {}, template = {}) {
   return firstTruthy(
     variation.image_url,
     variation.product_image_url,
     variation.mockup_image_url,
     getVariationOverrideImage(variation),
-    rowImage,
-    rowOverride,
     getTemplateFallbackImage(template)
   );
 }
 
-function VariationImagePreview({ image, label, size = "md" }) {
-  const sizeClass = size === "sm" ? "w-10 h-10" : "w-14 h-14";
-
+function VariationImagePreview({ image, label }) {
   return (
-    <div className={`${sizeClass} shrink-0 rounded-lg border border-white/10 bg-black/40 flex items-center justify-center overflow-hidden`}>
+    <div className="w-16 h-16 shrink-0 rounded-lg border border-white/10 bg-black/40 flex items-center justify-center overflow-hidden">
       {image ? (
         <img
           src={assetUrl(image)}
           alt={label || "Variation"}
           className="w-full h-full object-contain"
-          onError={(event) => {
-            event.currentTarget.style.display = "none";
-          }}
+          onError={(event) => { event.currentTarget.style.display = "none"; }}
         />
       ) : (
-        <ImageIcon size={size === "sm" ? 16 : 20} className="text-zinc-700" />
+        <ImageIcon size={20} className="text-zinc-700" />
       )}
     </div>
   );
 }
 
+function normalise(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function collectAttributeKeys(variations = []) {
+  const keys = [];
+  asArray(variations).forEach((variation) => {
+    Object.keys(getVariationAttributes(variation)).forEach((key) => {
+      if (!keys.includes(key)) keys.push(key);
+    });
+  });
+
+  return keys.sort((a, b) => {
+    const priority = ["Colour", "Color", "Size", "Keyring Size", "Keyring Material", "Material"];
+    const ai = priority.findIndex((item) => normalise(item) === normalise(a));
+    const bi = priority.findIndex((item) => normalise(item) === normalise(b));
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
+  });
+}
+
+function collectAttributeValues(variations = [], key = "") {
+  const values = new Set();
+  asArray(variations).forEach((variation) => {
+    const attrs = getVariationAttributes(variation);
+    const actualKey = Object.keys(attrs).find((item) => normalise(item) === normalise(key));
+    const value = actualKey ? attrs[actualKey] : "";
+    if (value !== undefined && value !== null && String(value).trim() !== "") values.add(String(value));
+  });
+  return [...values].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }));
+}
+
+function variationMatchesAttribute(variation, key, value) {
+  if (!key || !value) return true;
+  const attrs = getVariationAttributes(variation);
+  const actualKey = Object.keys(attrs).find((item) => normalise(item) === normalise(key));
+  return actualKey && normalise(attrs[actualKey]) === normalise(value);
+}
+
 export default function ProductVariationMatrix({ template, selectedIds, onChange, hasTemplateVariations = true }) {
   const [filter, setFilter] = useState("");
+  const [attributeFilterKey, setAttributeFilterKey] = useState("");
+  const [attributeFilterValue, setAttributeFilterValue] = useState("");
+
+  const sourceVariations = useMemo(
+    () => asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived"),
+    [template]
+  );
+
+  const attributeKeys = useMemo(() => collectAttributeKeys(sourceVariations), [sourceVariations]);
+  const attributeFilterValues = useMemo(() => collectAttributeValues(sourceVariations, attributeFilterKey), [sourceVariations, attributeFilterKey]);
 
   const variations = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    const source = asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
-    if (!q) return source;
-    return source.filter((variation) => JSON.stringify(variation.attributes || variation.attribute_values || {}).toLowerCase().includes(q));
-  }, [template, filter]);
+    return sourceVariations.filter((variation) => {
+      const searchText = `${getVariationLabel(variation)} ${variation.sku || ""} ${JSON.stringify(getVariationAttributes(variation))}`.toLowerCase();
+      const matchesSearch = !q || searchText.includes(q);
+      const matchesAttribute = variationMatchesAttribute(variation, attributeFilterKey, attributeFilterValue);
+      return matchesSearch && matchesAttribute;
+    });
+  }, [sourceVariations, filter, attributeFilterKey, attributeFilterValue]);
 
-  const matrix = useMemo(() => getVariationMatrix(variations), [variations]);
-  const sizeSections = useMemo(() => getVariationSizeGroupSections(variations), [variations]);
-  const visibleSections = sizeSections.length > 1 ? sizeSections : [{ label: "All sizes", sizes: matrix.sizes, rows: matrix.rows }];
   const selected = useMemo(() => new Set(asArray(selectedIds)), [selectedIds]);
-
   const setSelected = (nextSet) => onChange([...nextSet]);
 
   const toggleOne = (variationId) => {
@@ -89,137 +129,119 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
     setSelected(next);
   };
 
-  const toggleRow = (row) => {
-    const ids = row.items.map((variation) => variation.id);
-    const allSelected = ids.every((id) => selected.has(id));
+  const selectAll = () => setSelected(new Set(sourceVariations.map((variation) => variation.id)));
+  const selectVisible = () => {
     const next = new Set(selected);
-    ids.forEach((id) => {
-      if (allSelected) next.delete(id);
-      else next.add(id);
-    });
+    variations.forEach((variation) => next.add(variation.id));
     setSelected(next);
   };
-
-  const toggleColumn = (size) => {
-    const ids = variations.filter((variation) => getVariationSize(variation) === size).map((variation) => variation.id);
-    const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
+  const clearVisible = () => {
     const next = new Set(selected);
-    ids.forEach((id) => {
-      if (allSelected) next.delete(id);
-      else next.add(id);
-    });
+    variations.forEach((variation) => next.delete(variation.id));
     setSelected(next);
   };
-
-  const selectAll = () => setSelected(new Set(variations.map((variation) => variation.id)));
   const clearAll = () => setSelected(new Set());
 
   return (
     <div className="space-y-4 product-variation-matrix-shell" data-testid="product-variation-matrix">
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
         <div>
-          <div className="overline mb-1">Variation Matrix</div>
+          <div className="overline mb-1">Variation Selection</div>
           <p className="text-sm text-zinc-500">
-            Select the template variations this sellable product will offer. Artwork groups are configured in the next step.
+            Select the exact template variations this sellable product will offer. This now supports any template attributes, not only Colour and Size.
           </p>
         </div>
         {hasTemplateVariations && (
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-secondary" onClick={selectAll}>Select all</button>
-            <button type="button" className="btn-secondary" onClick={clearAll}>Clear</button>
+            <button type="button" className="btn-secondary" onClick={selectVisible}>Select visible</button>
+            <button type="button" className="btn-secondary" onClick={clearVisible}>Clear visible</button>
+            <button type="button" className="btn-secondary" onClick={clearAll}>Clear all</button>
           </div>
         )}
       </div>
 
       {hasTemplateVariations && (
-        <input
-          className="input-base max-w-xl"
-          placeholder="Filter colours or sizes"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
+        <div className="grid md:grid-cols-[minmax(0,1fr)_220px_220px] gap-3">
+          <input
+            className="input-base"
+            placeholder="Filter by variation, SKU or attribute"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+          />
+          <select
+            className="input-base"
+            value={attributeFilterKey}
+            onChange={(event) => {
+              setAttributeFilterKey(event.target.value);
+              setAttributeFilterValue("");
+            }}
+          >
+            <option value="">All attributes</option>
+            {attributeKeys.map((key) => <option key={key} value={key}>{key}</option>)}
+          </select>
+          <select
+            className="input-base"
+            value={attributeFilterValue}
+            onChange={(event) => setAttributeFilterValue(event.target.value)}
+            disabled={!attributeFilterKey}
+          >
+            <option value="">All values</option>
+            {attributeFilterValues.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </div>
       )}
 
-      <div className="product-variation-scroll rounded-xl border border-white/10 overflow-auto bg-black/30">
-        {visibleSections.map((section) => (
-          <div key={section.label} className="min-w-full">
-            {visibleSections.length > 1 && (
-              <div className="sticky left-0 bg-[#161616] border-b border-white/10 px-3 py-2 text-xs uppercase tracking-widest text-zinc-300 font-bold">
-                {section.label}
-              </div>
-            )}
-            <table className="w-full text-sm product-variation-table">
-              <thead>
-                <tr className="bg-white/[0.04] border-b border-white/10">
-                  <th className="text-left p-3 sticky left-0 z-10 bg-[#111] min-w-[230px]">Colour</th>
-                  {section.sizes.map((size) => (
-                    <th key={size} className="p-3 min-w-[120px] text-center">
-                      <button type="button" className="text-xs uppercase tracking-widest text-zinc-300 hover:text-[#FF3B30]" onClick={() => toggleColumn(size)}>
-                        {size}
-                      </button>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {section.rows.map((row) => {
-                  const rowIds = row.items.map((variation) => variation.id);
-                  const selectedCount = rowIds.filter((id) => selected.has(id)).length;
-                  const rowImage = getVariationImage(row.items[0], template, row);
+      <div className="rounded-xl border border-white/10 bg-black/30 p-4 min-h-[420px]">
+        {hasTemplateVariations && variations.length > 0 && (
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+            {variations.map((variation) => {
+              const active = selected.has(variation.id);
+              const attrs = getVariationAttributes(variation);
+              const image = getVariationImage(variation, template);
 
-                  return (
-                    <tr key={`${section.label}-${row.colour}`} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="p-3 sticky left-0 z-10 bg-[#0f0f0f] align-top">
-                        <button type="button" className="flex items-start gap-3 text-left w-full" onClick={() => toggleRow(row)}>
-                          <span className="mt-1 text-[#FF3B30]">
-                            {selectedCount === rowIds.length && rowIds.length > 0 ? <CheckSquare size={16} /> : <Square size={16} />}
+              return (
+                <button
+                  key={variation.id}
+                  type="button"
+                  onClick={() => toggleOne(variation.id)}
+                  className={`text-left border rounded-xl p-3 transition ${active ? "border-[#FF3B30] bg-[#FF3B30]/15" : "border-white/10 bg-black/30 hover:border-white/30"}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className={`mt-1 ${active ? "text-[#34C759]" : "text-zinc-500"}`}>
+                      {active ? <CheckSquare size={16} /> : <Square size={16} />}
+                    </span>
+                    <VariationImagePreview image={image} label={getVariationLabel(variation)} />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-white leading-tight">{getVariationLabel(variation)}</div>
+                      <div className="text-[11px] text-zinc-500 mt-1 break-all">{variation.sku || variation.supplier_sku || variation.id}</div>
+                      <div className="mt-3 flex flex-wrap gap-1">
+                        {Object.entries(attrs).map(([key, value]) => (
+                          <span key={`${variation.id}-${key}`} className="rounded border border-white/10 bg-black/40 px-2 py-1 text-[10px] text-zinc-300">
+                            <span className="text-zinc-500">{key}:</span> {String(value)}
                           </span>
-                          <VariationImagePreview image={rowImage} label={row.colour} />
-                          <span className="min-w-0">
-                            <span className="font-bold text-white block truncate">{row.colour}</span>
-                            <span className="text-xs text-zinc-500 block">{selectedCount}/{rowIds.length} selected</span>
-                            <span className="text-[10px] uppercase tracking-widest text-zinc-600 block mt-1">
-                              {rowImage ? "Variation image ready" : "Using placeholder"}
-                            </span>
-                          </span>
-                        </button>
-                      </td>
-                      {section.sizes.map((size) => {
-                        const variation = row.items.find((item) => getVariationSize(item) === size);
-                        if (!variation) {
-                          return <td key={size} className="p-3 text-center text-zinc-700">—</td>;
-                        }
-                        const active = selected.has(variation.id);
-                        const variationImage = getVariationImage(variation, template, row);
-                        return (
-                          <td key={variation.id} className="p-2 text-center align-top">
-                            <button
-                              type="button"
-                              onClick={() => toggleOne(variation.id)}
-                              className={`w-full rounded-lg border p-2 transition ${active ? "border-[#FF3B30] bg-[#FF3B30]/15" : "border-white/10 bg-black/30 hover:border-white/30"}`}
-                            >
-                              <div className="flex justify-center mb-2">
-                                <VariationImagePreview image={variationImage} label={`${row.colour} ${size}`} size="sm" />
-                              </div>
-                              <span className={`block text-xs uppercase tracking-widest ${active ? "text-white" : "text-zinc-500"}`}>{active ? "On" : "Off"}</span>
-                              <span className="block text-[11px] text-zinc-500 mt-1">{money(getVariationCost(variation, template))}</span>
-                            </button>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        ))}
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                        <span className="rounded border border-white/10 px-2 py-1 text-zinc-400">Blank {money(getVariationCost(variation, template))}</span>
+                        <span className={`rounded border px-2 py-1 ${image ? "border-[#34C759]/40 text-[#B8F5C3]" : "border-white/10 text-zinc-500"}`}>{image ? "Image ready" : "No image"}</span>
+                      </div>
+                    </div>
+                    {active && <Check size={14} className="text-[#34C759] shrink-0" />}
+                  </div>
+                </button>
+              );
+            })}
           </div>
-        ))}
+        )}
 
-        {variations.length === 0 && (
+        {hasTemplateVariations && variations.length === 0 && (
+          <div className="p-8 text-center text-zinc-500">No variations match this filter.</div>
+        )}
+
+        {!hasTemplateVariations && (
           <div className="p-8 text-center text-zinc-500">
-            {hasTemplateVariations
-              ? "No variations match this filter."
-              : "This product option has no selectable variations. It will be created as a standard/default product."}
+            This product option has no selectable variations. It will be created as a standard/default product.
           </div>
         )}
       </div>
