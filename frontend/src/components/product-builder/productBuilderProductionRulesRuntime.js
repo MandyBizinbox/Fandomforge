@@ -67,21 +67,91 @@ async function fetchRules() {
 
 function methodFromText(text) {
   const value = normalise(text);
+  if (!value) return "";
+
+  // UV DTF must be checked before DTF so it does not collapse into normal DTF.
   if (UV_DTF_METHOD_TERMS.some((term) => value.includes(term))) return "uv_dtf";
+
+  // Prefer DTF before HTV/Vinyl when reading a selected option. The previous helper
+  // scanned too much page text and could find HTV in unselected option lists.
+  if (DTF_METHOD_TERMS.some((term) => new RegExp(`(^|[^a-z0-9])${term}([^a-z0-9]|$)`).test(value))) return "dtf";
   if (SUBLIMATION_METHOD_TERMS.some((term) => value.includes(term))) return "sublimation";
   if (HTV_METHOD_TERMS.some((term) => value.includes(term))) return "htv";
   if (VINYL_METHOD_TERMS.some((term) => value.includes(term))) return "adhesive_vinyl";
-  if (DTF_METHOD_TERMS.some((term) => value.includes(term))) return "dtf";
+  return "";
+}
+
+function methodContextText(node) {
+  if (!node) return "";
+  const candidates = [
+    node.getAttribute?.("aria-label"),
+    node.getAttribute?.("placeholder"),
+    node.getAttribute?.("name"),
+    node.getAttribute?.("id"),
+    node.getAttribute?.("data-field"),
+    node.getAttribute?.("data-testid"),
+    node.closest?.("label")?.textContent,
+    node.closest?.(".field, .form-field, .select-field, .builder-field, .control, .panel, .section")?.textContent,
+  ];
+  return normalise(candidates.filter(Boolean).join(" "));
+}
+
+function selectedSelectMethod(shell) {
+  const selects = [...shell.querySelectorAll("select")];
+
+  for (const select of selects) {
+    const selectedOption = select.selectedOptions?.[0] || select.options?.[select.selectedIndex];
+    const selectedText = `${selectedOption?.textContent || ""} ${select.value || ""}`;
+    const methodKey = methodFromText(selectedText);
+    if (!methodKey) continue;
+
+    const context = methodContextText(select);
+    const looksLikePrintMethodField = context.includes("print method") || context.includes("production method") || context.includes("manufacturing method") || context.includes("method");
+    if (looksLikePrintMethodField) return methodKey;
+  }
+
+  // Fallback: if exactly one select has a selected production method, use it. This
+  // prevents reading unselected options from a select's full textContent.
+  const selectedMethodKeys = selects
+    .map((select) => {
+      const selectedOption = select.selectedOptions?.[0] || select.options?.[select.selectedIndex];
+      return methodFromText(`${selectedOption?.textContent || ""} ${select.value || ""}`);
+    })
+    .filter(Boolean);
+  const unique = [...new Set(selectedMethodKeys)];
+  return unique.length === 1 ? unique[0] : "";
+}
+
+function selectedControlMethod(shell) {
+  const controls = [
+    ...shell.querySelectorAll('[data-print-method], [data-production-method], [data-manufacturing-method], [data-method-key]'),
+    ...shell.querySelectorAll('[role="option"][aria-selected="true"], [aria-selected="true"], [aria-checked="true"], [data-state="checked"], [data-state="active"]'),
+  ];
+
+  for (const node of controls) {
+    if (node instanceof HTMLOptionElement) continue;
+    const values = [
+      node.getAttribute?.("data-print-method"),
+      node.getAttribute?.("data-production-method"),
+      node.getAttribute?.("data-manufacturing-method"),
+      node.getAttribute?.("data-method-key"),
+      node.getAttribute?.("aria-label"),
+      node.getAttribute?.("title"),
+      node.textContent,
+    ];
+    const methodKey = methodFromText(values.filter(Boolean).join(" "));
+    if (methodKey) return methodKey;
+  }
   return "";
 }
 
 function currentMethodKey() {
   const shell = builderShell();
   if (!shell) return "";
-  const selectedRows = [
-    ...shell.querySelectorAll('[aria-selected="true"], [data-state="checked"], [data-state="active"], .active, .selected'),
-  ].map((node) => node.textContent || "").join(" ");
-  return methodFromText(selectedRows) || methodFromText(shell.textContent || "");
+
+  // The selected print-method control is authoritative. Do not scan the full builder
+  // text because dropdown option lists include unselected methods such as HTV.
+  return selectedSelectMethod(shell) || selectedControlMethod(shell) || "";
 }
 
 function methodRule(methodKey) {
@@ -177,19 +247,33 @@ function ensureSwatchPicker(input, library) {
   picker.value = closestColour(current, library);
 }
 
+function removeSwatchPickers(shell) {
+  shell.querySelectorAll("select[data-ff-colour-picker-for]").forEach((picker) => picker.remove());
+  shell.querySelectorAll('input[data-ff-manufacturing-colour-restricted="1"]').forEach((input) => {
+    input.removeAttribute("data-ff-manufacturing-colour-restricted");
+  });
+}
+
 function guardColourInputs() {
   if (typeof document === "undefined") return;
   const shell = builderShell();
   if (!shell) return;
   const methodKey = currentMethodKey();
-  if (!methodKey) return;
+  if (!methodKey) {
+    removeSwatchPickers(shell);
+    return;
+  }
   const rule = methodRule(methodKey);
-  if (!rule) return;
+  if (!rule) {
+    removeSwatchPickers(shell);
+    return;
+  }
   const mode = rule?.creator_restrictions?.colour_picker || rule?.supported_colours?.mode || "rgb";
   const library = colourLibraryFor(methodKey, rule);
   ensureNotice(shell, methodKey, rule, library);
 
   if (mode !== "stocked_library" || !library.length) {
+    removeSwatchPickers(shell);
     lastMethodKey = methodKey;
     return;
   }
