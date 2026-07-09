@@ -79,6 +79,168 @@
   vertical-align: top;
 }
 
+/* Combined print totals + variation pricing layout. */
+[data-testid="variation-pricing-matrix"] {
+  overflow: hidden;
+}
+
+[data-testid="variation-pricing-matrix"] > .p-5 {
+  padding: 1.25rem !important;
+}
+
+[data-testid="variation-pricing-matrix"] .ff-print-method-summary-inline {
+  margin: 0 0 1rem 0;
+  padding: 1rem;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 0.9rem;
+  background: rgba(0,0,0,0.28);
+}
+
+.ff-print-summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.ff-print-summary-total {
+  min-width: 160px;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid rgba(52, 211, 153, 0.38);
+  background: rgba(16, 185, 129, 0.08);
+  text-align: right;
+}
+
+.ff-print-summary-total div {
+  color: #b8f5c3;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+}
+
+.ff-print-summary-total strong {
+  display: block;
+  color: #fff;
+  font-size: 1.45rem;
+  line-height: 1.1;
+}
+
+.ff-print-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.7rem;
+}
+
+.ff-print-summary-pill {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.22);
+}
+
+.ff-print-summary-pill span {
+  color: #a1a1aa;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+}
+
+.ff-print-summary-pill strong {
+  color: #fff;
+  font-size: 1.05rem;
+}
+
+.ff-print-summary-pill em {
+  color: #71717a;
+  font-style: normal;
+  font-size: 11px;
+}
+
+/* Variation pricing matrix clean-up. */
+[data-testid="variation-pricing-matrix"] .mb-4.rounded-xl {
+  border-radius: 0.9rem !important;
+  background: rgba(0,0,0,0.26) !important;
+  padding: 1rem !important;
+}
+
+[data-testid="variation-pricing-matrix"] .mb-4.rounded-xl > .flex {
+  align-items: center !important;
+}
+
+[data-testid="variation-pricing-matrix"] .w-full.overflow-x-auto {
+  border-radius: 0.9rem !important;
+  overflow: auto !important;
+  background: rgba(0,0,0,0.22);
+}
+
+[data-testid="variation-pricing-matrix"] table {
+  min-width: 1040px !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+[data-testid="variation-pricing-matrix"] th {
+  padding: 0.85rem 1rem !important;
+  background: rgba(255,255,255,0.035) !important;
+  color: #a1a1aa !important;
+  font-size: 11px !important;
+  letter-spacing: 0.04em;
+  vertical-align: middle !important;
+}
+
+[data-testid="variation-pricing-matrix"] td {
+  padding: 0.9rem 1rem !important;
+  vertical-align: middle !important;
+}
+
+[data-testid="variation-pricing-matrix"] td:nth-child(2),
+[data-testid="variation-pricing-matrix"] td:nth-child(3),
+[data-testid="variation-pricing-matrix"] td:nth-child(6),
+[data-testid="variation-pricing-matrix"] th:nth-child(2),
+[data-testid="variation-pricing-matrix"] th:nth-child(3),
+[data-testid="variation-pricing-matrix"] th:nth-child(6) {
+  text-align: right !important;
+}
+
+[data-testid="variation-pricing-matrix"] td:nth-child(4),
+[data-testid="variation-pricing-matrix"] td:nth-child(5) {
+  min-width: 190px;
+}
+
+[data-testid="variation-pricing-matrix"] input[type="number"],
+[data-testid="variation-pricing-matrix"] input[type="text"],
+[data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"] {
+  width: 100% !important;
+  min-height: 40px !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
+  background: #070707 !important;
+  color: #fff !important;
+  border-radius: 0.55rem !important;
+  padding: 0.55rem 0.7rem !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
+
+[data-testid="variation-pricing-matrix"] input[type="checkbox"] {
+  width: 15px !important;
+  height: 15px !important;
+  accent-color: #34c759;
+}
+
+[data-testid="variation-pricing-matrix"] .sticky.left-0 {
+  background: #050505 !important;
+  box-shadow: 12px 0 20px rgba(0,0,0,0.35);
+}
+
+[data-testid="variation-pricing-matrix"] tbody tr:hover td,
+[data-testid="variation-pricing-matrix"] tbody tr:hover .sticky.left-0 {
+  background-color: rgba(255,255,255,0.035) !important;
+}
+
 /* Builder numeric and decimal inputs must always behave LTR, even if browser bidi heuristics kick in. */
 .product-builder-main input,
 .product-builder-main textarea,
@@ -141,5 +303,14 @@
 @media (max-width: 1024px) {
   .product-builder-layout > section.card.flex {
     order: 0;
+  }
+
+  .ff-print-summary-head {
+    flex-direction: column;
+  }
+
+  .ff-print-summary-total {
+    width: 100%;
+    text-align: left;
   }
 }
