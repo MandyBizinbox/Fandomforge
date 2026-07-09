@@ -38,17 +38,56 @@ function moveTemplateDescriptionToSpecs() {
   setNativeValue(description, "");
 }
 
-function scheduleDetailsFieldFix() {
+function stabiliseMoneyInputs() {
+  if (typeof document === "undefined") return;
+  const inputs = document.querySelectorAll(
+    '.pricing-step-full-width input[type="number"], [data-testid="variation-pricing-matrix"] input[type="number"]'
+  );
+
+  inputs.forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) return;
+    input.dataset.ffMoneyInput = "1";
+    input.type = "text";
+    input.inputMode = "decimal";
+    input.autocomplete = "off";
+    input.setAttribute("pattern", "[0-9]*[.,]?[0-9]*");
+
+    if (!input.dataset.ffMoneyHandlersAttached) {
+      input.dataset.ffMoneyHandlersAttached = "1";
+      input.addEventListener("wheel", (event) => {
+        if (document.activeElement === input) event.preventDefault();
+      }, { passive: false });
+      input.addEventListener("keydown", (event) => {
+        const allowed = ["Backspace", "Delete", "Tab", "Escape", "Enter", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"];
+        if (event.ctrlKey || event.metaKey || allowed.includes(event.key)) return;
+        if (/^[0-9]$/.test(event.key)) return;
+        if ((event.key === "." || event.key === ",") && !String(input.value || "").includes(".") && !String(input.value || "").includes(",")) return;
+        event.preventDefault();
+      });
+      input.addEventListener("blur", () => {
+        const cleaned = String(input.value || "").replace(",", ".");
+        if (cleaned !== input.value) setNativeValue(input, cleaned);
+      });
+    }
+  });
+}
+
+function runBuilderV2Safeguards() {
+  moveTemplateDescriptionToSpecs();
+  stabiliseMoneyInputs();
+}
+
+function scheduleBuilderV2Safeguards() {
   window.requestAnimationFrame(() => {
-    moveTemplateDescriptionToSpecs();
-    window.setTimeout(moveTemplateDescriptionToSpecs, 120);
-    window.setTimeout(moveTemplateDescriptionToSpecs, 350);
+    runBuilderV2Safeguards();
+    window.setTimeout(runBuilderV2Safeguards, 120);
+    window.setTimeout(runBuilderV2Safeguards, 350);
   });
 }
 
 if (typeof window !== "undefined" && !window.__fandomForgeBuilderV2RuntimeLoaded) {
   window.__fandomForgeBuilderV2RuntimeLoaded = true;
-  scheduleDetailsFieldFix();
-  const observer = new MutationObserver(scheduleDetailsFieldFix);
-  observer.observe(document.body, { childList: true, subtree: true });
+  scheduleBuilderV2Safeguards();
+  const observer = new MutationObserver(scheduleBuilderV2Safeguards);
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["type", "value", "class"] });
 }
