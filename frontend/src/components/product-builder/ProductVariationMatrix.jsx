@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Check, CheckSquare, Image as ImageIcon, Square } from "lucide-react";
 import { assetUrl } from "../../lib/api";
 import "./productBuilderV2.css";
+import "./productBuilderV2Runtime";
 import {
   asArray,
   getVariationAttributes,
