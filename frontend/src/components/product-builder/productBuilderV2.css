@@ -29,6 +29,16 @@
 [data-testid="product-artwork-studio"] .cursor-move {
   container-type: size;
   overflow: visible !important;
+  will-change: left, top, width, height, transform;
+  transform: translateZ(0);
+  contain: layout style;
+}
+
+[data-testid="product-artwork-studio"] .cursor-move > img,
+[data-testid="product-artwork-studio"] .cursor-move > .pointer-events-none,
+[data-testid="product-artwork-studio"] .cursor-move > .whitespace-pre {
+  pointer-events: none !important;
+  user-select: none !important;
 }
 
 [data-testid="product-artwork-studio"] .cursor-move > .pointer-events-none,
@@ -42,6 +52,17 @@
   margin-top: -8% !important;
   padding: 3% !important;
   box-sizing: border-box !important;
+}
+
+/* Keep the Studio canvas isolated from the rest of the Builder as much as possible. */
+.studio-v21 main,
+.studio-v21 main .relative,
+.studio-v21 aside {
+  contain: layout style paint;
+}
+
+.studio-v21 img {
+  image-rendering: auto;
 }
 
 /* Pricing cleanup: make the pricing step read like cards instead of a dense table. */
