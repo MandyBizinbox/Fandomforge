@@ -201,6 +201,23 @@ function inputForLabelText(text) {
   return parent?.querySelector?.("input, textarea, select") || null;
 }
 
+function selectedOptionFromDetailsPanel() {
+  const main = builderMain();
+  const raw = normaliseText(main?.textContent || "");
+  if (!raw) return "";
+  const marker = "Selected product option";
+  const start = raw.indexOf(marker);
+  if (start === -1) return "";
+  const after = raw.slice(start + marker.length).trim();
+  const stopWords = ["Category", "Available options", "Creator cost", "Product option"];
+  let end = after.length;
+  stopWords.forEach((word) => {
+    const index = after.indexOf(word);
+    if (index > 0 && index < end) end = index;
+  });
+  return after.slice(0, end).trim();
+}
+
 function mutateInputText(input, nextValue) {
   input.value = nextValue;
   input.setAttribute("value", nextValue);
@@ -357,10 +374,12 @@ function buildServerDraftPayload() {
   const titleInput = inputForLabelText("Product title");
   const description = document.querySelector('[data-format-field="description"]');
   const specs = document.querySelector('[data-format-field="specs"]');
+  const selectedPanelChoice = selectedOptionFromDetailsPanel();
+  if (selectedPanelChoice && !path.productOptionChoice) setPathDraft({ productOptionChoice: selectedPanelChoice });
   return {
     draft_product_id: path.draftProductId || null,
     product_type_choice: path.productTypeChoice || "",
-    product_option_choice: path.productOptionChoice || "",
+    product_option_choice: path.productOptionChoice || selectedPanelChoice || "",
     title: titleInput?.value || details.title || "",
     description: description?.value || details.description || "",
     specs: specs?.value || details.specs || "",
@@ -371,14 +390,13 @@ async function createServerDraftAfterDetails() {
   if (creatingServerDraft || !isNewBuilderUrl()) return false;
   const payload = buildServerDraftPayload();
   if (!payload.product_option_choice) {
-    showTransientNotice("Select a product option before draft save", "error");
+    showTransientNotice("Could not detect selected product option", "error");
     return false;
   }
   if (!normaliseText(payload.title)) {
     showTransientNotice("Enter a product title before draft save", "error");
     return false;
   }
-
   creatingServerDraft = true;
   showTransientNotice("Saving draft product…");
   try {
@@ -402,11 +420,35 @@ async function createServerDraftAfterDetails() {
   }
 }
 
+function shouldHardInterceptDetailsNext(button) {
+  if (!button || !builderShell()?.contains(button) || !isNewBuilderUrl()) return false;
+  if (currentScreenKey() !== "details") return false;
+  const text = lowerText(button.textContent || "");
+  const step = stepFromText(text);
+  return text.includes("next") || step === "variations";
+}
+
+function hardInterceptDetailsNext(event) {
+  const button = event.target?.closest?.("button");
+  if (!shouldHardInterceptDetailsNext(button)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+  if (button.dataset.ffDraftClickLocked === "1") return;
+  button.dataset.ffDraftClickLocked = "1";
+  window.setTimeout(() => {
+    createServerDraftAfterDetails().finally(() => {
+      delete button.dataset.ffDraftClickLocked;
+    });
+  }, 0);
+}
+
 function rememberBuilderClick(event) {
   const shell = builderShell();
   if (!shell) return;
   const button = event.target?.closest?.("button");
   if (!button || !shell.contains(button)) return;
+  if (shouldHardInterceptDetailsNext(button)) return;
   const text = normaliseText(button.textContent || "");
   const step = stepFromText(text);
   if (step) {
@@ -419,12 +461,6 @@ function rememberBuilderClick(event) {
   }
   if (screen === "product_option" && !isNavigationButton(button)) {
     setPathDraft({ productOptionChoice: text });
-  }
-  if (screen === "details" && lowerText(text).includes("next") && isNewBuilderUrl()) {
-    event.preventDefault();
-    event.stopPropagation();
-    createServerDraftAfterDetails();
-    return;
   }
   if (text.toLowerCase().includes("next") || text.toLowerCase().includes("save")) saveBuilderDraft();
 }
@@ -532,6 +568,7 @@ function scheduleBuilderV2Safeguards() {
 
 if (typeof window !== "undefined" && !window.__fandomForgeBuilderV2RuntimeLoaded) {
   window.__fandomForgeBuilderV2RuntimeLoaded = true;
+  document.addEventListener("click", hardInterceptDetailsNext, true);
   runBuilderV2Safeguards();
   window.setTimeout(runBuilderV2Safeguards, 350);
   window.setInterval(scheduleReplayBuilderPath, 500);
