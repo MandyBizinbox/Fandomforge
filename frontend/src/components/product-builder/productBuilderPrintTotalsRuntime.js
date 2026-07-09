@@ -87,46 +87,21 @@ function extractReviewSlotSummary() {
   return { lines, total, source: "review" };
 }
 
-function extractPricingFallbackSummary() {
+function extractVariationCosts() {
   const matrix = variationPricingCard();
-  if (!matrix) return null;
-  const text = normaliseText(matrix.textContent);
-  if (!text.toLowerCase().includes("print cost")) return null;
-  const firstPrintCostMatch = text.match(/Print cost\s*Fundraising amount[\s\S]*?R\s*([0-9]+(?:[.,][0-9]+)?)/i)
-    || text.match(/Print cost[\s\S]*?R\s*([0-9]+(?:[.,][0-9]+)?)/i);
-  const value = firstPrintCostMatch ? Number(String(firstPrintCostMatch[1]).replace(",", ".")) : 0;
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return { lines: [{ label: "Total printing", total: value, count: 1 }], total: value, source: "pricing_fallback" };
+  if (!matrix) return { product: 0, printing: 0, total: 0 };
+  const firstRow = matrix.querySelector("tbody tr");
+  if (!firstRow) return { product: 0, printing: 0, total: 0 };
+  const cells = firstRow.querySelectorAll("td");
+  const product = parseMoney(cells[1]?.textContent || "");
+  const printing = parseMoney(cells[2]?.textContent || "");
+  return { product, printing, total: Math.round((product + printing) * 100) / 100 };
 }
 
-function compactSummaryMarkup(summary, options = {}) {
-  const lines = summary?.lines || [];
-  const total = Number(summary?.total || lines.reduce((sum, row) => sum + Number(row.total || 0), 0));
-  const subtitle = options.subtitle || "Grouped by print method.";
-  return `
-    <div class="ff-print-method-summary ff-print-method-summary-inline ${options.className || ""}">
-      <div class="ff-print-summary-head">
-        <div>
-          <div class="overline mb-1">Printing Method Totals</div>
-          <h3 class="font-display text-xl uppercase text-white">Print cost summary</h3>
-          <p class="text-xs text-zinc-500 mt-1">${subtitle}</p>
-        </div>
-        <div class="ff-print-summary-total">
-          <div>Total print cost</div>
-          <strong>${formatMoney(total)}</strong>
-        </div>
-      </div>
-      <div class="ff-print-summary-grid">
-        ${lines.map((row) => `
-          <div class="ff-print-summary-pill">
-            <span>${row.label}</span>
-            <strong>${formatMoney(row.total)}</strong>
-            <em>${row.count || 1} charged line${Number(row.count || 1) === 1 ? "" : "s"}</em>
-          </div>
-        `).join("")}
-      </div>
-    </div>
-  `;
+function extractPricingFallbackSummary() {
+  const costs = extractVariationCosts();
+  if (!costs.printing) return null;
+  return { lines: [{ label: "Printing", total: costs.printing, count: 1 }], total: costs.printing, source: "pricing_fallback" };
 }
 
 function reviewSummaryMarkup(summary, options = {}) {
@@ -166,24 +141,46 @@ function placeReviewSummaryBefore(target, summary, options = {}) {
   else target.insertAdjacentHTML("beforebegin", reviewSummaryMarkup(summary, options));
 }
 
-function insertPricingSummaryInMatrix(matrix, summary) {
-  if (!matrix || !summary?.lines?.length) return;
-  const inner = matrix.querySelector(".p-5") || matrix;
-  let existing = inner.querySelector(".ff-print-method-summary-pricing");
-  const html = compactSummaryMarkup(summary, {
-    className: "ff-print-method-summary-pricing",
-    subtitle: summary.source === "pricing_fallback"
-      ? "Current total print cost used by pricing. Method totals refresh after Review has loaded once."
-      : "Grouped by print method from the current artwork setup.",
-  });
-  if (existing) {
-    existing.outerHTML = html;
-    return;
-  }
+function productionCostBlock() {
+  const candidates = [...document.querySelectorAll(".grid > .rounded-xl, .rounded-xl")];
+  return candidates.find((node) => normaliseText(node.textContent).toLowerCase().includes("estimated production cost"));
+}
 
-  const defaultControls = [...inner.querySelectorAll(".rounded-xl")].find((node) => normaliseText(node.textContent).toLowerCase().includes("default pricing controls"));
-  if (defaultControls) defaultControls.insertAdjacentHTML("beforebegin", html);
-  else inner.insertAdjacentHTML("afterbegin", html);
+function productionBreakdownMarkup(productCost, printingCost, totalCost, summary) {
+  const lines = summary?.lines || [];
+  const methodLines = lines.length && summary?.source !== "pricing_fallback"
+    ? `<div class="ff-production-method-lines">${lines.map((row) => `<div><span>${row.label}</span><strong>${formatMoney(row.total)}</strong></div>`).join("")}</div>`
+    : "";
+  return `
+    <div class="ff-production-cost-breakdown">
+      <div><span>Product</span><strong>${formatMoney(productCost)}</strong></div>
+      <div><span>Printing</span><strong>${formatMoney(printingCost)}</strong></div>
+      ${methodLines}
+      <div class="ff-production-total"><span>Total</span><strong>${formatMoney(totalCost)}</strong></div>
+    </div>
+  `;
+}
+
+function applyProductionCostBreakdown() {
+  const block = productionCostBlock();
+  if (!block) return false;
+  const summary = readSummary() || extractPricingFallbackSummary();
+  const costs = extractVariationCosts();
+  const existing = block.querySelector(".ff-production-cost-breakdown");
+  const originalMetric = [...block.querySelectorAll(".flex")].find((node) => normaliseText(node.textContent).toLowerCase().includes("product + printing"));
+
+  const printingCost = Number(summary?.total || costs.printing || 0);
+  const totalFromSummary = parseMoney(originalMetric?.textContent || "");
+  const productCost = costs.product || Math.max(0, totalFromSummary - printingCost);
+  const totalCost = productCost + printingCost || totalFromSummary;
+
+  if (!printingCost && !totalCost) return false;
+
+  if (originalMetric) originalMetric.style.display = "none";
+  const html = productionBreakdownMarkup(productCost, printingCost, totalCost, summary || { lines: [], source: "pricing_fallback" });
+  if (existing) existing.outerHTML = html;
+  else block.insertAdjacentHTML("afterbegin", html);
+  return true;
 }
 
 function applyReviewSummary() {
@@ -201,20 +198,14 @@ function applyReviewSummary() {
   return true;
 }
 
-function applyPricingSummary() {
-  const matrix = variationPricingCard();
-  if (!matrix) return false;
-  const summary = readSummary() || extractPricingFallbackSummary();
-  if (!summary) return false;
-  const stray = document.querySelector(".pricing-step-full-width > .ff-print-method-summary-pricing");
-  if (stray) stray.remove();
-  insertPricingSummaryInMatrix(matrix, summary);
-  return true;
+function removePricingMatrixSummary() {
+  document.querySelectorAll(".ff-print-method-summary-pricing, [data-testid='variation-pricing-matrix'] .ff-print-method-summary").forEach((node) => node.remove());
 }
 
 function run() {
   applyReviewSummary();
-  applyPricingSummary();
+  removePricingMatrixSummary();
+  applyProductionCostBreakdown();
 }
 
 function schedule() {
