@@ -3,6 +3,8 @@
 // flow while the larger ProductBuilder component is being refactored.
 
 const DRAFT_STORAGE_PREFIX = "ff_builder_v2_draft:";
+let safeguardTimer = null;
+let lastSafeguardRun = 0;
 
 function setNativeValue(element, value) {
   if (!element) return;
@@ -17,11 +19,11 @@ function setNativeValue(element, value) {
 
 function forceLtrField(element) {
   if (!element) return;
-  element.dir = "ltr";
-  element.setAttribute("dir", "ltr");
-  element.style.direction = "ltr";
-  element.style.unicodeBidi = "isolate";
-  element.style.textAlign = "left";
+  if (element.dir !== "ltr") element.dir = "ltr";
+  if (element.getAttribute("dir") !== "ltr") element.setAttribute("dir", "ltr");
+  if (element.style.direction !== "ltr") element.style.direction = "ltr";
+  if (element.style.unicodeBidi !== "isolate") element.style.unicodeBidi = "isolate";
+  if (element.style.textAlign !== "left") element.style.textAlign = "left";
 }
 
 function builderShell() {
@@ -45,9 +47,6 @@ function moveTemplateDescriptionToSpecs() {
 
   if (!descriptionValue || specsValue || description.dataset.ffMovedToSpecs === "1") return;
   if (document.activeElement === description || document.activeElement === specs) return;
-
-  // Template descriptions are generally longer than a user's short manual product blurb.
-  // Move only when Specs is empty and Description appears to be auto-filled.
   if (descriptionValue.length < 12) return;
 
   description.dataset.ffMovedToSpecs = "1";
@@ -134,10 +133,7 @@ function stabiliseTextRenderSizeInput() {
   if (input.dataset.ffTextRenderHandlersAttached) return;
   input.dataset.ffTextRenderHandlersAttached = "1";
 
-  input.addEventListener("focus", () => {
-    window.setTimeout(() => input.select(), 0);
-  });
-
+  input.addEventListener("focus", () => window.setTimeout(() => input.select(), 0));
   input.addEventListener("beforeinput", (event) => {
     const data = event.data || "";
     if (event.inputType === "insertText" && !/^\d+$/.test(data)) {
@@ -154,7 +150,6 @@ function stabiliseTextRenderSizeInput() {
       input.setSelectionRange(next.length, next.length);
     }
   });
-
   input.addEventListener("keydown", (event) => {
     if (event.ctrlKey || event.metaKey || ["Tab", "Escape", "Enter", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     if (event.key === "Backspace" || event.key === "Delete") {
@@ -172,7 +167,6 @@ function stabiliseTextRenderSizeInput() {
       input.setSelectionRange(Math.max(0, cursor), Math.max(0, cursor));
     }
   });
-
   input.addEventListener("blur", () => {
     const raw = Number(String(input.value || "").replace(/\D+/g, ""));
     const finalValue = Math.max(24, Math.min(raw || 180, 1200));
@@ -201,9 +195,7 @@ function collectDraftFields() {
 function saveBuilderDraft() {
   if (typeof window === "undefined") return;
   const data = {};
-  collectDraftFields().forEach((element, index) => {
-    data[fieldKey(element, index)] = element.value;
-  });
+  collectDraftFields().forEach((element, index) => { data[fieldKey(element, index)] = element.value; });
   try {
     window.localStorage.setItem(draftKey(), JSON.stringify({ saved_at: Date.now(), data }));
   } catch (error) {
@@ -214,11 +206,7 @@ function saveBuilderDraft() {
 function restoreBuilderDraft() {
   if (typeof window === "undefined") return;
   let parsed = null;
-  try {
-    parsed = JSON.parse(window.localStorage.getItem(draftKey()) || "null");
-  } catch (error) {
-    parsed = null;
-  }
+  try { parsed = JSON.parse(window.localStorage.getItem(draftKey()) || "null"); } catch (error) { parsed = null; }
   if (!parsed?.data) return;
   collectDraftFields().forEach((element, index) => {
     const key = fieldKey(element, index);
@@ -242,6 +230,9 @@ function attachDraftHandlers() {
 }
 
 function runBuilderV2Safeguards() {
+  const now = Date.now();
+  if (now - lastSafeguardRun < 250) return;
+  lastSafeguardRun = now;
   moveTemplateDescriptionToSpecs();
   stabiliseMoneyInputs();
   stabiliseBuilderInputs();
@@ -251,16 +242,17 @@ function runBuilderV2Safeguards() {
 }
 
 function scheduleBuilderV2Safeguards() {
-  window.requestAnimationFrame(() => {
+  if (safeguardTimer) return;
+  safeguardTimer = window.setTimeout(() => {
+    safeguardTimer = null;
     runBuilderV2Safeguards();
-    window.setTimeout(runBuilderV2Safeguards, 120);
-    window.setTimeout(runBuilderV2Safeguards, 350);
-  });
+  }, 120);
 }
 
 if (typeof window !== "undefined" && !window.__fandomForgeBuilderV2RuntimeLoaded) {
   window.__fandomForgeBuilderV2RuntimeLoaded = true;
-  scheduleBuilderV2Safeguards();
+  runBuilderV2Safeguards();
+  window.setTimeout(runBuilderV2Safeguards, 350);
   const observer = new MutationObserver(scheduleBuilderV2Safeguards);
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["type", "value", "class", "dir", "style"] });
+  observer.observe(document.body, { childList: true, subtree: true });
 }
