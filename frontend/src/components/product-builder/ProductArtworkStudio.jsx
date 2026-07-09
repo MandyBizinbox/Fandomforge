@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Image as ImageIcon, Move, Plus, RefreshCw, RotateCcw, Trash2, Type } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
 import { resolveEffectiveProductionSetup } from "../../lib/templateProductionResolver";
+import "./productBuilderV2.css";
 import {
   asArray,
   getGroupRepresentativeVariationId,
@@ -51,8 +52,7 @@ const GOOGLE_FONT_FAMILIES = new Set([
 
 function areaPct(area, key) {
   if (!area) return 0;
-  const pctKey = `${key}_pct`;
-  const pct = area[pctKey];
+  const pct = area[`${key}_pct`];
   const direct = area[key];
   if (pct !== undefined && pct !== null && pct !== "") return Number(pct || 0);
   if (direct !== undefined && direct !== null && direct !== "") return Number(direct || 0);
@@ -124,7 +124,7 @@ async function ensureFontReady(fontFamily, weight = "700", size = 120) {
     await document.fonts.load(`${weight} ${size}px "${fontFamily}"`);
     await document.fonts.ready;
   } catch (error) {
-    // Browser falls back to system fonts if Google Fonts cannot be loaded.
+    // Browser falls back to system fonts if Google Fonts cannot load.
   }
 }
 
@@ -298,6 +298,11 @@ function optionPatchForSlot(slot, area, option = {}) {
   };
 }
 
+function slotPrintCost(slot = {}) {
+  if (!slot.original_url || !slot.print_option_id) return 0;
+  return Number(slot.calculated_print_cost ?? slot.print_cost_max ?? slot.raw_print_cost ?? 0) || 0;
+}
+
 function TextLayerPreview({ slot }) {
   const settings = normaliseTextSettings(slot);
   useEffect(() => {
@@ -418,6 +423,10 @@ export default function ProductArtworkStudio({
 
   const activeImage = areasForScreen.find((area) => area.effective_base_image_url)?.effective_base_image_url || activeScreen?.image_url || "";
   const activePlacement = sanitizePlacement(activeSlot?.placement, activeArea);
+  const currentScreenPrintCost = Math.round(currentScreenSlots.reduce((total, slot) => total + slotPrintCost(slot), 0) * 100) / 100;
+  const allGroupPrintCost = Math.round(slots.reduce((total, slot) => total + slotPrintCost(slot), 0) * 100) / 100;
+  const pricedLayerCount = currentScreenSlots.filter((slot) => slot.original_url && slot.print_option_id).length;
+  const missingMethodCount = currentScreenSlots.filter((slot) => slot.original_url && !slot.print_option_id).length;
 
   const allowedOptions = useMemo(() => {
     if (!activeArea) return [];
@@ -816,13 +825,32 @@ export default function ProductArtworkStudio({
             Build artwork per product view. Front, back, side, wrap and neck-label views remain separate, with their own print areas and mockups.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs text-zinc-400">
-          <span className="border border-white/10 px-3 py-2 rounded-lg">Groups: {groups.length}</span>
+        <div className="grid sm:grid-cols-4 gap-2 text-xs text-zinc-400">
           <span className="border border-white/10 px-3 py-2 rounded-lg">View: {screenLabel(activeScreen)}</span>
-          <span className="border border-white/10 px-3 py-2 rounded-lg">Areas: {areasForScreen.length}</span>
           <span className="border border-white/10 px-3 py-2 rounded-lg">Layers: {currentScreenSlots.length}</span>
+          <span className="border border-[#34C759]/30 text-[#B8F5C3] px-3 py-2 rounded-lg">View cost: {money(currentScreenPrintCost)}</span>
+          <span className="border border-white/10 px-3 py-2 rounded-lg">All artwork: {money(allGroupPrintCost)}</span>
         </div>
       </header>
+
+      <section className="border border-[#34C759]/30 bg-[#34C759]/10 rounded-xl p-4 grid md:grid-cols-4 gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-[#B8F5C3] mb-1">Selected view print cost</div>
+          <div className="font-display text-3xl">{money(currentScreenPrintCost)}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-[#B8F5C3] mb-1">All artwork groups</div>
+          <div className="font-display text-3xl">{money(allGroupPrintCost)}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-[#B8F5C3] mb-1">Priced layers</div>
+          <div className="font-display text-3xl">{pricedLayerCount}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-[#B8F5C3] mb-1">Missing methods</div>
+          <div className={missingMethodCount ? "font-display text-3xl text-[#FF3B30]" : "font-display text-3xl"}>{missingMethodCount}</div>
+        </div>
+      </section>
 
       <div className="border border-white/10 bg-black/20 rounded-xl p-3 flex flex-wrap gap-2">
         {screens.map((screen) => {
@@ -900,7 +928,7 @@ export default function ProductArtworkStudio({
                   <button key={slot.id} type="button" onClick={() => { setActiveSlotId(slot.id); setActivePrintAreaId(area?.id || ""); }} className={`w-full text-left border rounded-xl p-3 ${active ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="font-bold text-sm">{slot.text_layer ? "Text" : "Image"} · {area?.name || "Print area"}</div>
-                      {slot.text_layer ? <Type size={14} className="text-zinc-500" /> : <ImageIcon size={14} className="text-zinc-500" />}
+                      <span className="text-xs text-[#B8F5C3]">{money(slotPrintCost(slot))}</span>
                     </div>
                     <div className={`text-xs mt-1 ${slot.original_url && !slot.print_option_id ? "text-[#FF3B30]" : "text-zinc-500"}`}>{option ? getPrintOptionLabel(option) : slot.original_url ? "Print method missing" : "No method selected"}</div>
                     <div className={`text-[10px] uppercase tracking-widest mt-2 ${slot.original_url ? "text-[#34C759]" : "text-zinc-500"}`}>{slot.original_url ? "Artwork ready" : "Needs artwork"}</div>
@@ -976,7 +1004,7 @@ export default function ProductArtworkStudio({
               </div>
 
               <div className="rounded-xl border border-[#34C759]/30 bg-[#34C759]/10 p-4">
-                <div className="text-[10px] uppercase tracking-widest text-[#B8F5C3] mb-1">Print cost</div>
+                <div className="text-[10px] uppercase tracking-widest text-[#B8F5C3] mb-1">Selected layer print cost</div>
                 <div className="font-display text-3xl">{activeSlot.calculated_print_cost !== undefined ? money(activeSlot.calculated_print_cost || 0) : "Pending"}</div>
                 <div className="text-xs text-[#B8F5C3]/80 mt-1">{activeSlot.area_cm2 || 0}cm² · {activeSlot.print_width_mm || 0}×{activeSlot.print_height_mm || 0}mm</div>
               </div>
