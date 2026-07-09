@@ -28,12 +28,20 @@
 /* Text-layer scaling fix: the selected layer box is the product-size control. */
 [data-testid="product-artwork-studio"] .cursor-move {
   container-type: size;
+  overflow: visible !important;
 }
 
 [data-testid="product-artwork-studio"] .cursor-move > .pointer-events-none,
 [data-testid="product-artwork-studio"] .cursor-move > .whitespace-pre {
-  font-size: min(40cqw, 84cqh) !important;
-  line-height: 1.05 !important;
+  font-size: min(34cqw, 66cqh) !important;
+  line-height: 1.28 !important;
+  overflow: visible !important;
+  width: 116% !important;
+  height: 116% !important;
+  margin-left: -8% !important;
+  margin-top: -8% !important;
+  padding: 3% !important;
+  box-sizing: border-box !important;
 }
 
 /* Pricing cleanup: make the pricing step read like cards instead of a dense table. */
@@ -48,6 +56,27 @@
 [data-testid$="product-builder"] .variation-pricing-table td,
 [data-testid$="product-builder"] .variation-pricing-table th {
   vertical-align: top;
+}
+
+/* Money fields should behave like text decimals, not browser spinner number fields. */
+.pricing-step-full-width input[type="number"],
+[data-testid="variation-pricing-matrix"] input[type="number"],
+.pricing-step-full-width input[data-ff-money-input="1"],
+[data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.pricing-step-full-width input[type="number"]::-webkit-outer-spin-button,
+.pricing-step-full-width input[type="number"]::-webkit-inner-spin-button,
+[data-testid="variation-pricing-matrix"] input[type="number"]::-webkit-outer-spin-button,
+[data-testid="variation-pricing-matrix"] input[type="number"]::-webkit-inner-spin-button,
+.pricing-step-full-width input[data-ff-money-input="1"]::-webkit-outer-spin-button,
+.pricing-step-full-width input[data-ff-money-input="1"]::-webkit-inner-spin-button,
+[data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"]::-webkit-outer-spin-button,
+[data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* Make review/pricing sections breathe more on the large creator workflow screens. */
