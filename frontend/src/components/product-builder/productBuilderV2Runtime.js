@@ -3,8 +3,19 @@
 // flow while the larger ProductBuilder component is being refactored.
 
 const DRAFT_STORAGE_PREFIX = "ff_builder_v2_draft:";
+const PATH_STORAGE_PREFIX = "ff_builder_v2_path:";
 let safeguardTimer = null;
 let lastSafeguardRun = 0;
+let restoreTimer = null;
+let restoreAttempts = 0;
+
+function normaliseText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function lowerText(value) {
+  return normaliseText(value).toLowerCase();
+}
 
 function setNativeValue(element, value) {
   if (!element) return;
@@ -27,7 +38,70 @@ function forceLtrField(element) {
 }
 
 function builderShell() {
-  return document.querySelector('[data-testid="creator-product-builder"], [data-testid="admin-product-builder"], .product-builder-main, .product-builder-layout');
+  return document.querySelector('[data-testid="creator-product-builder"], [data-testid="admin-product-builder"]');
+}
+
+function builderMain() {
+  return document.querySelector(".product-builder-main") || builderShell();
+}
+
+function stepFromText(text) {
+  const value = lowerText(text);
+  if (value.includes("1 product type")) return "product_type";
+  if (value.includes("2 product option")) return "product_option";
+  if (value.includes("3 details")) return "details";
+  if (value.includes("4 variations")) return "variations";
+  if (value.includes("5 artwork scope")) return "scope";
+  if (value.includes("6 artwork")) return "artwork";
+  if (value.includes("7 pricing")) return "pricing";
+  if (value.includes("8 review")) return "review";
+  return "";
+}
+
+function currentScreenKey() {
+  const main = builderMain();
+  const text = lowerText(main?.textContent || "");
+  if (text.includes("choose product type")) return "product_type";
+  if (text.includes("choose product option")) return "product_option";
+  if (text.includes("product details") || text.includes("details")) return "details";
+  if (text.includes("variation selection")) return "variations";
+  if (text.includes("artwork scope")) return "scope";
+  if (text.includes("artwork studio")) return "artwork";
+  if (text.includes("pricing")) return "pricing";
+  if (text.includes("final review")) return "review";
+  return "";
+}
+
+function draftKey() {
+  return `${DRAFT_STORAGE_PREFIX}${window.location.pathname}`;
+}
+
+function pathKey() {
+  return `${PATH_STORAGE_PREFIX}${window.location.pathname}`;
+}
+
+function readJson(key) {
+  try {
+    return JSON.parse(window.localStorage.getItem(key) || "null") || {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function writeJson(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    // Ignore storage quota/private mode failures.
+  }
+}
+
+function getPathDraft() {
+  return readJson(pathKey());
+}
+
+function setPathDraft(patch) {
+  writeJson(pathKey(), { ...getPathDraft(), ...patch, saved_at: Date.now() });
 }
 
 function moveTemplateDescriptionToSpecs() {
@@ -99,18 +173,12 @@ function stabiliseBuilderInputs() {
 
 function inputForLabelText(text) {
   const labels = [...document.querySelectorAll("label, .label")];
-  const label = labels.find((item) => String(item.textContent || "").toLowerCase().includes(text.toLowerCase()));
+  const label = labels.find((item) => lowerText(item.textContent).includes(text.toLowerCase()));
   if (!label) return null;
-  if (label.querySelector) {
-    const nested = label.querySelector("input");
-    if (nested) return nested;
-  }
+  const nested = label.querySelector?.("input");
+  if (nested) return nested;
   const parent = label.parentElement;
-  if (parent) {
-    const within = parent.querySelector("input");
-    if (within) return within;
-  }
-  return null;
+  return parent?.querySelector?.("input") || null;
 }
 
 function mutateInputText(input, nextValue) {
@@ -175,11 +243,9 @@ function stabiliseTextRenderSizeInput() {
   });
 }
 
-function draftKey() {
-  return `${DRAFT_STORAGE_PREFIX}${window.location.pathname}`;
-}
-
 function fieldKey(element, index) {
+  const formatField = element.dataset?.formatField;
+  if (formatField) return `format:${formatField}`;
   const label = element.closest("label")?.textContent || element.getAttribute("aria-label") || element.name || element.id || element.placeholder || `field-${index}`;
   return String(label).replace(/\s+/g, " ").trim().slice(0, 90) || `field-${index}`;
 }
@@ -195,18 +261,37 @@ function collectDraftFields() {
 function saveBuilderDraft() {
   if (typeof window === "undefined") return;
   const data = {};
-  collectDraftFields().forEach((element, index) => { data[fieldKey(element, index)] = element.value; });
-  try {
-    window.localStorage.setItem(draftKey(), JSON.stringify({ saved_at: Date.now(), data }));
-  } catch (error) {
-    // Ignore storage quota/private mode failures.
-  }
+  const detailFields = {};
+  collectDraftFields().forEach((element, index) => {
+    const key = fieldKey(element, index);
+    data[key] = element.value;
+    if (element.dataset?.formatField) detailFields[element.dataset.formatField] = element.value;
+  });
+  writeJson(draftKey(), { saved_at: Date.now(), data, detailFields });
+  if (Object.keys(detailFields).length) setPathDraft({ detailFields });
+}
+
+function restoreDetailsFromDraft() {
+  const path = getPathDraft();
+  const draft = readJson(draftKey());
+  const detailFields = { ...(draft.detailFields || {}), ...(path.detailFields || {}) };
+  if (!Object.keys(detailFields).length) return false;
+
+  let restored = false;
+  document.querySelectorAll("[data-format-field]").forEach((element) => {
+    const key = element.dataset.formatField;
+    const value = detailFields[key];
+    if (value === undefined || value === null) return;
+    if (String(element.value || "") === String(value)) return;
+    setNativeValue(element, value);
+    restored = true;
+  });
+  return restored;
 }
 
 function restoreBuilderDraft() {
   if (typeof window === "undefined") return;
-  let parsed = null;
-  try { parsed = JSON.parse(window.localStorage.getItem(draftKey()) || "null"); } catch (error) { parsed = null; }
+  const parsed = readJson(draftKey());
   if (!parsed?.data) return;
   collectDraftFields().forEach((element, index) => {
     const key = fieldKey(element, index);
@@ -214,6 +299,111 @@ function restoreBuilderDraft() {
     if (value === undefined || value === null || String(element.value || "").trim() !== "") return;
     setNativeValue(element, value);
   });
+  restoreDetailsFromDraft();
+}
+
+function isStepperButton(button) {
+  return Boolean(stepFromText(button?.textContent || ""));
+}
+
+function isNavigationButton(button) {
+  const text = lowerText(button?.textContent || "");
+  return ["next", "previous", "back", "save", "create", "select all", "clear all", "clear visible", "select visible"].some((item) => text === item || text.includes(item));
+}
+
+function rememberBuilderClick(event) {
+  const shell = builderShell();
+  if (!shell) return;
+  const button = event.target?.closest?.("button");
+  if (!button || !shell.contains(button)) return;
+
+  const text = normaliseText(button.textContent || "");
+  const step = stepFromText(text);
+  if (step) {
+    setPathDraft({ activeStep: step });
+    return;
+  }
+
+  const screen = currentScreenKey();
+  if (screen === "product_type" && !isNavigationButton(button)) {
+    setPathDraft({ productTypeChoice: text });
+  }
+  if (screen === "product_option" && !isNavigationButton(button)) {
+    setPathDraft({ productOptionChoice: text });
+  }
+  if (text.toLowerCase().includes("next") || text.toLowerCase().includes("save")) saveBuilderDraft();
+}
+
+function findMatchingButton(choiceText, scope = document) {
+  const choice = lowerText(choiceText);
+  if (!choice) return null;
+  const buttons = [...scope.querySelectorAll("button")].filter((button) => !isStepperButton(button) && !isNavigationButton(button));
+  return buttons.find((button) => lowerText(button.textContent) === choice)
+    || buttons.find((button) => lowerText(button.textContent).includes(choice.slice(0, 80)))
+    || buttons.find((button) => choice.includes(lowerText(button.textContent).slice(0, 80)));
+}
+
+function clickStep(stepKey) {
+  const button = [...document.querySelectorAll("button")].find((item) => stepFromText(item.textContent) === stepKey);
+  if (button) {
+    button.click();
+    return true;
+  }
+  return false;
+}
+
+function replayBuilderPath() {
+  const path = getPathDraft();
+  if (!path.productTypeChoice && !path.productOptionChoice && !path.detailFields) return;
+  if (restoreAttempts > 40) return;
+  restoreAttempts += 1;
+
+  const screen = currentScreenKey();
+  const main = builderMain();
+
+  if (path.productTypeChoice && screen === "product_type") {
+    const selected = main?.querySelector?.('button[aria-pressed="true"]');
+    if (!selected) {
+      const button = findMatchingButton(path.productTypeChoice, main || document);
+      if (button) {
+        button.click();
+        return;
+      }
+    }
+  }
+
+  if (path.productOptionChoice) {
+    if (screen !== "product_option" && screen !== "details") {
+      clickStep("product_option");
+      return;
+    }
+    if (screen === "product_option") {
+      const selected = main?.querySelector?.('button[aria-pressed="true"]');
+      if (!selected) {
+        const button = findMatchingButton(path.productOptionChoice, main || document);
+        if (button) {
+          button.click();
+          return;
+        }
+      }
+    }
+  }
+
+  if (path.detailFields) {
+    if (currentScreenKey() !== "details") {
+      clickStep("details");
+      return;
+    }
+    restoreDetailsFromDraft();
+  }
+}
+
+function scheduleReplayBuilderPath() {
+  if (restoreTimer) return;
+  restoreTimer = window.setTimeout(() => {
+    restoreTimer = null;
+    replayBuilderPath();
+  }, 180);
 }
 
 function attachDraftHandlers() {
@@ -222,11 +412,7 @@ function attachDraftHandlers() {
   shell.dataset.ffDraftHandlersAttached = "1";
   shell.addEventListener("input", () => window.setTimeout(saveBuilderDraft, 50));
   shell.addEventListener("change", () => window.setTimeout(saveBuilderDraft, 50));
-  shell.addEventListener("click", (event) => {
-    const button = event.target?.closest?.("button");
-    const text = String(button?.textContent || "").toLowerCase();
-    if (text.includes("next") || text.includes("save")) saveBuilderDraft();
-  }, true);
+  shell.addEventListener("click", rememberBuilderClick, true);
 }
 
 function runBuilderV2Safeguards() {
@@ -239,6 +425,7 @@ function runBuilderV2Safeguards() {
   stabiliseTextRenderSizeInput();
   attachDraftHandlers();
   restoreBuilderDraft();
+  scheduleReplayBuilderPath();
 }
 
 function scheduleBuilderV2Safeguards() {
@@ -253,6 +440,7 @@ if (typeof window !== "undefined" && !window.__fandomForgeBuilderV2RuntimeLoaded
   window.__fandomForgeBuilderV2RuntimeLoaded = true;
   runBuilderV2Safeguards();
   window.setTimeout(runBuilderV2Safeguards, 350);
+  window.setInterval(scheduleReplayBuilderPath, 500);
   const observer = new MutationObserver(scheduleBuilderV2Safeguards);
   observer.observe(document.body, { childList: true, subtree: true });
 }
