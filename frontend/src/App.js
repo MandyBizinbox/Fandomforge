@@ -28,6 +28,7 @@ import BandDashboard from "./pages/BandDashboard";
 import CreatorCataloguePricing from "./pages/CreatorCataloguePricing";
 import PrinterDashboard from "./pages/PrinterDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminManufacturingRules from "./pages/admin/AdminManufacturingRules";
 import ManagerDashboard from "./pages/ManagerDashboard";
 import Account from "./pages/Account";
 import Sell from "./pages/Sell";
@@ -183,6 +184,15 @@ function AppRoutes() {
         element={
           <Protected roles={["manager", "admin", "super_admin"]}>
             <ManagerDashboard />
+          </Protected>
+        }
+      />
+
+      <Route
+        path="/admin/manufacturing-rules"
+        element={
+          <Protected roles={["admin", "super_admin"]}>
+            <AdminManufacturingRules />
           </Protected>
         }
       />
