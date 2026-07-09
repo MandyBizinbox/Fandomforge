@@ -72,12 +72,14 @@ from routes_main import (
     orders_router, admin_router, payments_router, platform_billing_router, files_router, public_router,
     band_dash_router, printer_dash_router, categories_router, attributes_router, print_options_router,
 )
+from builder_draft_routes import builder_drafts_router
 from routes_production_operations import production_operations_router
 
 api_router.include_router(auth_router)
 api_router.include_router(bands_router)
 api_router.include_router(printers_router)
 api_router.include_router(product_templates_router)
+api_router.include_router(builder_drafts_router)
 api_router.include_router(products_router)
 api_router.include_router(artworks_router)
 api_router.include_router(orders_router)
