@@ -16,18 +16,14 @@ export function makeId(prefix = "id") {
 
 export function getTemplateImage(template, selectedArea) {
   if (!template) return "";
-
   if (selectedArea?.screen_id) {
     const screen = asArray(template.mockup_screens).find((item) => item.id === selectedArea.screen_id);
     if (screen?.image_url) return screen.image_url;
   }
-
   const primary = asArray(template.mockup_screens).find((item) => item.is_primary && item.image_url);
   if (primary?.image_url) return primary.image_url;
-
   const firstScreen = asArray(template.mockup_screens).find((item) => item.image_url);
   if (firstScreen?.image_url) return firstScreen.image_url;
-
   return template.product_image_url || template.mockup_url || asArray(template.mockup_images)[0] || "";
 }
 
@@ -119,8 +115,7 @@ function canonicalSizeValue(value) {
 }
 
 function adultSizeIndex(value) {
-  const upper = String(value || "").trim().toUpperCase();
-  return ADULT_SIZE_ORDER.indexOf(upper);
+  return ADULT_SIZE_ORDER.indexOf(String(value || "").trim().toUpperCase());
 }
 
 function kidsSizeStart(value) {
@@ -135,13 +130,11 @@ function sortSizeValues(values) {
     if (aAdult !== -1 && bAdult !== -1) return aAdult - bAdult;
     if (aAdult !== -1) return -1;
     if (bAdult !== -1) return 1;
-
     const aKids = kidsSizeStart(a);
     const bKids = kidsSizeStart(b);
     if (aKids !== null && bKids !== null) return aKids - bKids;
     if (aKids !== null) return -1;
     if (bKids !== null) return 1;
-
     return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
   });
 }
@@ -161,17 +154,13 @@ export function getVariationAttributeValue(variation, aliases) {
   const candidates = Array.isArray(aliases) ? aliases : ATTRIBUTE_ALIASES[aliases] || [aliases];
   const fromAttrs = getAttrValue(variation, candidates);
   if (fromAttrs) return fromAttrs;
-
   for (const key of candidates) {
     const direct = variation?.[key];
     if (direct !== undefined && direct !== null && String(direct).trim() !== "") return String(direct);
     const normalized = normalizeKey(key);
     const foundKey = Object.keys(variation || {}).find((item) => normalizeKey(item) === normalized);
-    if (foundKey && variation[foundKey] !== undefined && variation[foundKey] !== null && String(variation[foundKey]).trim() !== "") {
-      return String(variation[foundKey]);
-    }
+    if (foundKey && variation[foundKey] !== undefined && variation[foundKey] !== null && String(variation[foundKey]).trim() !== "") return String(variation[foundKey]);
   }
-
   return "";
 }
 
@@ -179,9 +168,7 @@ export function getTemplateVariationAttributeKeys(template) {
   const keys = [];
   asArray(template?.variations).forEach((variation) => {
     Object.keys(getVariationAttributes(variation)).forEach((key) => keys.push(key));
-    ["size", "color", "colour"].forEach((key) => {
-      if (variation?.[key]) keys.push(key);
-    });
+    ["size", "color", "colour"].forEach((key) => { if (variation?.[key]) keys.push(key); });
   });
   return sortByPriority([...new Set(keys)]);
 }
@@ -200,9 +187,6 @@ export function sortAttributeValues(values, attributeKey) {
   const canonical = canonicalAttributeKey(attributeKey);
   const unique = uniqCompact(values);
   if (canonical === "Size") return sortSizeValues(unique).map(canonicalSizeValue);
-  if (canonical === "Pieces" || canonical === "Capacity") {
-    return [...unique].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }));
-  }
   return [...unique].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }));
 }
 
@@ -217,9 +201,7 @@ export function formatAttributeRange(values, attributeKey) {
 }
 
 export function getTemplateShortDescription(template) {
-  return [template?.description, template?.category, template?.brand]
-    .map((value) => String(value || "").trim())
-    .find(Boolean) || "Product option";
+  return [template?.description, template?.category, template?.brand].map((value) => String(value || "").trim()).find(Boolean) || "Product option";
 }
 
 export function getTemplateSizeSummary(template) {
@@ -229,16 +211,11 @@ export function getTemplateSizeSummary(template) {
     if (!size || size === "One Size") return;
     byGroup[classifySizeGroup(size)].push(size);
   });
-
   const lines = [];
   Object.entries(byGroup).forEach(([group, values]) => {
     const sorted = sortAttributeValues(values, "Size");
     if (!sorted.length) return;
-    if (group === "Other") {
-      lines.push(`Sizes: ${formatAttributeRange(sorted, "Size")}`);
-      return;
-    }
-    lines.push(`${group}: ${formatAttributeRange(sorted, "Size")}`);
+    lines.push(group === "Other" ? `Sizes: ${formatAttributeRange(sorted, "Size")}` : `${group}: ${formatAttributeRange(sorted, "Size")}`);
   });
   return lines;
 }
@@ -258,7 +235,6 @@ function collectAttributeValues(template) {
       if (!valuesByKey.has(canonical)) valuesByKey.set(canonical, []);
       valuesByKey.get(canonical).push(String(value));
     });
-
     [["Size", getVariationAttributeValue(variation, "Size")], ["Colour", getVariationAttributeValue(variation, "Colour")]].forEach(([key, value]) => {
       if (!value) return;
       if (!valuesByKey.has(key)) valuesByKey.set(key, []);
@@ -272,47 +248,41 @@ export function getTemplateAvailableOptionsSummary(template) {
   const variations = asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
   const valuesByKey = collectAttributeValues({ ...template, variations });
   const lines = [];
-
   getTemplateSizeSummary({ ...template, variations }).forEach((line) => lines.push(line));
   const colourLine = getTemplateColourSummary({ ...template, variations });
   if (colourLine) lines.push(colourLine);
-
-  sortByPriority([...valuesByKey.keys()])
-    .filter((key) => !["Size", "Colour"].includes(canonicalAttributeKey(key)))
-    .forEach((key) => {
-      if (lines.length >= 4) return;
-      const label = getAttributeLabel(key);
-      const formatted = formatAttributeRange(valuesByKey.get(key), key);
-      if (formatted) lines.push(`${label}: ${formatted}`);
-    });
-
+  sortByPriority([...valuesByKey.keys()]).filter((key) => !["Size", "Colour"].includes(canonicalAttributeKey(key))).forEach((key) => {
+    if (lines.length >= 4) return;
+    const formatted = formatAttributeRange(valuesByKey.get(key), key);
+    if (formatted) lines.push(`${getAttributeLabel(key)}: ${formatted}`);
+  });
   if (variations.length) lines.push(`${variations.length} total ${variations.length === 1 ? "option" : "options"}`);
-
   if (!lines.length && variations.length) {
     const keys = getTemplateVariationAttributeKeys(template).map(getAttributeLabel);
     return [`Options: ${variations.length}`, keys.length ? `Attributes: ${keys.join(", ")}` : "Attribute data incomplete"];
   }
-
   if (!lines.length) return ["Options pending", "Attribute data incomplete"];
   return lines.slice(0, 5);
 }
 
-export function getTemplateOptionSummary(template) {
-  return getTemplateAvailableOptionsSummary(template).join(" · ");
-}
+export function getTemplateOptionSummary(template) { return getTemplateAvailableOptionsSummary(template).join(" · "); }
+export function getTemplateSizeRange(template) { const line = getTemplateSizeSummary(template)[0]; return line ? line.replace(/^[^:]+:\s*/, "Sizes ") : ""; }
+export function getTemplateColourCount(template) { return uniqCompact(asArray(template?.variations).map((variation) => getVariationAttributeValue(variation, "Colour") || getVariationColour(variation)).filter((colour) => colour !== "Default")).length; }
+export function getTemplateAttributeRange(template) { return getTemplateOptionSummary(template); }
 
-export function getTemplateSizeRange(template) {
-  const firstSizeLine = getTemplateSizeSummary(template)[0];
-  return firstSizeLine ? firstSizeLine.replace(/^[^:]+:\s*/, "Sizes ") : "";
-}
-
-export function getTemplateColourCount(template) {
-  const colours = uniqCompact(asArray(template?.variations).map((variation) => getVariationAttributeValue(variation, "Colour") || getVariationColour(variation)).filter((colour) => colour !== "Default"));
-  return colours.length;
-}
-
-export function getTemplateAttributeRange(template) {
-  return getTemplateOptionSummary(template);
+export function getVariationMatrix(variations) {
+  const rows = [];
+  const sizes = [];
+  const byColour = new Map();
+  asArray(variations).forEach((variation) => {
+    const colour = getVariationColour(variation);
+    const size = getVariationSize(variation);
+    if (!sizes.includes(size)) sizes.push(size);
+    if (!byColour.has(colour)) byColour.set(colour, []);
+    byColour.get(colour).push(variation);
+  });
+  byColour.forEach((items, colour) => rows.push({ colour, items }));
+  return { colours: rows.map((row) => row.colour), sizes, rows };
 }
 
 export function getVariationSizeGroupSections(variations) {
@@ -323,7 +293,6 @@ export function getVariationSizeGroupSections(variations) {
     if (!byGroup.has(group)) byGroup.set(group, []);
     byGroup.get(group).push(variation);
   });
-
   ["Adults", "Kids", "Youth / Teen", "Other"].forEach((group) => {
     const items = byGroup.get(group) || [];
     if (!items.length) return;
@@ -331,16 +300,12 @@ export function getVariationSizeGroupSections(variations) {
     const { rows } = getVariationMatrix(items);
     groups.push({ group, label: group === "Other" ? "Other sizes" : `${group} sizes`, sizes, rows, items });
   });
-
   return groups;
 }
 
 export function getVariationLabel(variation) {
   const attrs = getVariationAttributes(variation);
-  const label = Object.entries(attrs)
-    .map(([key, value]) => `${key}: ${value}`)
-    .join(" / ");
-
+  const label = Object.entries(attrs).map(([key, value]) => `${key}: ${value}`).join(" / ");
   return label || [variation?.size, variation?.color].filter(Boolean).join(" / ") || variation?.sku || "Variation";
 }
 
@@ -348,156 +313,163 @@ export function getCreatorBlankPrice(source, template) {
   const value = source?.creator_blank_price ?? template?.creator_blank_price ?? source?.base_price ?? template?.base_price ?? 0;
   return Number(value || 0);
 }
-
-export function getVariationCost(variation, template) {
-  return getCreatorBlankPrice(variation, template);
-}
-
-export function getPrintOptionLabel(option) {
-  if (!option) return "Print option";
-  return [option.print_method || option.method, option.print_size]
-    .filter(Boolean)
-    .join(" · ") || option.name || "Print option";
-}
-
-export function getPrintOptionCost(option) {
-  return Number(option?.print_cost_max || 0);
-}
+export function getVariationCost(variation, template) { return getCreatorBlankPrice(variation, template); }
+export function getPrintOptionLabel(option) { return option ? [option.print_method || option.method, option.print_size].filter(Boolean).join(" · ") || option.name || "Print option" : "Print option"; }
+export function getPrintOptionCost(option) { return Number(option?.print_cost_max || 0); }
 
 export function normalizeProductionMethodKey(value) {
   const key = String(value || "").trim().toLowerCase().replace(/[-\s]+/g, "_");
-
-  const aliases = {
-    dtf_transfers: "dtf",
-    dtf_transfer: "dtf",
-    dtf_print: "dtf",
-    uvdtf: "uv_dtf",
-    uv_dtf_transfer: "uv_dtf",
-    heat_transfer_vinyl: "htv",
-    vinyl: "adhesive_vinyl",
-    adhesive: "adhesive_vinyl",
-  };
-
+  const aliases = { dtf_transfers: "dtf", dtf_transfer: "dtf", dtf_print: "dtf", uvdtf: "uv_dtf", uv_dtf_transfer: "uv_dtf", heat_transfer_vinyl: "htv", vinyl: "adhesive_vinyl", adhesive: "adhesive_vinyl" };
   if (aliases[key]) return aliases[key];
-
-  const prefixes = [
-    ["adhesive_vinyl_", "adhesive_vinyl"],
-    ["sublimation_", "sublimation"],
-    ["uv_dtf_", "uv_dtf"],
-    ["dtf_", "dtf"],
-    ["htv_", "htv"],
-  ];
-
-  for (const [prefix, canonical] of prefixes) {
+  for (const [prefix, canonical] of [["adhesive_vinyl_", "adhesive_vinyl"], ["sublimation_", "sublimation"], ["uv_dtf_", "uv_dtf"], ["dtf_", "dtf"], ["htv_", "htv"]]) {
     if (key.startsWith(prefix)) return canonical;
   }
-
   return key;
 }
 
-export function estimateProductionOperationCostFromGroups(groups, printOptions = [], productionOperations = [], template = {}) {
-  const slots = flattenArtworkGroups(groups).filter((slot) => slot.print_option_id && slot.original_url);
-  const chargedPerJob = new Set();
-  const lines = [];
-  let platformCost = 0;
+function optionForSlot(slot, printOptions) { return asArray(printOptions).find((item) => item.id === slot.print_option_id) || slot; }
+function areaForSlot(slot, template) { return asArray(template?.print_areas).find((item) => item.id === slot.print_area_id) || {}; }
+function methodForSlot(slot, option = {}) { return normalizeProductionMethodKey(option.method_key || slot.method_key || option.print_method || option.method || slot.print_method || slot.rule_name); }
+function hasArtworkPayload(slot) { return Boolean(slot?.original_url || slot?.text_layer || slot?.text_content); }
+
+export function isCombinablePrintMethod(methodKey, option = {}) {
+  if (option.combine_same_method_layers === false || option.combine_layers === false || option.additive_layer_pricing === true) return false;
+  if (["separate", "additive", "per_layer"].includes(String(option.same_method_layer_policy || option.layer_pricing_mode || "").toLowerCase())) return false;
+  if (["combined", "bounding_area", "per_area"].includes(String(option.same_method_layer_policy || option.layer_pricing_mode || "").toLowerCase())) return true;
+  return ["dtf", "sublimation", "uv_dtf"].includes(normalizeProductionMethodKey(methodKey));
+}
+
+function placementBounds(slot) {
+  const p = slot.placement || {};
+  const x = Number(p.x ?? p.x_pct ?? 0);
+  const y = Number(p.y ?? p.y_pct ?? 0);
+  const width = Number(p.width ?? p.width_pct ?? 100);
+  const height = Number(p.height ?? p.height_pct ?? 100);
+  return { x, y, right: x + width, bottom: y + height };
+}
+
+function combinedSlotFromGroup(groupSlots) {
+  const first = groupSlots[0] || {};
+  const bounds = groupSlots.map(placementBounds);
+  const x = Math.min(...bounds.map((item) => item.x));
+  const y = Math.min(...bounds.map((item) => item.y));
+  const right = Math.max(...bounds.map((item) => item.right));
+  const bottom = Math.max(...bounds.map((item) => item.bottom));
+  return {
+    ...first,
+    combined_layer_count: groupSlots.length,
+    placement: {
+      ...(first.placement || {}),
+      x,
+      y,
+      width: Math.max(1, right - x),
+      height: Math.max(1, bottom - y),
+      rotation: 0,
+    },
+  };
+}
+
+export function getAggregatedPrintCostLines(groups, printOptions = [], template = {}) {
+  const slots = flattenArtworkGroups(groups).filter((slot) => slot.print_option_id && hasArtworkPayload(slot));
+  const additive = [];
+  const combinable = new Map();
 
   slots.forEach((slot) => {
-    const option = asArray(printOptions).find((item) => item.id === slot.print_option_id) || slot;
-    const area = asArray(template?.print_areas).find((item) => item.id === slot.print_area_id) || {};
-    const method = normalizeProductionMethodKey(option.method_key || slot.method_key || option.print_method || slot.print_method);
+    const option = optionForSlot(slot, printOptions);
+    const method = methodForSlot(slot, option);
+    if (!method || !isCombinablePrintMethod(method, option)) {
+      additive.push([slot]);
+      return;
+    }
+    const key = [slot.artwork_group_id || "group", slot.screen_id || "screen", slot.print_area_id || "area", method, slot.print_option_id || option.id || "option"].join("|");
+    if (!combinable.has(key)) combinable.set(key, []);
+    combinable.get(key).push(slot);
+  });
 
-    if (!method) return;
+  const lines = [];
+  additive.forEach((items) => {
+    const slot = items[0];
+    const option = optionForSlot(slot, printOptions);
+    const area = areaForSlot(slot, template);
+    const result = calculateAreaPrintCost(slot, area, option);
+    lines.push({ slot_ids: [slot.id], method_key: methodForSlot(slot, option), print_area_id: slot.print_area_id, combined: false, layer_count: 1, cost: Number(result.calculated_print_cost || 0), costing: result });
+  });
 
-    const areaCosting = calculateAreaPrintCost(slot, area, option);
-    const areaCm2 = Number(areaCosting.area_cm2 || slot.area_cm2 || 0);
+  combinable.forEach((items) => {
+    const slot = combinedSlotFromGroup(items);
+    const option = optionForSlot(slot, printOptions);
+    const area = areaForSlot(slot, template);
+    const result = calculateAreaPrintCost(slot, area, option);
+    lines.push({ slot_ids: items.map((item) => item.id), method_key: methodForSlot(slot, option), print_area_id: slot.print_area_id, combined: items.length > 1, layer_count: items.length, cost: Number(result.calculated_print_cost || 0), costing: result });
+  });
 
+  return lines;
+}
+
+export function getUniquePrintCostFromGroups(groups, printOptions, template = {}) {
+  const total = getAggregatedPrintCostLines(groups, printOptions, template).reduce((sum, line) => sum + Number(line.cost || 0), 0);
+  return Math.round(total * 100) / 100;
+}
+
+export function getPrintCostForArtworkSlot(slot = {}, printOptions = [], template = {}) {
+  if (!slot.print_option_id || !hasArtworkPayload(slot)) return 0;
+  const option = optionForSlot(slot, printOptions);
+  const area = areaForSlot(slot, template);
+  const result = calculateAreaPrintCost(slot, area, option);
+  return Number(result.calculated_print_cost || 0);
+}
+
+export function estimateProductionOperationCostFromGroups(groups, printOptions = [], productionOperations = [], template = {}) {
+  const lines = [];
+  const chargedPerJob = new Set();
+  let platformCost = 0;
+  getAggregatedPrintCostLines(groups, printOptions, template).forEach((printLine) => {
     asArray(productionOperations).forEach((operation) => {
       if (operation.active === false) return;
-
-      const appliesToRaw = Array.isArray(operation.applies_to_method)
-        ? operation.applies_to_method
-        : [operation.applies_to_method].filter(Boolean);
+      const appliesToRaw = Array.isArray(operation.applies_to_method) ? operation.applies_to_method : [operation.applies_to_method].filter(Boolean);
       const appliesTo = appliesToRaw.map(normalizeProductionMethodKey);
-
-      if (!appliesTo.includes(method)) return;
-
+      if (!appliesTo.includes(printLine.method_key)) return;
       const costBasis = operation.cost_basis || "per_operation";
       const operationId = operation.id || operation.slug || operation.name || costBasis;
       const unitCost = Number(operation.cost || 0);
       const defaultQuantity = Number(operation.default_quantity || 1);
       const estimatedTime = Number(operation.estimated_time || 0);
-
       let quantity = defaultQuantity;
-
       if (costBasis === "per_job") {
-        const perJobKey = `${method}:${operationId}`;
+        const perJobKey = `${printLine.method_key}:${operationId}`;
         if (chargedPerJob.has(perJobKey)) return;
         chargedPerJob.add(perJobKey);
       }
-
-      if (costBasis === "per_minute") {
-        quantity = estimatedTime * defaultQuantity;
-      }
-
-      if (costBasis === "per_cm2") {
-        quantity = areaCm2 * defaultQuantity;
-      }
-
+      if (costBasis === "per_minute") quantity = estimatedTime * defaultQuantity;
+      if (costBasis === "per_cm2") quantity = Number(printLine.costing?.area_cm2 || 0) * defaultQuantity;
       const lineCost = Math.round(unitCost * quantity * 100) / 100;
       platformCost += lineCost;
-
-      lines.push({
-        operation_id: operationId,
-        operation_name: operation.name || operationId,
-        operation_type: operation.operation_type || "",
-        cost_basis: costBasis,
-        method_key: method,
-        print_area_id: costBasis === "per_job" ? null : slot.print_area_id,
-        unit_cost: unitCost,
-        quantity,
-        platform_cost: lineCost,
-      });
+      lines.push({ operation_id: operationId, operation_name: operation.name || operationId, operation_type: operation.operation_type || "", cost_basis: costBasis, method_key: printLine.method_key, print_area_id: costBasis === "per_job" ? null : printLine.print_area_id, unit_cost: unitCost, quantity, platform_cost: lineCost });
     });
   });
-
   platformCost = Math.round(platformCost * 100) / 100;
-
-  return {
-    platformCost,
-    creatorCost: Math.round(platformCost * 1.1 * 100) / 100,
-    lines,
-  };
+  return { platformCost, creatorCost: Math.round(platformCost * 1.1 * 100) / 100, lines };
 }
 
 export const DEFAULT_PLATFORM_COMMISSION_RATE = 0.15;
-
 export function resolveCreatorCommissionRate(creatorOrProduct = {}, fallbackRate = DEFAULT_PLATFORM_COMMISSION_RATE) {
   const percent = creatorOrProduct?.platform_commission_rate_percent;
   if (percent !== undefined && percent !== null && percent !== "") {
     const value = Number(percent);
     if (Number.isFinite(value)) return Math.max(0, Math.min(value / 100, 1));
   }
-
   const rawRate = creatorOrProduct?.commission_rate;
   if (rawRate !== undefined && rawRate !== null && rawRate !== "") {
     const value = Number(rawRate);
     if (Number.isFinite(value)) return Math.max(0, Math.min(value > 1 ? value / 100 : value, 1));
   }
-
   return fallbackRate;
 }
-
 export function resolveCreatorCommissionSource(creatorOrProduct = {}) {
-  if (creatorOrProduct?.platform_commission_rate_percent !== undefined && creatorOrProduct?.platform_commission_rate_percent !== null && creatorOrProduct?.platform_commission_rate_percent !== "") {
-    return creatorOrProduct?.platform_commission_source || "creator_override";
-  }
-  if (creatorOrProduct?.commission_rate !== undefined && creatorOrProduct?.commission_rate !== null && creatorOrProduct?.commission_rate !== "") {
-    const rate = resolveCreatorCommissionRate(creatorOrProduct);
-    return Math.abs(rate - DEFAULT_PLATFORM_COMMISSION_RATE) >= 0.0001 ? "creator_override" : "default";
-  }
+  if (creatorOrProduct?.platform_commission_rate_percent !== undefined && creatorOrProduct?.platform_commission_rate_percent !== null && creatorOrProduct?.platform_commission_rate_percent !== "") return creatorOrProduct?.platform_commission_source || "creator_override";
+  if (creatorOrProduct?.commission_rate !== undefined && creatorOrProduct?.commission_rate !== null && creatorOrProduct?.commission_rate !== "") return Math.abs(resolveCreatorCommissionRate(creatorOrProduct) - DEFAULT_PLATFORM_COMMISSION_RATE) >= 0.0001 ? "creator_override" : "default";
   return "default";
 }
-
 export function getEffectivePricingStatus(product = {}, pricing = {}) {
   if (product?.pricing_override_approved || pricing?.pricingOverrideApproved) return "override_approved";
   if (pricing?.canPublishProfitably) return "approved";
@@ -505,11 +477,7 @@ export function getEffectivePricingStatus(product = {}, pricing = {}) {
   if (Number(product?.estimated_creator_profit || pricing?.profit || 0) < 0) return "price_below_minimum";
   return product?.creator_pricing_approval_status || "not_required";
 }
-
-export function hasEffectivePricingBlocker(product = {}, pricing = {}) {
-  return ["pending_creator_approval", "price_below_minimum", "rejected"].includes(getEffectivePricingStatus(product, pricing));
-}
-
+export function hasEffectivePricingBlocker(product = {}, pricing = {}) { return ["pending_creator_approval", "price_below_minimum", "rejected"].includes(getEffectivePricingStatus(product, pricing)); }
 export function effectivePricingStatusLabel(product = {}, pricing = {}) {
   const status = getEffectivePricingStatus(product, pricing);
   if (status === "override_approved") return "Override approved";
@@ -529,292 +497,80 @@ export function calculatePricing({ sellingPrice = 0, blankCost = 0, printCost = 
   const commission = Math.round(price * rate * 100) / 100;
   const profit = Math.round((price - production - commission) * 100) / 100;
   const minimumSellingPrice = rate >= 1 ? production : Math.ceil((production / (1 - rate)) * 100) / 100;
-
-  return {
-    price,
-    blank: blankPayout,
-    blankSupplierCost: blankPayout,
-    print: printPayout,
-    platformPrintCost: printPayout,
-    production,
-    rate,
-    commissionSource,
-    commission,
-    profit,
-    minimumSellingPrice,
-    pricingOverrideApproved: Boolean(pricingOverrideApproved),
-    canPublishProfitably: price > 0 && profit >= 0,
-    canPublishWithOverride: price > 0 && (profit >= 0 || pricingOverrideApproved),
-  };
+  return { price, blank: blankPayout, blankSupplierCost: blankPayout, print: printPayout, platformPrintCost: printPayout, production, rate, commissionSource, commission, profit, minimumSellingPrice, pricingOverrideApproved: Boolean(pricingOverrideApproved), canPublishProfitably: price > 0 && profit >= 0, canPublishWithOverride: price > 0 && (profit >= 0 || pricingOverrideApproved) };
 }
 
 export function buildProductVariations(template, selectedIds, priceOverrides = {}) {
   const templateVars = asArray(template?.variations);
   const ids = selectedIds?.length ? selectedIds : templateVars.map((item) => item.id);
-
-  return templateVars
-    .filter((item) => ids.includes(item.id))
-    .map((item) => {
-      const rawOverride = priceOverrides?.[item.id];
-      const priceOverride = rawOverride === "" || rawOverride === null || rawOverride === undefined
-        ? null
-        : Number(rawOverride);
-
-      return {
-        id: item.id,
-        template_variation_id: item.id,
-        sku: item.sku || undefined,
-        stock_status: "made_to_order",
-        price_override: Number.isFinite(priceOverride) ? priceOverride : null,
-        attribute_values: item.attributes || {},
-        size: getVariationSize(item),
-        color: getVariationColour(item),
-      };
-    });
+  return templateVars.filter((item) => ids.includes(item.id)).map((item) => {
+    const rawOverride = priceOverrides?.[item.id];
+    const priceOverride = rawOverride === "" || rawOverride === null || rawOverride === undefined ? null : Number(rawOverride);
+    return { id: item.id, template_variation_id: item.id, sku: item.sku || undefined, stock_status: "made_to_order", price_override: Number.isFinite(priceOverride) ? priceOverride : null, attribute_values: item.attributes || {}, size: getVariationSize(item), color: getVariationColour(item) };
+  });
 }
 
 export function getAreaPreviewImage(template, selectedArea, variationId = "") {
   if (!template) return "";
   const variation = asArray(template?.variations).find((item) => item.id === variationId);
-
   if (variation?.mockup_screen_overrides && selectedArea?.screen_id) {
     const override = variation.mockup_screen_overrides[selectedArea.screen_id] || variation.mockup_screen_overrides[selectedArea.screen_view];
     if (override) return override;
   }
-
   if (variation?.image_url) return variation.image_url;
-
   return getTemplateImage(template, selectedArea);
-}
-
-export function getVariationMatrix(variations) {
-  const rows = [];
-  const sizes = [];
-  const byColour = new Map();
-
-  asArray(variations).forEach((variation) => {
-    const colour = getVariationColour(variation);
-    const size = getVariationSize(variation);
-    if (!sizes.includes(size)) sizes.push(size);
-    if (!byColour.has(colour)) byColour.set(colour, []);
-    byColour.get(colour).push(variation);
-  });
-
-  byColour.forEach((items, colour) => rows.push({ colour, items }));
-
-  return {
-    colours: rows.map((row) => row.colour),
-    sizes,
-    rows,
-  };
 }
 
 export function getSelectedVariations(template, selectedIds) {
   const ids = new Set(asArray(selectedIds));
   return asArray(template?.variations).filter((variation) => ids.has(variation.id));
 }
-
-export function getEnabledTemplateVariations(template) {
-  return asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
-}
-
-export function templateHasSelectableVariations(template) {
-  return getEnabledTemplateVariations(template).length > 0;
-}
+export function getEnabledTemplateVariations(template) { return asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived"); }
+export function templateHasSelectableVariations(template) { return getEnabledTemplateVariations(template).length > 0; }
 
 export function buildStandardProductVariation(template = {}) {
   const baseCost = getCreatorBlankPrice(template);
-  return {
-    id: "standard",
-    template_variation_id: null,
-    label: "Standard",
-    sku: template?.blank_sku ? `${template.blank_sku}-STANDARD` : undefined,
-    stock_status: "made_to_order",
-    price_override: null,
-    attribute_values: {},
-    attributes: {},
-    size: "One Size",
-    color: "Default",
-    creator_blank_price: baseCost,
-    base_price: baseCost,
-  };
+  return { id: "standard", template_variation_id: null, label: "Standard", sku: template?.blank_sku ? `${template.blank_sku}-STANDARD` : undefined, stock_status: "made_to_order", price_override: null, attribute_values: {}, attributes: {}, size: "One Size", color: "Default", creator_blank_price: baseCost, base_price: baseCost };
 }
-
-export function createDefaultArtworkGroup() {
-  return {
-    id: "default-all",
-    label: "Default artwork",
-    scope_type: "all",
-    attribute_key: null,
-    attribute_value: null,
-    variation_ids: [],
-    inherits_from: null,
-    artworks: [],
-    primary_mockup_image_url: "",
-    sort_order: 0,
-  };
-}
-
+export function createDefaultArtworkGroup() { return { id: "default-all", label: "Default artwork", scope_type: "all", attribute_key: null, attribute_value: null, variation_ids: [], inherits_from: null, artworks: [], primary_mockup_image_url: "", sort_order: 0 }; }
 export function createColourArtworkGroups(selectedVariations) {
   const { rows } = getVariationMatrix(selectedVariations);
-  return rows.map((row, index) => ({
-    id: `colour-${row.colour.toLowerCase().replace(/[^a-z0-9]+/g, "-") || index}`,
-    label: row.colour,
-    scope_type: "attribute",
-    attribute_key: "Colour",
-    attribute_value: row.colour,
-    variation_ids: row.items.map((variation) => variation.id),
-    inherits_from: "default-all",
-    artworks: [],
-    primary_mockup_image_url: "",
-    sort_order: index,
-  }));
+  return rows.map((row, index) => ({ id: `colour-${row.colour.toLowerCase().replace(/[^a-z0-9]+/g, "-") || index}`, label: row.colour, scope_type: "attribute", attribute_key: "Colour", attribute_value: row.colour, variation_ids: row.items.map((variation) => variation.id), inherits_from: "default-all", artworks: [], primary_mockup_image_url: "", sort_order: index }));
 }
-
-export function createVariationArtworkGroups(selectedVariations) {
-  return asArray(selectedVariations).map((variation, index) => ({
-    id: `variation-${variation.id}`,
-    label: getVariationLabel(variation),
-    scope_type: "variation",
-    attribute_key: null,
-    attribute_value: null,
-    variation_ids: [variation.id],
-    inherits_from: "default-all",
-    artworks: [],
-    primary_mockup_image_url: "",
-    sort_order: index,
-  }));
-}
-
-export function getGroupRepresentativeVariationId(group, selectedVariations) {
-  if (group?.variation_ids?.length) return group.variation_ids[0];
-  return asArray(selectedVariations)[0]?.id || "";
-}
-
-export function flattenArtworkGroups(groups) {
-  const out = [];
-  asArray(groups).forEach((group) => {
-    asArray(group.artworks).forEach((artwork) => {
-      out.push({ ...artwork, artwork_group_id: group.id, artwork_group_label: group.label });
-    });
-  });
-  return out;
-}
-
-export function getUniquePrintCostFromGroups(groups, printOptions, template = {}) {
-  let total = 0;
-
-  flattenArtworkGroups(groups).forEach((slot) => {
-    if (!slot.print_option_id || !slot.original_url) return;
-    total += getPrintCostForArtworkSlot(slot, printOptions, template);
-  });
-
-  return Math.round(total * 100) / 100;
-}
-
-export function getPrimaryMockupFromGroups(groups) {
-  for (const group of asArray(groups)) {
-    if (group.primary_mockup_image_url) return group.primary_mockup_image_url;
-    const mockup = asArray(group.artworks).find((artwork) => artwork.mockup_image_url)?.mockup_image_url;
-    if (mockup) return mockup;
-  }
-  return "";
-}
+export function createVariationArtworkGroups(selectedVariations) { return asArray(selectedVariations).map((variation, index) => ({ id: `variation-${variation.id}`, label: getVariationLabel(variation), scope_type: "variation", attribute_key: null, attribute_value: null, variation_ids: [variation.id], inherits_from: "default-all", artworks: [], primary_mockup_image_url: "", sort_order: index })); }
+export function getGroupRepresentativeVariationId(group, selectedVariations) { if (group?.variation_ids?.length) return group.variation_ids[0]; return asArray(selectedVariations)[0]?.id || ""; }
+export function flattenArtworkGroups(groups) { const out = []; asArray(groups).forEach((group) => asArray(group.artworks).forEach((artwork) => out.push({ ...artwork, artwork_group_id: group.id, artwork_group_label: group.label }))); return out; }
+export function getPrimaryMockupFromGroups(groups) { for (const group of asArray(groups)) { if (group.primary_mockup_image_url) return group.primary_mockup_image_url; const mockup = asArray(group.artworks).find((artwork) => artwork.mockup_image_url)?.mockup_image_url; if (mockup) return mockup; } return ""; }
 
 export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
   const calculationType = option.calculation_type || slot.calculation_type || "fixed";
-
   const placement = slot.placement || {};
   const areaWidthMm = Number(area.width_mm || slot.width_mm || option.width_mm || 0);
   const areaHeightMm = Number(area.height_mm || slot.height_mm || option.height_mm || 0);
-
   const placementWidthPct = Number(placement.width ?? placement.width_pct ?? 100);
   const placementHeightPct = Number(placement.height ?? placement.height_pct ?? 100);
-
   const boxWidthMm = areaWidthMm * (placementWidthPct / 100);
   const boxHeightMm = areaHeightMm * (placementHeightPct / 100);
-
   const artworkWidthPx = Number(slot.original_width_px || slot.artwork_width_px || 0);
   const artworkHeightPx = Number(slot.original_height_px || slot.artwork_height_px || 0);
   const aspectRatio = artworkWidthPx > 0 && artworkHeightPx > 0 ? artworkWidthPx / artworkHeightPx : Number(slot.artwork_aspect_ratio || 0);
-
-  // Creator pricing must follow the physical placed artwork box inside the
-  // admin-defined print area. If the creator sets the artwork box to 100% × 100%
-  // of a 300mm × 300mm print area, the charged size is 300mm × 300mm.
-  // If they resize it to 50% × 50%, the charged size is 150mm × 150mm.
   const printWidthMm = boxWidthMm;
   const printHeightMm = boxHeightMm;
-
   const areaCm2 = (printWidthMm / 10) * (printHeightMm / 10);
-  const pricingSource = "placed_artwork_box_size";
-
+  const common = { placement_box_width_mm: Math.round(boxWidthMm * 10) / 10, placement_box_height_mm: Math.round(boxHeightMm * 10) / 10, artwork_aspect_ratio: Math.round(aspectRatio * 10000) / 10000, print_area_width_mm: Math.round(areaWidthMm * 10) / 10, print_area_height_mm: Math.round(areaHeightMm * 10) / 10, artwork_width_mm: Math.round(printWidthMm * 10) / 10, artwork_height_mm: Math.round(printHeightMm * 10) / 10, charged_width_mm: Math.round(printWidthMm * 10) / 10, charged_height_mm: Math.round(printHeightMm * 10) / 10, charged_area_cm2: Math.round(areaCm2 * 100) / 100, pricing_source: "placed_artwork_box_size", print_width_mm: Math.round(printWidthMm * 10) / 10, print_height_mm: Math.round(printHeightMm * 10) / 10, area_cm2: Math.round(areaCm2 * 100) / 100 };
   if (calculationType === "fixed") {
     const cost = Number(option.print_cost_max || slot.print_cost_max || 0);
-    return {
-      calculation_type: "fixed",
-      placement_box_width_mm: Math.round(boxWidthMm * 10) / 10,
-      placement_box_height_mm: Math.round(boxHeightMm * 10) / 10,
-      artwork_aspect_ratio: Math.round(aspectRatio * 10000) / 10000,
-      print_area_width_mm: Math.round(areaWidthMm * 10) / 10,
-      print_area_height_mm: Math.round(areaHeightMm * 10) / 10,
-      artwork_width_mm: Math.round(printWidthMm * 10) / 10,
-      artwork_height_mm: Math.round(printHeightMm * 10) / 10,
-      charged_width_mm: Math.round(printWidthMm * 10) / 10,
-      charged_height_mm: Math.round(printHeightMm * 10) / 10,
-      charged_area_cm2: Math.round(areaCm2 * 100) / 100,
-      pricing_source: pricingSource,
-      print_width_mm: Math.round(printWidthMm * 10) / 10,
-      print_height_mm: Math.round(printHeightMm * 10) / 10,
-      area_cm2: Math.round(areaCm2 * 100) / 100,
-      raw_print_cost: Math.round(cost * 100) / 100,
-      calculated_print_cost: Math.round(cost * 100) / 100,
-    };
+    return { calculation_type: "fixed", ...common, raw_print_cost: Math.round(cost * 100) / 100, calculated_print_cost: Math.round(cost * 100) / 100 };
   }
-
   let costPerCm2 = Number(option.cost_per_cm2 || slot.cost_per_cm2 || 0);
-
   if (calculationType === "area_from_sheet" && !costPerCm2) {
-    const sheetWidthCm = Number(option.sheet_width_mm || slot.sheet_width_mm || 0) / 10;
-    const sheetHeightCm = Number(option.sheet_height_mm || slot.sheet_height_mm || 0) / 10;
-    const sheetAreaCm2 = sheetWidthCm * sheetHeightCm;
+    const sheetAreaCm2 = (Number(option.sheet_width_mm || slot.sheet_width_mm || 0) / 10) * (Number(option.sheet_height_mm || slot.sheet_height_mm || 0) / 10);
     const sheetCost = Number(option.sheet_cost || slot.sheet_cost || 0);
     costPerCm2 = sheetAreaCm2 > 0 ? sheetCost / sheetAreaCm2 : 0;
   }
-
   let raw = areaCm2 * costPerCm2;
-  const waste = Number(option.waste_percentage || slot.waste_percentage || 0);
-  const markup = Number(option.markup_percentage || slot.markup_percentage || 0);
-  const minimum = Number(option.minimum_print_cost || slot.minimum_print_cost || 0);
-
-  raw = raw * (1 + waste / 100);
-  raw = raw * (1 + markup / 100);
-
-  const finalCost = Math.max(raw, minimum);
-
-  return {
-    calculation_type: calculationType,
-    placement_box_width_mm: Math.round(boxWidthMm * 10) / 10,
-    placement_box_height_mm: Math.round(boxHeightMm * 10) / 10,
-    artwork_aspect_ratio: Math.round(aspectRatio * 10000) / 10000,
-    print_area_width_mm: Math.round(areaWidthMm * 10) / 10,
-    print_area_height_mm: Math.round(areaHeightMm * 10) / 10,
-    artwork_width_mm: Math.round(printWidthMm * 10) / 10,
-    artwork_height_mm: Math.round(printHeightMm * 10) / 10,
-    charged_width_mm: Math.round(printWidthMm * 10) / 10,
-    charged_height_mm: Math.round(printHeightMm * 10) / 10,
-    charged_area_cm2: Math.round(areaCm2 * 100) / 100,
-    pricing_source: pricingSource,
-    print_width_mm: Math.round(printWidthMm * 10) / 10,
-    print_height_mm: Math.round(printHeightMm * 10) / 10,
-    area_cm2: Math.round(areaCm2 * 100) / 100,
-    raw_print_cost: Math.round(raw * 100) / 100,
-    calculated_print_cost: Math.round(finalCost * 100) / 100,
-  };
-}
-
-export function getPrintCostForArtworkSlot(slot = {}, printOptions = [], template = {}) {
-  const option = asArray(printOptions).find((item) => item.id === slot.print_option_id) || slot;
-  const area = asArray(template?.print_areas).find((item) => item.id === slot.print_area_id) || {};
-  const result = calculateAreaPrintCost(slot, area, option);
-  return Number(result.calculated_print_cost || 0);
+  raw *= 1 + Number(option.waste_percentage || slot.waste_percentage || 0) / 100;
+  raw *= 1 + Number(option.markup_percentage || slot.markup_percentage || 0) / 100;
+  const finalCost = Math.max(raw, Number(option.minimum_print_cost || slot.minimum_print_cost || 0));
+  return { calculation_type: calculationType, ...common, raw_print_cost: Math.round(raw * 100) / 100, calculated_print_cost: Math.round(finalCost * 100) / 100 };
 }
