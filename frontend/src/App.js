@@ -1,6 +1,7 @@
 import React from "react";
 import "@/App.css";
 import "@/index.css";
+import "./components/product-builder/productBuilderV2Runtime";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
