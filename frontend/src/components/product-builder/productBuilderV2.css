@@ -58,11 +58,36 @@
   vertical-align: top;
 }
 
-/* Money fields should behave like text decimals, not browser spinner number fields. */
+/* Builder numeric and decimal inputs must always behave LTR, even if browser bidi heuristics kick in. */
+.product-builder-main input,
+.product-builder-main textarea,
+.product-builder-main select,
+.product-builder-layout input,
+.product-builder-layout textarea,
+.product-builder-layout select,
+.pricing-step-full-width input,
+[data-testid="variation-pricing-matrix"] input,
+[data-testid="product-artwork-studio"] input {
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+  text-align: left !important;
+}
+
+.product-builder-main input[type="number"],
+.product-builder-main input[type="text"],
+.product-builder-layout input[type="number"],
+.product-builder-layout input[type="text"],
 .pricing-step-full-width input[type="number"],
+.pricing-step-full-width input[type="text"],
 [data-testid="variation-pricing-matrix"] input[type="number"],
+[data-testid="variation-pricing-matrix"] input[type="text"],
+[data-testid="product-artwork-studio"] input[type="number"],
+[data-testid="product-artwork-studio"] input[type="text"],
 .pricing-step-full-width input[data-ff-money-input="1"],
 [data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"] {
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+  text-align: left !important;
   appearance: textfield;
   -moz-appearance: textfield;
 }
