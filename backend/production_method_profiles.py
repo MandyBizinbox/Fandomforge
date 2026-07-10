@@ -37,12 +37,52 @@ PROFILE_PRICING_FIELDS = (
     "status",
 )
 
+PROFILE_FIELD_ALIASES = {
+    "calculation_type": ("calculationType",),
+    "platform_print_cost": ("profilePrintCostMax", "methodPrintCostMax"),
+    "print_cost_max": ("profilePrintCostMax", "methodPrintCostMax"),
+    "sheet_width_mm": ("profileSheetWidthMm", "sheetWidthMm"),
+    "sheet_height_mm": ("profileSheetHeightMm", "sheetHeightMm"),
+    "sheet_cost": ("profileSheetCost", "sheetCost"),
+    "cost_per_cm2": ("profileCostPerCm2", "costPerCm2"),
+    "minimum_print_cost": ("profileMinimumPrintCost", "minimumPrintCost"),
+    "waste_percentage": ("profileWastePercentage", "wastePercentage"),
+    "markup_percentage": ("profileMarkupPercentage", "markupPercentage"),
+    "creator_print_price": ("profileCreatorPrintPrice", "creatorPrintPrice"),
+    "platform_print_markup_type": ("profilePlatformPrintMarkupType", "platformPrintMarkupType"),
+    "platform_print_markup_value": ("profilePlatformPrintMarkupValue", "platformPrintMarkupValue"),
+    "pricing_notes": ("profilePricingNotes", "pricingNotes"),
+    "print_positions": ("printPositions", "printPositionsText"),
+    "status": ("profileStatus",),
+}
+
+
+def _is_set(value: Any) -> bool:
+    return value not in (None, "", [], {})
+
+
+def _value(source: Dict[str, Any], field: str, fallback: Any = None) -> Any:
+    if field in source and _is_set(source.get(field)):
+        return source.get(field)
+    for alias in PROFILE_FIELD_ALIASES.get(field, ()):  # accepts admin-draft field names too
+        if alias in source and _is_set(source.get(alias)):
+            return source.get(alias)
+    return fallback
+
 
 def _num(value: Any, fallback: float = 0.0) -> float:
     try:
         return float(value if value not in (None, "") else fallback)
     except (TypeError, ValueError):
         return float(fallback)
+
+
+def _list(value: Any) -> List[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        return [item.strip() for item in value.replace(",", "\n").splitlines() if item.strip()]
+    return []
 
 
 def _slug(value: Any) -> str:
@@ -62,7 +102,7 @@ def _method_default_profile(method: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     model = dict(method.get("cost_calculation_model") or {})
     if not model:
         return None
-    if not any(model.get(field) not in (None, "", [], {}) for field in PROFILE_PRICING_FIELDS):
+    if not any(_is_set(_value(model, field)) for field in PROFILE_PRICING_FIELDS):
         return None
     return {
         "source": "production_method_default_cost_model",
@@ -71,7 +111,7 @@ def _method_default_profile(method: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "print_method": method.get("display_name") or method.get("method_key"),
         "print_size": model.get("print_size") or "Method Default",
         "status": method.get("status") or ("active" if method.get("active", True) else "draft"),
-        **{field: model.get(field) for field in PROFILE_PRICING_FIELDS if field in model},
+        **{field: _value(model, field) for field in PROFILE_PRICING_FIELDS if _is_set(_value(model, field))},
     }
 
 
@@ -80,9 +120,9 @@ def production_method_profile_to_print_option(method: Dict[str, Any], profile: D
     method_name = method.get("display_name") or method_key
     profile_id = _profile_identity(method_key, profile)
     rule_name = profile.get("rule_name") or profile.get("print_size") or method_name
-    calculation_type = profile.get("calculation_type") or "fixed"
-    platform_print_cost = _num(profile.get("platform_print_cost") or profile.get("print_cost_max"), 0)
-    print_cost_max = _num(profile.get("print_cost_max") or profile.get("platform_print_cost"), 0)
+    calculation_type = _value(profile, "calculation_type", "fixed") or "fixed"
+    platform_print_cost = _num(_value(profile, "platform_print_cost", _value(profile, "print_cost_max", 0)), 0)
+    print_cost_max = _num(_value(profile, "print_cost_max", _value(profile, "platform_print_cost", 0)), 0)
 
     row: Dict[str, Any] = {
         "id": profile_id,
@@ -102,9 +142,9 @@ def production_method_profile_to_print_option(method: Dict[str, Any], profile: D
         "calculation_type": calculation_type,
         "platform_print_cost": platform_print_cost,
         "print_cost_max": print_cost_max,
-        "creator_print_price": _num(profile.get("creator_print_price"), 0),
+        "creator_print_price": _num(_value(profile, "creator_print_price", 0), 0),
         "platform_print_profit": _num(profile.get("platform_print_profit"), 0),
-        "status": profile.get("status") or ("active" if method.get("active", True) else "draft"),
+        "status": _value(profile, "status", profile.get("status") or ("active" if method.get("active", True) else "draft")),
         "source_print_option_id": profile.get("print_option_id") or None,
         "source_print_option_slug": profile.get("print_option_slug") or None,
         "supported_colours": method.get("supported_colours") or {},
@@ -116,14 +156,22 @@ def production_method_profile_to_print_option(method: Dict[str, Any], profile: D
     }
 
     for field in PROFILE_PRICING_FIELDS:
-        if field in profile and profile.get(field) is not None:
-            row[field] = profile.get(field)
+        value = _value(profile, field)
+        if _is_set(value):
+            row[field] = value
 
-    row["platform_print_cost"] = _num(row.get("platform_print_cost") or row.get("print_cost_max"), 0)
-    row["print_cost_max"] = _num(row.get("print_cost_max") or row.get("platform_print_cost"), 0)
+    row["platform_print_cost"] = _num(row.get("platform_print_cost") if _is_set(row.get("platform_print_cost")) else row.get("print_cost_max"), 0)
+    row["print_cost_max"] = _num(row.get("print_cost_max") if _is_set(row.get("print_cost_max")) else row.get("platform_print_cost"), 0)
+    row["cost_per_cm2"] = _num(row.get("cost_per_cm2"), 0)
+    row["minimum_print_cost"] = _num(row.get("minimum_print_cost"), 0)
+    row["sheet_width_mm"] = _num(row.get("sheet_width_mm"), 0)
+    row["sheet_height_mm"] = _num(row.get("sheet_height_mm"), 0)
+    row["sheet_cost"] = _num(row.get("sheet_cost"), 0)
+    row["waste_percentage"] = _num(row.get("waste_percentage"), 0)
+    row["markup_percentage"] = _num(row.get("markup_percentage"), 0)
     row["dpi"] = int(_num(row.get("dpi"), 300) or 300)
     row["fit_mode"] = row.get("fit_mode") or "contain"
-    row["print_positions"] = list(row.get("print_positions") or [])
+    row["print_positions"] = _list(row.get("print_positions"))
     return row
 
 
