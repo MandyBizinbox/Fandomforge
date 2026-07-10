@@ -8,10 +8,13 @@ const VINYL_METHOD_TERMS = ["adhesive vinyl", "vinyl decal", "cut vinyl"];
 const DTF_METHOD_TERMS = ["dtf"];
 const UV_DTF_METHOD_TERMS = ["uv dtf", "uvdtf"];
 const SUBLIMATION_METHOD_TERMS = ["sublimation"];
+const RULE_REFRESH_MS = 8000;
 
 let rulesCache = null;
 let colourGuardTimer = null;
 let lastMethodKey = "";
+let lastRefreshAt = 0;
+let refreshingRules = false;
 
 function normalise(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -40,6 +43,7 @@ function readCachedRules() {
     const cached = JSON.parse(window.localStorage.getItem(RULE_CACHE_KEY) || "null");
     if (cached?.methods?.length) {
       rulesCache = cached;
+      lastRefreshAt = Number(cached.fetchedAt || 0);
       return rulesCache;
     }
   } catch (error) {
@@ -48,20 +52,32 @@ function readCachedRules() {
   return { methods: [], stockedColours: [] };
 }
 
-async function fetchRules() {
+function clearRulesCache() {
+  rulesCache = null;
+  lastRefreshAt = 0;
+  try { window.localStorage.removeItem(RULE_CACHE_KEY); } catch (error) { /* ignore */ }
+}
+
+async function fetchRules(force = false) {
+  if (refreshingRules) return readCachedRules();
+  if (!force && rulesCache?.methods?.length && Date.now() - lastRefreshAt < RULE_REFRESH_MS) return rulesCache;
+  refreshingRules = true;
   try {
     const [methodRes, colourRes] = await Promise.all([
-      fetch(`${apiBase()}/production-rules/methods`, { credentials: "include" }),
-      fetch(`${apiBase()}/production-rules/stocked-colours`, { credentials: "include" }),
+      fetch(`${apiBase()}/production-rules/methods?active=true`, { credentials: "include", cache: "no-store" }),
+      fetch(`${apiBase()}/production-rules/stocked-colours?active=true`, { credentials: "include", cache: "no-store" }),
     ]);
     if (!methodRes.ok || !colourRes.ok) return readCachedRules();
     const methods = await methodRes.json();
     const stockedColours = await colourRes.json();
     rulesCache = { methods: Array.isArray(methods) ? methods : [], stockedColours: Array.isArray(stockedColours) ? stockedColours : [], fetchedAt: Date.now() };
+    lastRefreshAt = rulesCache.fetchedAt;
     window.localStorage.setItem(RULE_CACHE_KEY, JSON.stringify(rulesCache));
     return rulesCache;
   } catch (error) {
     return readCachedRules();
+  } finally {
+    refreshingRules = false;
   }
 }
 
@@ -187,11 +203,29 @@ function closestColour(value, library) {
   return best.hex;
 }
 
-function setNativeValue(element, value) {
+function closestColourName(value, library) {
+  const raw = normalise(value);
+  if (!library.length) return "";
+  const exactName = library.find((colour) => normalise(colour.name) === raw || normalise(colour.id) === raw);
+  if (exactName) return exactName.name;
+  const exactHex = hex(value);
+  if (exactHex) return library.find((colour) => colour.hex === exactHex)?.name || library[0].name;
+  return library[0].name;
+}
+
+function setNativeInputValue(element, value) {
   const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
   if (descriptor?.set) descriptor.set.call(element, value);
   else element.value = value;
   element.setAttribute("value", value);
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function setNativeSelectValue(element, value) {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+  if (descriptor?.set) descriptor.set.call(element, value);
+  else element.value = value;
   element.dispatchEvent(new Event("input", { bubbles: true }));
   element.dispatchEvent(new Event("change", { bubbles: true }));
 }
@@ -236,7 +270,7 @@ function ensureSwatchPicker(input, library) {
     picker.style.border = "1px solid rgba(255,255,255,0.2)";
     picker.style.padding = "6px";
     input.insertAdjacentElement("afterend", picker);
-    picker.addEventListener("change", () => setNativeValue(input, picker.value));
+    picker.addEventListener("change", () => setNativeInputValue(input, picker.value));
   }
   const current = input.value;
   const options = library.map((colour) => `<option value="${colour.hex}">${colour.name}</option>`).join("");
@@ -247,11 +281,49 @@ function ensureSwatchPicker(input, library) {
   picker.value = closestColour(current, library);
 }
 
+function selectLooksLikeColourControl(select) {
+  if (!(select instanceof HTMLSelectElement)) return false;
+  if (select.dataset.ffColourPickerFor) return false;
+  const context = methodContextText(select);
+  if (context.includes("print method") || context.includes("production method") || context.includes("manufacturing method")) return false;
+  if (context.includes("colour") || context.includes("color")) return true;
+
+  const colourTerms = ["white", "black", "red", "blue", "navy", "gold", "silver", "green", "yellow", "pink", "orange", "purple"];
+  const options = [...select.options].map((option) => normalise(`${option.value} ${option.textContent}`));
+  const colourHits = options.filter((text) => hex(text) || colourTerms.some((term) => text.includes(term))).length;
+  return options.length > 1 && colourHits >= Math.min(3, options.length);
+}
+
+function ensureSelectColourOptions(select, library) {
+  if (!(select instanceof HTMLSelectElement) || !library.length) return;
+  if (!select.dataset.ffOriginalOptions) select.dataset.ffOriginalOptions = select.innerHTML;
+  const current = select.value || select.selectedOptions?.[0]?.textContent || "";
+  const options = library.map((colour) => `<option value="${colour.name}">${colour.name}</option>`).join("");
+  if (select.dataset.ffManufacturingOptions !== options) {
+    select.innerHTML = options;
+    select.dataset.ffManufacturingOptions = options;
+  }
+  select.dataset.ffManufacturingColourRestricted = "1";
+  const approvedName = closestColourName(current, library);
+  if (select.value !== approvedName) setNativeSelectValue(select, approvedName);
+}
+
+function restoreSelectColourOptions(select) {
+  if (!(select instanceof HTMLSelectElement)) return;
+  if (select.dataset.ffOriginalOptions) {
+    select.innerHTML = select.dataset.ffOriginalOptions;
+    delete select.dataset.ffOriginalOptions;
+  }
+  delete select.dataset.ffManufacturingOptions;
+  delete select.dataset.ffManufacturingColourRestricted;
+}
+
 function removeSwatchPickers(shell) {
   shell.querySelectorAll("select[data-ff-colour-picker-for]").forEach((picker) => picker.remove());
   shell.querySelectorAll('input[data-ff-manufacturing-colour-restricted="1"]').forEach((input) => {
     input.removeAttribute("data-ff-manufacturing-colour-restricted");
   });
+  shell.querySelectorAll('select[data-ff-manufacturing-colour-restricted="1"]').forEach(restoreSelectColourOptions);
 }
 
 function guardColourInputs() {
@@ -259,6 +331,11 @@ function guardColourInputs() {
   const shell = builderShell();
   if (!shell) return;
   const methodKey = currentMethodKey();
+
+  if (Date.now() - lastRefreshAt > RULE_REFRESH_MS && !refreshingRules) {
+    fetchRules(true).then(() => guardColourInputs());
+  }
+
   if (!methodKey) {
     removeSwatchPickers(shell);
     return;
@@ -284,9 +361,13 @@ function guardColourInputs() {
     input.dataset.ffManufacturingColourRestricted = "1";
     const approved = closestColour(input.value, library);
     if (hex(input.value) !== approved || methodKey !== lastMethodKey) {
-      setNativeValue(input, approved);
+      setNativeInputValue(input, approved);
     }
     ensureSwatchPicker(input, library);
+  });
+
+  shell.querySelectorAll("select").forEach((select) => {
+    if (selectLooksLikeColourControl(select)) ensureSelectColourOptions(select, library);
   });
 
   lastMethodKey = methodKey;
@@ -294,11 +375,22 @@ function guardColourInputs() {
 
 function startProductionRulesRuntime() {
   if (typeof window === "undefined" || typeof document === "undefined") return;
-  fetchRules().then(() => guardColourInputs());
+  fetchRules(true).then(() => guardColourInputs());
   if (colourGuardTimer) window.clearInterval(colourGuardTimer);
   colourGuardTimer = window.setInterval(() => {
     guardColourInputs();
   }, 1200);
+  window.addEventListener("storage", (event) => {
+    if (event.key === RULE_CACHE_KEY) {
+      rulesCache = null;
+      lastRefreshAt = 0;
+      fetchRules(true).then(() => guardColourInputs());
+    }
+  });
+  window.addEventListener("fandomforge:production-rules-updated", () => {
+    clearRulesCache();
+    fetchRules(true).then(() => guardColourInputs());
+  });
 }
 
 if (document.readyState === "loading") {
