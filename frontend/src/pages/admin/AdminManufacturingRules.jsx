@@ -6,6 +6,17 @@ import { http } from "../../lib/api";
 
 const METHOD_ORDER = ["dtf", "sublimation", "htv", "uv_dtf", "adhesive_vinyl"];
 const RULE_CACHE_KEY = "ff_builder_production_rules:v1";
+const CALCULATION_TYPES = [
+  ["fixed", "Fixed / max cost"],
+  ["area_fixed_rate", "Area fixed rate / cm²"],
+  ["area_from_sheet", "Area from sheet"],
+  ["sheet", "Whole sheet"],
+];
+const RAW_COST_SOURCES = [
+  ["print_option", "Legacy Print Option - current behaviour"],
+  ["print_option_fallback_to_method", "Print Option first, method fallback"],
+  ["production_method", "Production Method is costing source"],
+];
 
 const newColourDefault = {
   name: "",
@@ -50,8 +61,19 @@ function numberValue(value, fallback = 0) {
   return Number.isFinite(next) ? next : fallback;
 }
 
+function nullableNumber(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const next = Number(value);
+  return Number.isFinite(next) ? next : null;
+}
+
 function money(value) {
   return `R ${Number(value || 0).toFixed(2)}`;
+}
+
+function normaliseColourMode(method) {
+  const mode = method?.creator_restrictions?.colour_picker || method?.supported_colours?.mode || "rgb";
+  return ["stocked_library", "restricted_library"].includes(mode) ? "stocked_library" : "rgb";
 }
 
 function embeddedColourIds(method, colours) {
@@ -60,19 +82,34 @@ function embeddedColourIds(method, colours) {
 }
 
 function makeMethodDraft(method, colours) {
-  const mode = method?.supported_colours?.mode || method?.creator_restrictions?.colour_picker || "rgb";
+  const cost = method?.cost_calculation_model || {};
   return {
     ...method,
     categoriesText: listText(method.supported_product_categories),
     materialsText: listText(method.supported_materials),
     artworkTypesText: listText(method.supported_artwork_types),
-    colourMode: mode,
+    colourMode: normaliseColourMode(method),
     selectedColourIds: embeddedColourIds(method, colours),
     maxLayers: method?.layer_behaviour?.max_layers ?? "",
-    everyColourCreatesLayer: Boolean(method?.layer_behaviour?.every_colour_creates_layer),
-    pressCountModel: method?.press_behaviour?.press_count_model || "per_print_area",
+    everyColourCreatesLayer: Boolean(method?.layer_behaviour?.colour_creates_layer || method?.layer_behaviour?.every_colour_creates_layer),
+    pressCountModel: method?.press_behaviour?.press_count_model || method?.press_behaviour?.model || "one_press_per_print_area",
     secondsPerPress: method?.press_behaviour?.seconds_per_press ?? "",
     setupSeconds: method?.press_behaviour?.setup_seconds ?? "",
+    costModelName: cost.model || cost.name || "",
+    rawCostSource: cost.raw_cost_source || "print_option",
+    calculationType: cost.calculation_type || "fixed",
+    methodPrintCostMax: cost.print_cost_max ?? cost.platform_print_cost ?? "",
+    sheetWidthMm: cost.sheet_width_mm ?? "",
+    sheetHeightMm: cost.sheet_height_mm ?? "",
+    sheetCost: cost.sheet_cost ?? "",
+    costPerCm2: cost.cost_per_cm2 ?? "",
+    minimumPrintCost: cost.minimum_print_cost ?? "",
+    wastePercentage: cost.waste_percentage ?? "",
+    markupPercentage: cost.markup_percentage ?? "",
+    creatorPrintPrice: cost.creator_print_price ?? "",
+    platformPrintMarkupType: cost.platform_print_markup_type || "manual",
+    platformPrintMarkupValue: cost.platform_print_markup_value ?? "",
+    pricingNotes: cost.pricing_notes || "",
   };
 }
 
@@ -85,10 +122,30 @@ function makeColourDraft(colour) {
 }
 
 function methodPayload(draft, colours) {
-  const colourMode = draft.colourMode || "rgb";
   const selectedColours = colours
     .filter((colour) => (draft.selectedColourIds || []).includes(colour.id))
     .map((colour) => ({ id: colour.id, name: colour.name, hex: colour.hex, aliases: colour.aliases || [], active: colour.active !== false }));
+
+  const stocked = draft.colourMode === "stocked_library";
+  const costModel = {
+    ...(draft.cost_calculation_model || {}),
+    model: draft.costModelName || `${draft.method_key || "method"}_costing`,
+    raw_cost_source: draft.rawCostSource || "print_option",
+    calculation_type: draft.calculationType || "fixed",
+    print_cost_max: nullableNumber(draft.methodPrintCostMax),
+    platform_print_cost: nullableNumber(draft.methodPrintCostMax),
+    sheet_width_mm: nullableNumber(draft.sheetWidthMm),
+    sheet_height_mm: nullableNumber(draft.sheetHeightMm),
+    sheet_cost: nullableNumber(draft.sheetCost),
+    cost_per_cm2: nullableNumber(draft.costPerCm2),
+    minimum_print_cost: nullableNumber(draft.minimumPrintCost),
+    waste_percentage: nullableNumber(draft.wastePercentage),
+    markup_percentage: nullableNumber(draft.markupPercentage),
+    creator_print_price: nullableNumber(draft.creatorPrintPrice),
+    platform_print_markup_type: draft.platformPrintMarkupType || "manual",
+    platform_print_markup_value: nullableNumber(draft.platformPrintMarkupValue),
+    pricing_notes: draft.pricingNotes || "",
+  };
 
   return {
     display_name: draft.display_name || draft.method_key,
@@ -98,36 +155,43 @@ function methodPayload(draft, colours) {
     supported_product_categories: textList(draft.categoriesText),
     supported_materials: textList(draft.materialsText),
     supported_artwork_types: textList(draft.artworkTypesText),
-    maximum_artwork_width_mm: numberValue(draft.maximum_artwork_width_mm, 0),
-    maximum_artwork_height_mm: numberValue(draft.maximum_artwork_height_mm, 0),
-    minimum_artwork_width_mm: numberValue(draft.minimum_artwork_width_mm, 0),
-    minimum_artwork_height_mm: numberValue(draft.minimum_artwork_height_mm, 0),
+    maximum_artwork_width_mm: nullableNumber(draft.maximum_artwork_width_mm),
+    maximum_artwork_height_mm: nullableNumber(draft.maximum_artwork_height_mm),
+    minimum_artwork_width_mm: nullableNumber(draft.minimum_artwork_width_mm),
+    minimum_artwork_height_mm: nullableNumber(draft.minimum_artwork_height_mm),
     minimum_resolution_dpi: numberValue(draft.minimum_resolution_dpi, 0),
     transparent_background_required: Boolean(draft.transparent_background_required),
     mirror_artwork_required: Boolean(draft.mirror_artwork_required),
     gang_sheet_capable: Boolean(draft.gang_sheet_capable),
     supported_colours: {
       ...(draft.supported_colours || {}),
-      mode: colourMode,
-      colours: colourMode === "stocked_library" ? selectedColours : [],
+      mode: stocked ? "restricted_library" : "unlimited_rgb",
+      library_id: stocked ? "default-stocked-vinyl-colours" : null,
+      colours: stocked ? selectedColours : [],
     },
     creator_restrictions: {
       ...(draft.creator_restrictions || {}),
-      colour_picker: colourMode === "stocked_library" ? "stocked_library" : "rgb",
+      colour_picker: stocked ? "stocked_library" : "rgb",
+      requires_stocked_colour_selection: stocked,
     },
     layer_behaviour: {
       ...(draft.layer_behaviour || {}),
+      colour_creates_layer: Boolean(draft.everyColourCreatesLayer),
       every_colour_creates_layer: Boolean(draft.everyColourCreatesLayer),
       max_layers: draft.maxLayers === "" ? null : numberValue(draft.maxLayers, 0),
     },
     press_behaviour: {
       ...(draft.press_behaviour || {}),
-      press_count_model: draft.pressCountModel || "per_print_area",
-      seconds_per_press: draft.secondsPerPress === "" ? null : numberValue(draft.secondsPerPress, 0),
-      setup_seconds: draft.setupSeconds === "" ? null : numberValue(draft.setupSeconds, 0),
+      press_count_model: draft.pressCountModel || "one_press_per_print_area",
+      model: draft.pressCountModel || draft.press_behaviour?.model || "one_press_per_print_area",
+      seconds_per_press: nullableNumber(draft.secondsPerPress),
+      setup_seconds: nullableNumber(draft.setupSeconds),
     },
-    cost_calculation_model: draft.cost_calculation_model || {},
-    validation_rules: draft.validation_rules || {},
+    cost_calculation_model: costModel,
+    validation_rules: {
+      ...(draft.validation_rules || {}),
+      enforce_colour_library: stocked,
+    },
     admin_notes: draft.admin_notes || "",
   };
 }
@@ -176,6 +240,49 @@ function Toggle({ label, checked, onChange }) {
   );
 }
 
+function CostingEditor({ method, onPatch }) {
+  return (
+    <div className="border border-[var(--ff-card-border)] p-4 space-y-4 bg-black/20">
+      <div>
+        <p className="overline mb-1">Costing Model</p>
+        <h3 className="font-display text-2xl uppercase">Print Option-compatible pricing</h3>
+        <p className="text-xs text-[var(--ff-muted-text)] mt-1">This mirrors the existing Print Options calculation fields. Keep source as Legacy Print Option until each method is verified.</p>
+      </div>
+      <div className="grid md:grid-cols-3 gap-4">
+        <Field label="Costing source">
+          <select className="input-base" value={method.rawCostSource || "print_option"} onChange={(event) => onPatch({ rawCostSource: event.target.value })}>
+            {RAW_COST_SOURCES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </Field>
+        <Field label="Calculation type">
+          <select className="input-base" value={method.calculationType || "fixed"} onChange={(event) => onPatch({ calculationType: event.target.value })}>
+            {CALCULATION_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </Field>
+        <Field label="Cost model name"><input className="input-base" value={method.costModelName || ""} onChange={(event) => onPatch({ costModelName: event.target.value })} /></Field>
+      </div>
+      <div className="grid md:grid-cols-4 gap-4">
+        <Field label="Fixed / max cost"><input className="input-base" type="number" step="0.01" value={method.methodPrintCostMax ?? ""} onChange={(event) => onPatch({ methodPrintCostMax: event.target.value })} /></Field>
+        <Field label="Cost per cm²"><input className="input-base" type="number" step="0.0001" value={method.costPerCm2 ?? ""} onChange={(event) => onPatch({ costPerCm2: event.target.value })} /></Field>
+        <Field label="Minimum print cost"><input className="input-base" type="number" step="0.01" value={method.minimumPrintCost ?? ""} onChange={(event) => onPatch({ minimumPrintCost: event.target.value })} /></Field>
+        <Field label="Creator fixed price"><input className="input-base" type="number" step="0.01" value={method.creatorPrintPrice ?? ""} onChange={(event) => onPatch({ creatorPrintPrice: event.target.value })} /></Field>
+      </div>
+      <div className="grid md:grid-cols-4 gap-4">
+        <Field label="Sheet width mm"><input className="input-base" type="number" step="0.01" value={method.sheetWidthMm ?? ""} onChange={(event) => onPatch({ sheetWidthMm: event.target.value })} /></Field>
+        <Field label="Sheet height mm"><input className="input-base" type="number" step="0.01" value={method.sheetHeightMm ?? ""} onChange={(event) => onPatch({ sheetHeightMm: event.target.value })} /></Field>
+        <Field label="Sheet cost"><input className="input-base" type="number" step="0.01" value={method.sheetCost ?? ""} onChange={(event) => onPatch({ sheetCost: event.target.value })} /></Field>
+        <Field label="Waste %"><input className="input-base" type="number" step="0.01" value={method.wastePercentage ?? ""} onChange={(event) => onPatch({ wastePercentage: event.target.value })} /></Field>
+      </div>
+      <div className="grid md:grid-cols-3 gap-4">
+        <Field label="Markup %"><input className="input-base" type="number" step="0.01" value={method.markupPercentage ?? ""} onChange={(event) => onPatch({ markupPercentage: event.target.value })} /></Field>
+        <Field label="Platform markup type"><select className="input-base" value={method.platformPrintMarkupType || "manual"} onChange={(event) => onPatch({ platformPrintMarkupType: event.target.value })}><option value="manual">Manual / value</option><option value="percentage">Percentage</option><option value="fixed">Fixed amount</option></select></Field>
+        <Field label="Platform markup value"><input className="input-base" type="number" step="0.01" value={method.platformPrintMarkupValue ?? ""} onChange={(event) => onPatch({ platformPrintMarkupValue: event.target.value })} /></Field>
+      </div>
+      <Field label="Pricing notes"><textarea className="input-base min-h-[80px]" value={method.pricingNotes || ""} onChange={(event) => onPatch({ pricingNotes: event.target.value })} /></Field>
+    </div>
+  );
+}
+
 export default function AdminManufacturingRules() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -190,7 +297,8 @@ export default function AdminManufacturingRules() {
   const [newColour, setNewColour] = useState(newColourDefault);
 
   const selectedMethod = selectedMethodKey ? methodDrafts[selectedMethodKey] : null;
-  const restrictedCount = useMemo(() => methods.filter((method) => (method.supported_colours?.mode || method.creator_restrictions?.colour_picker) === "stocked_library").length, [methods]);
+  const restrictedCount = useMemo(() => methods.filter((method) => normaliseColourMode(method) === "stocked_library").length, [methods]);
+  const methodCostingCount = useMemo(() => methods.filter((method) => (method.cost_calculation_model || {}).raw_cost_source === "production_method").length, [methods]);
 
   async function loadRules() {
     setLoading(true);
@@ -224,9 +332,7 @@ export default function AdminManufacturingRules() {
     }
   }
 
-  useEffect(() => {
-    loadRules();
-  }, []);
+  useEffect(() => { loadRules(); }, []);
 
   function patchMethod(methodKey, updates) {
     setMethodDrafts((previous) => ({ ...previous, [methodKey]: { ...previous[methodKey], ...updates } }));
@@ -275,10 +381,7 @@ export default function AdminManufacturingRules() {
   }
 
   async function createColour() {
-    if (!newColour.name.trim()) {
-      toast.error("Enter a colour name");
-      return;
-    }
+    if (!newColour.name.trim()) { toast.error("Enter a colour name"); return; }
     setSaving(true);
     try {
       const response = await http.post("/production-rules/stocked-colours", colourPayload(newColour));
@@ -318,31 +421,16 @@ export default function AdminManufacturingRules() {
     }
   }
 
-  async function seedDefaults() {
-    setSaving(true);
-    try {
-      await http.post("/production-rules/seed-defaults");
-      toast.success("Default production rules repaired");
-      await loadRules();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Could not seed default rules");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (loading) {
-    return <div className="min-h-screen page-shell flex items-center justify-center overline">Loading manufacturing rules…</div>;
-  }
+  if (loading) return <div className="admin-workspace min-h-screen flex items-center justify-center overline">Loading manufacturing rules…</div>;
 
   return (
-    <div className="min-h-screen page-shell text-[var(--ff-card-text)]">
+    <div className="admin-workspace min-h-screen text-[var(--ff-card-text)] bg-[var(--ff-page-bg)]">
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <p className="overline mb-2">Admin / Production</p>
             <h1 className="font-display text-5xl uppercase">Manufacturing Rules</h1>
-            <p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Edit print methods, stocked colour restrictions, layer logic, press behaviour and default costing used by the server-side Builder validation engine.</p>
+            <p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Edit print methods, stocked colour restrictions, layer logic, press behaviour and the Print Option-compatible costing model used by Builder pricing.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link to="/admin" className="px-4 py-3 border border-[var(--ff-card-border)] text-xs uppercase tracking-widest font-bold hover:border-[var(--ff-primary)]">Back to Admin</Link>
@@ -354,14 +442,11 @@ export default function AdminManufacturingRules() {
           <Stat label="Print Methods" value={methods.length} icon={<Factory size={28} />} />
           <Stat label="Stock Colours" value={colours.filter((colour) => colour.active !== false).length} icon={<Palette size={28} />} />
           <Stat label="Restricted" value={restrictedCount} icon={<ShieldCheck size={28} />} />
-          <Stat label="Packaging" value={settings ? money(settings.default_packaging_cost) : "Locked"} icon={<Settings size={28} />} />
+          <Stat label="Method Costing" value={methodCostingCount} icon={<Settings size={28} />} />
         </div>
 
         {!settingsAllowed && (
-          <div className="card border-yellow-500/60 flex gap-3 text-sm text-[var(--ff-muted-text)]">
-            <AlertTriangle className="text-yellow-400 shrink-0" size={20} />
-            <div><strong className="text-[var(--ff-card-text)]">Super admin required.</strong> Your account can view public rules, but saving methods, colours and settings requires the backend super_admin role.</div>
-          </div>
+          <div className="card border-yellow-500/60 flex gap-3 text-sm text-[var(--ff-muted-text)]"><AlertTriangle className="text-yellow-400 shrink-0" size={20} /><div><strong className="text-[var(--ff-card-text)]">Super admin required.</strong> You can view rules, but saving methods, colours and settings requires super_admin.</div></div>
         )}
 
         <div className="flex flex-wrap gap-2 border-b border-[var(--ff-card-border)] pb-4">
@@ -376,24 +461,17 @@ export default function AdminManufacturingRules() {
               <p className="overline">Production Methods</p>
               {methods.map((method) => (
                 <button key={method.method_key} type="button" onClick={() => setSelectedMethodKey(method.method_key)} className={`w-full text-left border p-4 ${selectedMethodKey === method.method_key ? "border-[var(--ff-primary)] bg-[var(--ff-primary)]/10" : "border-[var(--ff-card-border)] hover:border-[var(--ff-primary)]"}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-display text-xl uppercase">{method.display_name || method.method_key}</div>
-                    {method.active !== false ? <CheckCircle2 size={16} className="text-green-400" /> : <AlertTriangle size={16} className="text-yellow-400" />}
-                  </div>
+                  <div className="flex items-center justify-between gap-2"><div className="font-display text-xl uppercase">{method.display_name || method.method_key}</div>{method.active !== false ? <CheckCircle2 size={16} className="text-green-400" /> : <AlertTriangle size={16} className="text-yellow-400" />}</div>
                   <div className="text-xs text-[var(--ff-muted-text)] mt-1 uppercase tracking-widest">{method.method_key}</div>
+                  <div className="text-[10px] text-[var(--ff-muted-text)] mt-2 uppercase tracking-widest">{(method.cost_calculation_model || {}).raw_cost_source || "print_option"}</div>
                 </button>
               ))}
-              <button type="button" onClick={seedDefaults} disabled={saving} className="w-full btn-secondary">Seed / Repair Defaults</button>
             </div>
 
             {selectedMethod && (
               <div className="card space-y-6">
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-                  <div>
-                    <p className="overline mb-2">Selected Method</p>
-                    <h2 className="font-display text-4xl uppercase">{selectedMethod.display_name || selectedMethod.method_key}</h2>
-                    <p className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mt-1">{selectedMethod.method_key}</p>
-                  </div>
+                  <div><p className="overline mb-2">Selected Method</p><h2 className="font-display text-4xl uppercase">{selectedMethod.display_name || selectedMethod.method_key}</h2><p className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mt-1">{selectedMethod.method_key}</p></div>
                   <button type="button" onClick={() => saveMethod(selectedMethod.method_key)} disabled={saving} className="btn-primary flex items-center gap-2"><Save size={14} /> Save Method</button>
                 </div>
 
@@ -417,17 +495,15 @@ export default function AdminManufacturingRules() {
                   <Field label="Minimum DPI"><input className="input-base" type="number" min="0" value={selectedMethod.minimum_resolution_dpi ?? 0} onChange={(event) => patchMethod(selectedMethod.method_key, { minimum_resolution_dpi: event.target.value })} /></Field>
                 </div>
 
+                <CostingEditor method={selectedMethod} onPatch={(updates) => patchMethod(selectedMethod.method_key, updates)} />
+
                 {selectedMethod.colourMode === "stocked_library" && (
                   <div className="border border-[var(--ff-card-border)] p-4 space-y-3">
                     <div><p className="overline mb-1">Approved colours for this method</p><p className="text-xs text-[var(--ff-muted-text)]">This embedded list is what the Creator Builder uses for HTV/vinyl restrictions.</p></div>
                     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
                       {colours.map((colour) => (
                         <label key={colour.id} className={`flex items-center gap-3 border p-3 ${colour.active === false ? "opacity-50" : ""} border-[var(--ff-card-border)]`}>
-                          <input type="checkbox" checked={(selectedMethod.selectedColourIds || []).includes(colour.id)} onChange={(event) => {
-                            const current = new Set(selectedMethod.selectedColourIds || []);
-                            if (event.target.checked) current.add(colour.id); else current.delete(colour.id);
-                            patchMethod(selectedMethod.method_key, { selectedColourIds: [...current] });
-                          }} />
+                          <input type="checkbox" checked={(selectedMethod.selectedColourIds || []).includes(colour.id)} onChange={(event) => { const current = new Set(selectedMethod.selectedColourIds || []); if (event.target.checked) current.add(colour.id); else current.delete(colour.id); patchMethod(selectedMethod.method_key, { selectedColourIds: [...current] }); }} />
                           <span className="w-6 h-6 border border-black/40" style={{ background: colour.hex }} />
                           <span className="text-sm">{colour.name}</span>
                         </label>
@@ -451,7 +527,7 @@ export default function AdminManufacturingRules() {
                 </div>
 
                 <div className="grid md:grid-cols-3 gap-4">
-                  <Field label="Press count model"><select className="input-base" value={selectedMethod.pressCountModel || "per_print_area"} onChange={(event) => patchMethod(selectedMethod.method_key, { pressCountModel: event.target.value })}><option value="per_print_area">Per print area</option><option value="per_layer">Per layer</option><option value="per_colour_layer">Per colour layer</option><option value="manual">Manual/custom</option></select></Field>
+                  <Field label="Press count model"><select className="input-base" value={selectedMethod.pressCountModel || "one_press_per_print_area"} onChange={(event) => patchMethod(selectedMethod.method_key, { pressCountModel: event.target.value })}><option value="one_press_per_print_area">Per print area</option><option value="one_press_per_layer">Per layer</option><option value="one_application_per_layer">Per colour/application layer</option><option value="manual">Manual/custom</option></select></Field>
                   <Field label="Seconds per press"><input className="input-base" type="number" min="0" value={selectedMethod.secondsPerPress ?? ""} onChange={(event) => patchMethod(selectedMethod.method_key, { secondsPerPress: event.target.value })} /></Field>
                   <Field label="Setup seconds"><input className="input-base" type="number" min="0" value={selectedMethod.setupSeconds ?? ""} onChange={(event) => patchMethod(selectedMethod.method_key, { setupSeconds: event.target.value })} /></Field>
                 </div>
@@ -471,16 +547,12 @@ export default function AdminManufacturingRules() {
                 <button type="button" onClick={createColour} disabled={saving} className="btn-primary h-12">Create</button>
               </div>
             </div>
-
             <div className="grid lg:grid-cols-2 gap-4">
               {colours.map((colour) => {
                 const draft = colourDrafts[colour.id] || makeColourDraft(colour);
                 return (
                   <div key={colour.id} className={`card space-y-4 ${draft.active === false ? "opacity-70" : ""}`}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-center gap-3"><span className="w-10 h-10 border border-black/40" style={{ background: draft.hex }} /><div><p className="overline mb-1">{colour.id}</p><h3 className="font-display text-2xl uppercase">{draft.name}</h3></div></div>
-                      <button type="button" onClick={() => saveColour(colour.id)} disabled={saving} className="btn-secondary flex items-center gap-2"><Save size={14} /> Save</button>
-                    </div>
+                    <div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><span className="w-10 h-10 border border-black/40" style={{ background: draft.hex }} /><div><p className="overline mb-1">{colour.id}</p><h3 className="font-display text-2xl uppercase">{draft.name}</h3></div></div><button type="button" onClick={() => saveColour(colour.id)} disabled={saving} className="btn-secondary flex items-center gap-2"><Save size={14} /> Save</button></div>
                     <div className="grid md:grid-cols-2 gap-4">
                       <Field label="Name"><input className="input-base" value={draft.name || ""} onChange={(event) => patchColour(colour.id, { name: event.target.value })} /></Field>
                       <Field label="Hex"><input className="input-base" type="color" value={draft.hex || "#000000"} onChange={(event) => patchColour(colour.id, { hex: event.target.value })} /></Field>
@@ -498,9 +570,7 @@ export default function AdminManufacturingRules() {
 
         {activeTab === "settings" && (
           <div className="card space-y-6">
-            {!settings ? (
-              <div className="text-sm text-[var(--ff-muted-text)]">Production settings are only available to super admin users.</div>
-            ) : (
+            {!settings ? <div className="text-sm text-[var(--ff-muted-text)]">Production settings are only available to super admin users.</div> : (
               <>
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4"><div><p className="overline mb-2">Manufacturing Costing</p><h2 className="font-display text-4xl uppercase">Default cost controls</h2><p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">These values feed the server-side minimum selling price and publish validation.</p></div><button type="button" onClick={saveSettings} disabled={saving} className="btn-primary flex items-center gap-2"><Save size={14} /> Save Settings</button></div>
                 <div className="grid md:grid-cols-3 gap-4">
