@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from auth import get_current_user, optional_user, require_role
+from legacy_print_option_migration import seed_legacy_print_option_costing
 from models import User
 from production_rules_engine import apply_production_rules, clean_doc, public_rule
 from seed_production_operations import normalize_method_key
@@ -101,6 +102,13 @@ class StockedColourUpdate(BaseModel):
             if method and method not in out:
                 out.append(method)
         return out
+
+
+class LegacyPrintOptionCostingSeedRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    dry_run: bool = False
+    raw_cost_source: str = "print_option_fallback_to_method"
 
 
 class ProductionValidationRequest(BaseModel):
@@ -226,6 +234,16 @@ async def update_settings(payload: ProductionSettingsUpdate, request: Request, u
 @production_rules_router.post("/seed-defaults")
 async def seed_defaults(request: Request, user: User = Depends(require_role("super_admin"))):
     return {"status": "ok", **await seed_production_rules(request.app.state.db)}
+
+
+@production_rules_router.post("/seed-legacy-print-option-costing")
+async def seed_legacy_print_option_costing_route(payload: LegacyPrintOptionCostingSeedRequest, request: Request, user: User = Depends(require_role("super_admin"))):
+    result = await seed_legacy_print_option_costing(
+        request.app.state.db,
+        dry_run=payload.dry_run,
+        raw_cost_source=payload.raw_cost_source,
+    )
+    return {"status": "ok", **result}
 
 
 @production_rules_router.post("/validate")
