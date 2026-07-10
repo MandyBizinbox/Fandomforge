@@ -58,13 +58,13 @@ function optionPlacementTags(option) {
 }
 
 function getOptionLabel(option) {
-  return option?.rule_name || [option?.print_method, option?.print_size].filter(Boolean).join(" · ") || option?.id || "Pricing rule";
+  return option?.display_name || option?.rule_name || [option?.print_method, option?.print_size].filter(Boolean).join(" · ") || option?.id || "Pricing rule";
 }
 
 function groupPrintOptionsByMethod(printOptions) {
   return safeArray(printOptions).reduce((groups, option) => {
-    const key = option?.method_key || option?.print_method || "Other";
-    const label = option?.rule_name || option?.print_method || key || "Other";
+    const key = option?.production_method_key || option?.manufacturing_method_id || option?.method_key || option?.print_method || "Other";
+    const label = option?.production_method_display_name || option?.print_method || option?.method || key || "Other";
 
     if (!groups[key]) {
       groups[key] = {
@@ -77,6 +77,24 @@ function groupPrintOptionsByMethod(printOptions) {
     groups[key].options.push(option);
     return groups;
   }, {});
+}
+
+function optionCostSummary(option) {
+  const type = option?.calculation_type || "fixed";
+  if (type === "area_fixed_rate") {
+    return `area_fixed_rate · ${money(option.cost_per_cm2)}/cm² · Minimum ${money(option.minimum_print_cost)} · Tags: ${optionPlacementTags(option).join(", ") || "none"}`;
+  }
+  if (type === "area_from_sheet") {
+    const sheetWidth = Number(option.sheet_width_mm || 0);
+    const sheetHeight = Number(option.sheet_height_mm || 0);
+    const sheetArea = sheetWidth && sheetHeight ? (sheetWidth / 10) * (sheetHeight / 10) : 0;
+    const derivedRate = sheetArea ? Number(option.sheet_cost || 0) / sheetArea : Number(option.cost_per_cm2 || 0);
+    return `area_from_sheet · ${money(derivedRate)}/cm² · Sheet ${sheetWidth}×${sheetHeight}mm @ ${money(option.sheet_cost)} · Minimum ${money(option.minimum_print_cost)} · Tags: ${optionPlacementTags(option).join(", ") || "none"}`;
+  }
+  if (type === "sheet" || type === "full_sheet") {
+    return `${type} · Sheet cost ${money(option.sheet_cost || option.print_cost_max || option.platform_print_cost)} · Tags: ${optionPlacementTags(option).join(", ") || "none"}`;
+  }
+  return `fixed · Platform print cost ${money(option.platform_print_cost || option.print_cost_max)} · Tags: ${optionPlacementTags(option).join(", ") || "none"}`;
 }
 
 export default function PrintAreaInspector({ selectedArea, printOptions, onChange }) {
@@ -172,7 +190,7 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
           <div className="overline mb-1">Inspector</div>
           <h2 className="font-display text-2xl uppercase">Print Area</h2>
           <p className="text-xs text-zinc-500 mt-1">
-            Area defines where artwork goes. Allowed options define which method + size combinations can be used there.
+            Area defines where artwork goes. Allowed options define which manufacturing method + pricing profile can be used there.
           </p>
         </div>
       </div>
@@ -222,128 +240,29 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
           <div>
             <div className="overline mb-2">Mockup position</div>
             <div className="grid grid-cols-2 gap-3">
-              <label>
-                <span className="label">X %</span>
-                <input
-                  className="input-base"
-                  type="number"
-                  step="0.1"
-                  value={selectedArea.x}
-                  onChange={(e) => { const value = Number(e.target.value || 0); update({ x: value, x_pct: value }); }}
-                />
-              </label>
-              <label>
-                <span className="label">Y %</span>
-                <input
-                  className="input-base"
-                  type="number"
-                  step="0.1"
-                  value={selectedArea.y}
-                  onChange={(e) => { const value = Number(e.target.value || 0); update({ y: value, y_pct: value }); }}
-                />
-              </label>
-              <label>
-                <span className="label">Width %</span>
-                <input
-                  className="input-base"
-                  type="number"
-                  step="0.1"
-                  value={selectedArea.width}
-                  onChange={(e) => { const value = Number(e.target.value || 1); update({ width: value, width_pct: value }); }}
-                />
-              </label>
-              <label>
-                <span className="label">Height %</span>
-                <input
-                  className="input-base"
-                  type="number"
-                  step="0.1"
-                  value={selectedArea.height}
-                  onChange={(e) => { const value = Number(e.target.value || 1); update({ height: value, height_pct: value }); }}
-                />
-              </label>
+              <label><span className="label">X %</span><input className="input-base" type="number" step="0.1" value={selectedArea.x} onChange={(e) => { const value = Number(e.target.value || 0); update({ x: value, x_pct: value }); }} /></label>
+              <label><span className="label">Y %</span><input className="input-base" type="number" step="0.1" value={selectedArea.y} onChange={(e) => { const value = Number(e.target.value || 0); update({ y: value, y_pct: value }); }} /></label>
+              <label><span className="label">Width %</span><input className="input-base" type="number" step="0.1" value={selectedArea.width} onChange={(e) => { const value = Number(e.target.value || 1); update({ width: value, width_pct: value }); }} /></label>
+              <label><span className="label">Height %</span><input className="input-base" type="number" step="0.1" value={selectedArea.height} onChange={(e) => { const value = Number(e.target.value || 1); update({ height: value, height_pct: value }); }} /></label>
             </div>
 
             <div className="border-t border-white/10 pt-3">
               <div className="overline mb-2">Quick move / resize</div>
-
               <div className="grid grid-cols-3 gap-2">
                 <div />
-                <button
-                  type="button"
-                  className="btn-secondary text-xs"
-                  onClick={() => {
-                    const value = Number(selectedArea.y || selectedArea.y_pct || 0) - 1;
-                    update({ y: value, y_pct: value });
-                  }}
-                >
-                  Up
-                </button>
+                <button type="button" className="btn-secondary text-xs" onClick={() => { const value = Number(selectedArea.y || selectedArea.y_pct || 0) - 1; update({ y: value, y_pct: value }); }}>Up</button>
                 <div />
-
-                <button
-                  type="button"
-                  className="btn-secondary text-xs"
-                  onClick={() => {
-                    const value = Number(selectedArea.x || selectedArea.x_pct || 0) - 1;
-                    update({ x: value, x_pct: value });
-                  }}
-                >
-                  Left
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary text-xs"
-                  onClick={() => {
-                    const width = Number(selectedArea.width || selectedArea.width_pct || 30);
-                    const height = Number(selectedArea.height || selectedArea.height_pct || 30);
-                    const x = Math.max(0, (100 - width) / 2);
-                    const y = Math.max(0, (100 - height) / 2);
-                    update({ x, x_pct: x, y, y_pct: y });
-                  }}
-                >
-                  Center
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary text-xs"
-                  onClick={() => {
-                    const value = Number(selectedArea.x || selectedArea.x_pct || 0) + 1;
-                    update({ x: value, x_pct: value });
-                  }}
-                >
-                  Right
-                </button>
-
+                <button type="button" className="btn-secondary text-xs" onClick={() => { const value = Number(selectedArea.x || selectedArea.x_pct || 0) - 1; update({ x: value, x_pct: value }); }}>Left</button>
+                <button type="button" className="btn-secondary text-xs" onClick={() => { const width = Number(selectedArea.width || selectedArea.width_pct || 30); const height = Number(selectedArea.height || selectedArea.height_pct || 30); const x = Math.max(0, (100 - width) / 2); const y = Math.max(0, (100 - height) / 2); update({ x, x_pct: x, y, y_pct: y }); }}>Center</button>
+                <button type="button" className="btn-secondary text-xs" onClick={() => { const value = Number(selectedArea.x || selectedArea.x_pct || 0) + 1; update({ x: value, x_pct: value }); }}>Right</button>
                 <div />
-                <button
-                  type="button"
-                  className="btn-secondary text-xs"
-                  onClick={() => {
-                    const value = Number(selectedArea.y || selectedArea.y_pct || 0) + 1;
-                    update({ y: value, y_pct: value });
-                  }}
-                >
-                  Down
-                </button>
+                <button type="button" className="btn-secondary text-xs" onClick={() => { const value = Number(selectedArea.y || selectedArea.y_pct || 0) + 1; update({ y: value, y_pct: value }); }}>Down</button>
                 <div />
               </div>
 
               <div className="grid grid-cols-2 gap-2 mt-2">
-                <button
-                  type="button"
-                  className="btn-secondary text-xs"
-                  onClick={() => update({ x: 10, x_pct: 10, y: 10, y_pct: 10, width: 80, width_pct: 80, height: 80, height_pct: 80 })}
-                >
-                  Reset box
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary text-xs"
-                  onClick={() => update({ x: 0, x_pct: 0, width: 100, width_pct: 100 })}
-                >
-                  Full width
-                </button>
+                <button type="button" className="btn-secondary text-xs" onClick={() => update({ x: 10, x_pct: 10, y: 10, y_pct: 10, width: 80, width_pct: 80, height: 80, height_pct: 80 })}>Reset box</button>
+                <button type="button" className="btn-secondary text-xs" onClick={() => update({ x: 0, x_pct: 0, width: 100, width_pct: 100 })}>Full width</button>
               </div>
             </div>
           </div>
@@ -352,71 +271,23 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-4">
           <div>
             <div className="overline mb-2">Production size</div>
-            <p className="text-xs text-zinc-500 mb-3">
-              Real-world output size for this print area. This is separate from the mockup position above.
-            </p>
+            <p className="text-xs text-zinc-500 mb-3">Real-world output size for this print area. This is separate from the mockup position above.</p>
 
             <div className="grid gap-3">
               <label>
                 <span className="label">Standard print size</span>
-                <select
-                  className="input-base"
-                  value={selectedArea.standard_print_size_key || selectedArea.print_size || "custom"}
-                  onChange={(e) => applyStandardPrintSize(e.target.value)}
-                >
-                  {STANDARD_PRINT_SIZE_PRESETS.map((preset) => (
-                    <option key={preset.value} value={preset.value}>{preset.label}</option>
-                  ))}
+                <select className="input-base" value={selectedArea.standard_print_size_key || selectedArea.print_size || "custom"} onChange={(e) => applyStandardPrintSize(e.target.value)}>
+                  {STANDARD_PRINT_SIZE_PRESETS.map((preset) => <option key={preset.value} value={preset.value}>{preset.label}</option>)}
                 </select>
               </label>
 
-              <div className="text-xs text-zinc-500">
-                Output: {printSizeLabel(selectedArea.width_mm, selectedArea.height_mm, selectedArea.dpi || 300)}
-              </div>
+              <div className="text-xs text-zinc-500">Output: {printSizeLabel(selectedArea.width_mm, selectedArea.height_mm, selectedArea.dpi || 300)}</div>
 
               <div className="grid grid-cols-2 gap-3">
-                <label>
-                  <span className="label">Width mm</span>
-                  <input
-                    className="input-base"
-                    type="number"
-                    step="1"
-                    value={selectedArea.width_mm || ""}
-                    onChange={(e) => update({ standard_print_size_key: "custom", print_size: "custom", width_mm: e.target.value ? Number(e.target.value) : null })}
-                  />
-                </label>
-                <label>
-                  <span className="label">Height mm</span>
-                  <input
-                    className="input-base"
-                    type="number"
-                    step="1"
-                    value={selectedArea.height_mm || ""}
-                    onChange={(e) => update({ standard_print_size_key: "custom", print_size: "custom", height_mm: e.target.value ? Number(e.target.value) : null })}
-                  />
-                </label>
-                <label>
-                  <span className="label">DPI</span>
-                  <input
-                    className="input-base"
-                    type="number"
-                    step="1"
-                    value={selectedArea.dpi || 300}
-                    onChange={(e) => update({ dpi: Number(e.target.value || 300) })}
-                  />
-                </label>
-                <label>
-                  <span className="label">Fit mode</span>
-                  <select
-                    className="input-base"
-                    value={selectedArea.fit_mode || "contain"}
-                    onChange={(e) => update({ fit_mode: e.target.value })}
-                  >
-                    <option value="contain">Contain</option>
-                    <option value="cover">Cover</option>
-                    <option value="stretch">Stretch</option>
-                  </select>
-                </label>
+                <label><span className="label">Width mm</span><input className="input-base" type="number" step="1" value={selectedArea.width_mm || ""} onChange={(e) => update({ standard_print_size_key: "custom", print_size: "custom", width_mm: e.target.value ? Number(e.target.value) : null })} /></label>
+                <label><span className="label">Height mm</span><input className="input-base" type="number" step="1" value={selectedArea.height_mm || ""} onChange={(e) => update({ standard_print_size_key: "custom", print_size: "custom", height_mm: e.target.value ? Number(e.target.value) : null })} /></label>
+                <label><span className="label">DPI</span><input className="input-base" type="number" step="1" value={selectedArea.dpi || 300} onChange={(e) => update({ dpi: Number(e.target.value || 300) })} /></label>
+                <label><span className="label">Fit mode</span><select className="input-base" value={selectedArea.fit_mode || "contain"} onChange={(e) => update({ fit_mode: e.target.value })}><option value="contain">Contain</option><option value="cover">Cover</option><option value="stretch">Stretch</option></select></label>
               </div>
             </div>
           </div>
@@ -425,64 +296,33 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
           <div className="flex items-start justify-between gap-3 mb-4">
             <div>
-              <div className="overline mb-2">Allowed print options</div>
-              <p className="text-xs text-zinc-500">
-                Selected: {activeOptionIds.length} / {safeArray(printOptions).length}
-              </p>
+              <div className="overline mb-2">Allowed manufacturing profiles</div>
+              <p className="text-xs text-zinc-500">Selected: {activeOptionIds.length} / {safeArray(printOptions).length}</p>
             </div>
           </div>
 
           <div className="grid gap-2 mb-4">
-            <button
-              type="button"
-              className="btn-secondary text-xs justify-center"
-              onClick={allowMatchingPlacementTags}
-              disabled={!areaKey}
-            >
-              Allow matching placement tags
-            </button>
+            <button type="button" className="btn-secondary text-xs justify-center" onClick={allowMatchingPlacementTags} disabled={!areaKey}>Allow matching placement tags</button>
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" className="border border-white/15 py-2 text-xs uppercase tracking-widest text-zinc-300 hover:text-white" onClick={allowAllActive}>
-                Allow all active
-              </button>
-              <button type="button" className="border border-white/15 py-2 text-xs uppercase tracking-widest text-zinc-300 hover:text-[#FF3B30]" onClick={clearAll}>
-                Clear all
-              </button>
+              <button type="button" className="border border-white/15 py-2 text-xs uppercase tracking-widest text-zinc-300 hover:text-white" onClick={allowAllActive}>Allow all active</button>
+              <button type="button" className="border border-white/15 py-2 text-xs uppercase tracking-widest text-zinc-300 hover:text-[#FF3B30]" onClick={clearAll}>Clear all</button>
             </div>
           </div>
 
           <div className="grid gap-4 max-h-[420px] overflow-auto pr-1">
             {groupedOptions.map((group) => (
               <div key={group.key} className="border border-white/10 rounded-xl overflow-hidden">
-                <div className="bg-black/30 px-3 py-2 font-bold text-xs uppercase tracking-widest text-zinc-300">
-                  {group.label}
-                </div>
-
+                <div className="bg-black/30 px-3 py-2 font-bold text-xs uppercase tracking-widest text-zinc-300">{group.label}</div>
                 <div className="divide-y divide-white/10">
                   {group.options.map((option) => {
                     const checked = activeOptionIds.includes(option.id);
-                    const tags = optionPlacementTags(option);
-
                     return (
-                      <label
-                        key={option.id}
-                        className={`flex gap-3 p-3 text-xs cursor-pointer transition ${
-                          checked ? "bg-[#FF3B30]/10" : "hover:bg-white/[0.03]"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleOption(option.id)}
-                          className="mt-1"
-                        />
-
+                      <label key={option.id} className={`flex gap-3 p-3 text-xs cursor-pointer transition ${checked ? "bg-[#FF3B30]/10" : "hover:bg-white/[0.03]"}`}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleOption(option.id)} className="mt-1" />
                         <span className="min-w-0 flex-1">
                           <span className="block font-bold text-zinc-100">{getOptionLabel(option)}</span>
                           <span className="block text-zinc-500 mt-1">{optionOutputLabel(option)}</span>
-                          <span className="block text-zinc-500 mt-1">
-                            {option.calculation_type || "fixed"} · {option.calculation_type === "area_from_sheet" ? `R ${Number(option.cost_per_cm2 || 0).toFixed(4)}/cm²` : `Platform print cost ${money(option.print_cost_max)}`} · Tags: {tags.length ? tags.join(", ") : "none"}
-                          </span>
+                          <span className="block text-zinc-500 mt-1">{optionCostSummary(option)}</span>
                         </span>
                       </label>
                     );
@@ -491,20 +331,13 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
               </div>
             ))}
 
-            {safeArray(printOptions).length === 0 && (
-              <div className="text-xs text-zinc-500">Create print options first.</div>
-            )}
+            {safeArray(printOptions).length === 0 && <div className="text-xs text-zinc-500">Seed or configure Manufacturing Rule pricing profiles first.</div>}
           </div>
         </div>
 
         <label>
           <span className="label">Notes</span>
-          <textarea
-            className="input-base"
-            rows={3}
-            value={selectedArea.notes || ""}
-            onChange={(e) => update({ notes: e.target.value })}
-          />
+          <textarea className="input-base" rows={3} value={selectedArea.notes || ""} onChange={(e) => update({ notes: e.target.value })} />
         </label>
       </div>
     </div>
