@@ -55,8 +55,13 @@ function isPrintOptionsRequest(response) {
 
 async function loadProductionMethodProfiles() {
   const token = localStorage.getItem("mf_token");
-  const response = await axios.get(`${API}/production-rules/print-option-profiles?active=true`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  const response = await axios.get(`${API}/production-rules/print-option-profiles`, {
+    params: { active: true, _: Date.now() },
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
   });
   return Array.isArray(response.data) ? response.data : [];
 }
@@ -72,6 +77,10 @@ http.interceptors.response.use(async (response) => {
       return {
         ...response,
         data: profiles,
+        config: {
+          ...(response.config || {}),
+          _productionProfilesInjected: true,
+        },
       };
     }
   } catch (error) {
