@@ -10,6 +10,10 @@ cost_calculation_model.raw_cost_source:
 - print_option: current legacy behaviour.
 - print_option_fallback_to_method: use Print Option first, fill blanks from method.
 - production_method: method costing model becomes the pricing source.
+
+When legacy Print Options are imported, production methods can also carry
+legacy_print_option_costing_profiles. Those profiles preserve exact per-option
+costing while allowing the method to become the source of truth.
 """
 from __future__ import annotations
 
@@ -52,6 +56,10 @@ def _float(value: Any) -> float:
 
 def _has_value(value: Any) -> bool:
     return value not in (None, "", [], {})
+
+
+def _token(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def _slot_has_production(slot: Dict[str, Any]) -> bool:
@@ -101,13 +109,50 @@ def _method_key_from_option_slot(option: Dict[str, Any], slot: Dict[str, Any]) -
     )
 
 
-def _pricing_fields_from_method(method_rule: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _profile_matches_option(profile: Dict[str, Any], option: Dict[str, Any], slot: Dict[str, Any]) -> bool:
+    if not isinstance(profile, dict):
+        return False
+    option_id = _token(option.get("id") or slot.get("print_option_id"))
+    if option_id and _token(profile.get("print_option_id")) == option_id:
+        return True
+    standard_key = _token(option.get("standard_print_size_key") or slot.get("standard_print_size_key"))
+    if standard_key and _token(profile.get("standard_print_size_key")) == standard_key:
+        return True
+    print_size = _token(option.get("print_size") or slot.get("print_size"))
+    if print_size and _token(profile.get("print_size")) == print_size:
+        return True
+    rule_name = _token(option.get("rule_name") or option.get("print_method") or slot.get("print_method"))
+    if rule_name and rule_name in {_token(profile.get("rule_name")), _token(profile.get("print_method"))}:
+        return True
+    return False
+
+
+def _method_profile_for_slot(method_rule: Optional[Dict[str, Any]], option: Dict[str, Any], slot: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    rule = dict(method_rule or {})
+    profiles = list(rule.get("legacy_print_option_costing_profiles") or [])
+    for profile in profiles:
+        if _profile_matches_option(profile, option, slot):
+            return profile
+    return None
+
+
+def _pricing_fields_from_method(method_rule: Optional[Dict[str, Any]], option: Optional[Dict[str, Any]] = None, slot: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     rule = dict(method_rule or {})
     model = dict(rule.get("cost_calculation_model") or {})
+    profile = _method_profile_for_slot(rule, option or {}, slot or {})
+
     out: Dict[str, Any] = {}
     for field in PRICING_FIELDS:
         if field in model:
             out[field] = model.get(field)
+
+    if profile:
+        for field in PRICING_FIELDS:
+            if field in profile and _has_value(profile.get(field)):
+                out[field] = profile.get(field)
+        out["legacy_print_option_profile_id"] = profile.get("print_option_id")
+        out["legacy_print_option_profile_name"] = profile.get("rule_name") or profile.get("print_size")
+
     out["raw_cost_source"] = model.get("raw_cost_source") or "print_option"
     out["cost_model_name"] = model.get("model") or model.get("name") or rule.get("display_name") or rule.get("method_key")
     return out
@@ -117,11 +162,11 @@ def _merge_method_costing(option: Dict[str, Any], slot: Dict[str, Any], method_r
     """Return the active pricing row for a slot.
 
     This is the bridge between legacy Print Options and the new Print Method cost
-    model. Default mode preserves legacy pricing. Admin can switch a method to
-    production_method once its cost model is verified.
+    model. Default mode preserves legacy pricing. If legacy profiles were seeded,
+    production_method mode can still calculate per original print option.
     """
     option = dict(option or {})
-    method_fields = _pricing_fields_from_method(method_rule)
+    method_fields = _pricing_fields_from_method(method_rule, option, slot)
     source = method_fields.get("raw_cost_source") or "print_option"
 
     if source in {"production_method", "method", "manufacturing_method"}:
@@ -131,6 +176,8 @@ def _merge_method_costing(option: Dict[str, Any], slot: Dict[str, Any], method_r
                 merged[field] = value
         merged["production_pricing_source"] = "production_method"
         merged["production_method_key"] = _method_key_from_option_slot(option, slot)
+        merged["legacy_print_option_profile_id"] = method_fields.get("legacy_print_option_profile_id")
+        merged["legacy_print_option_profile_name"] = method_fields.get("legacy_print_option_profile_name")
         return merged
 
     if source in {"print_option_fallback_to_method", "fallback_to_method", "hybrid"}:
@@ -142,6 +189,8 @@ def _merge_method_costing(option: Dict[str, Any], slot: Dict[str, Any], method_r
                 merged[field] = value
         merged["production_pricing_source"] = "print_option_fallback_to_method"
         merged["production_method_key"] = _method_key_from_option_slot(option, slot)
+        merged["legacy_print_option_profile_id"] = method_fields.get("legacy_print_option_profile_id")
+        merged["legacy_print_option_profile_name"] = method_fields.get("legacy_print_option_profile_name")
         return merged
 
     option["production_pricing_source"] = "print_option"
@@ -186,6 +235,8 @@ def _calculate_raw_print_cost(option: Dict[str, Any], slot: Dict[str, Any]) -> D
         "platform_print_cost": _money(platform_cost),
         "production_pricing_source": option.get("production_pricing_source") or "print_option",
         "production_method_key": option.get("production_method_key"),
+        "legacy_print_option_profile_id": option.get("legacy_print_option_profile_id"),
+        "legacy_print_option_profile_name": option.get("legacy_print_option_profile_name"),
     }
 
 
@@ -264,6 +315,8 @@ async def _repair_missing_raw_print_costs(db, routes_main_module: Any, product_d
         slot["production_pricing_source"] = live_costing.get("production_pricing_source") or "print_option"
         slot["production_method_costing_applied"] = slot["production_pricing_source"] == "production_method"
         slot["production_pricing_repaired_from_global_option"] = slot["production_pricing_source"] != "production_method"
+        slot["legacy_print_option_profile_id"] = live_costing.get("legacy_print_option_profile_id")
+        slot["legacy_print_option_profile_name"] = live_costing.get("legacy_print_option_profile_name")
         repaired = True
 
     if not repaired:
