@@ -1,9 +1,10 @@
 // Live Builder pricing refresh for manufacturing profile changes.
-// React state remains authoritative; this helper fixes immediate visual lag in the
-// artwork studio cost summary while print profile transitions settle.
+// React state remains authoritative; this helper keeps the visible artwork-cost
+// summary aligned with the latest manufacturing profile pricing after profile
+// switches and after admin-side costing edits.
 
 const PROFILE_CACHE_KEY = "ff_builder_print_option_profiles:v1";
-const PROFILE_REFRESH_MS = 6000;
+const PROFILE_REFRESH_MS = 2000;
 
 let profilesCache = [];
 let profilesFetchedAt = 0;
@@ -41,14 +42,21 @@ function readCachedProfiles() {
   return [];
 }
 
+function clearProfilesCache() {
+  profilesCache = [];
+  profilesFetchedAt = 0;
+  try { window.localStorage.removeItem(PROFILE_CACHE_KEY); } catch (error) { /* ignore */ }
+}
+
 async function fetchProfiles(force = false) {
   if (profilesLoading) return readCachedProfiles();
   if (!force && profilesCache.length && Date.now() - profilesFetchedAt < PROFILE_REFRESH_MS) return profilesCache;
   profilesLoading = true;
   try {
-    const response = await fetch(`${apiBase()}/production-rules/print-option-profiles`, {
+    const response = await fetch(`${apiBase()}/production-rules/print-option-profiles?active=true&_=${Date.now()}`, {
       credentials: "include",
       cache: "no-store",
+      headers: { "Cache-Control": "no-cache" },
     });
     if (!response.ok) return readCachedProfiles();
     const payload = await response.json();
@@ -98,8 +106,6 @@ function activeAreaDimensionsMm() {
   const text = shell.textContent || "";
   const matches = [...text.matchAll(/(\d+(?:\.\d+)?)\s*[×x]\s*(\d+(?:\.\d+)?)\s*mm/gi)];
   if (!matches.length) return { widthMm: 0, heightMm: 0 };
-  // Prefer the last visible inspector/active area dimension, which is usually the
-  // selected layer area. Fallback behaviour still keeps pricing safe.
   const match = matches[matches.length - 1];
   return { widthMm: number(match[1]), heightMm: number(match[2]) };
 }
@@ -136,7 +142,10 @@ function calculateProfileCost(profile) {
   }
 
   if (["sheet", "full_sheet"].includes(calculationType)) {
-    return number(profile.sheet_cost ?? profile.print_cost_max ?? profile.platform_print_cost ?? 0);
+    return Math.max(
+      number(profile.sheet_cost ?? profile.print_cost_max ?? profile.platform_print_cost ?? 0),
+      number(profile.minimum_print_cost, 0)
+    );
   }
 
   let costPerCm2 = number(profile.cost_per_cm2, 0);
@@ -151,10 +160,19 @@ function calculateProfileCost(profile) {
   return Math.round(Math.max(raw, number(profile.minimum_print_cost)) * 100) / 100;
 }
 
-function applyLiveCost(select) {
+function profileForSelect(select, profiles) {
   const optionId = select?.value || "";
-  if (!optionId) return;
-  const profile = readCachedProfiles().find((item) => item.id === optionId);
+  const selectedText = normalise(select?.selectedOptions?.[0]?.textContent || "");
+  if (!optionId && !selectedText) return null;
+
+  return profiles.find((item) => item.id === optionId)
+    || profiles.find((item) => String(item.legacy_print_option_id || "") === optionId)
+    || profiles.find((item) => normalise(`${item.print_method || ""} ${item.rule_name || ""} ${item.print_size || ""}`) === selectedText)
+    || profiles.find((item) => selectedText && normalise(item.rule_name || "") && selectedText.includes(normalise(item.rule_name || "")));
+}
+
+function applyLiveCost(select, profiles = readCachedProfiles()) {
+  const profile = profileForSelect(select, profiles);
   if (!profile) return;
 
   const selectedEl = costValueElement("Selected artwork cost");
@@ -170,12 +188,21 @@ function applyLiveCost(select) {
   totalEl.textContent = money(nextTotal);
   selectedEl.dataset.ffLiveProfileCost = String(nextSelected);
   totalEl.dataset.ffLiveProfileCost = String(nextTotal);
+  selectedEl.dataset.ffLiveProfileId = String(profile.id || "");
 }
 
 function scheduleLiveCost(select) {
-  fetchProfiles(false).then(() => {
-    [0, 80, 240, 500].forEach((delay) => window.setTimeout(() => applyLiveCost(select), delay));
+  clearProfilesCache();
+  fetchProfiles(true).then((profiles) => {
+    [0, 80, 240, 500, 900, 1400].forEach((delay) => window.setTimeout(() => applyLiveCost(select, profiles), delay));
   });
+}
+
+function refreshCurrentSelection() {
+  const shell = builderShell();
+  if (!shell) return;
+  const select = [...shell.querySelectorAll("select")].find(selectLooksLikePrintMethod);
+  if (select) scheduleLiveCost(select);
 }
 
 function startLivePricingRuntime() {
@@ -187,6 +214,7 @@ function startLivePricingRuntime() {
       scheduleLiveCost(target);
     }
   }, true);
+  window.setInterval(refreshCurrentSelection, 5000);
 }
 
 if (document.readyState === "loading") {
