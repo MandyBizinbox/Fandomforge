@@ -36,6 +36,54 @@ http.interceptors.request.use((cfg) => {
   return cfg;
 });
 
+function isBuilderContext() {
+  if (typeof window === "undefined") return false;
+  const path = window.location.pathname || "";
+  return (
+    path.includes("/product-templates") ||
+    path.includes("/products") ||
+    path.includes("/creator") ||
+    path.includes("/admin")
+  );
+}
+
+function isPrintOptionsRequest(response) {
+  const url = String(response?.config?.url || "");
+  const method = String(response?.config?.method || "get").toLowerCase();
+  return method === "get" && (url === "/print-options" || url.endsWith("/print-options"));
+}
+
+async function loadProductionMethodProfiles() {
+  const token = localStorage.getItem("mf_token");
+  const response = await axios.get(`${API}/production-rules/print-option-profiles?active=true`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  return Array.isArray(response.data) ? response.data : [];
+}
+
+http.interceptors.response.use(async (response) => {
+  if (!isPrintOptionsRequest(response) || !isBuilderContext() || response.config?._productionProfilesInjected) {
+    return response;
+  }
+
+  try {
+    const profiles = await loadProductionMethodProfiles();
+    if (profiles.length) {
+      return {
+        ...response,
+        data: profiles,
+      };
+    }
+  } catch (error) {
+    // Fallback to the original legacy print-options response if the production
+    // profile endpoint is unavailable. This keeps launch screens usable while
+    // backend/profile issues are diagnosed.
+    console.warn("Production method profiles unavailable; using legacy print options", error);
+  }
+
+  return response;
+});
+
 // Convert /api/uploads/... to absolute URL; pass through absolute URLs/data URLs.
 export function assetUrl(path) {
   if (!path) return "";
