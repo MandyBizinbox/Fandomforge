@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from auth import get_current_user, optional_user, require_role
 from legacy_print_option_migration import seed_legacy_print_option_costing
 from models import User
+from production_method_profiles import list_production_method_print_profiles
 from production_rules_engine import apply_production_rules, clean_doc, public_rule
 from seed_production_operations import normalize_method_key
 from seed_production_rules import PRODUCTION_RULES_VERSION, seed_production_rules
@@ -133,6 +134,11 @@ async def list_methods(request: Request, active: Optional[bool] = True, user: Op
         q["active"] = active
     docs = await db.production_methods.find(q, {"_id": 0}).sort("display_name", 1).to_list(200)
     return [_method_public_projection(doc) for doc in docs]
+
+
+@production_rules_router.get("/print-option-profiles")
+async def list_print_option_profiles(request: Request, active: Optional[bool] = True, user: Optional[User] = Depends(optional_user)):
+    return await list_production_method_print_profiles(request.app.state.db, active=active)
 
 
 @production_rules_router.get("/methods/{method_key}")
