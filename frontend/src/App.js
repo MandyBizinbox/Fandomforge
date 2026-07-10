@@ -5,6 +5,7 @@ import "./components/product-builder/productBuilderV2Runtime";
 import "./components/product-builder/productBuilderPrintTotalsRuntime";
 import "./components/product-builder/productBuilderProductionRulesRuntime";
 import "./components/admin/adminManufacturingRulesThemeRuntime";
+import "./components/admin/legacyPrintOptionCostingSeedRuntime";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
