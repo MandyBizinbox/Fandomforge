@@ -9,15 +9,26 @@ import {
   calculateAreaPrintCost,
   getAggregatedPrintCostLines,
   getGroupRepresentativeVariationId,
-  getPrintOptionLabel,
   makeId,
   money,
+  normalizeProductionMethodKey,
 } from "./productBuilderUtils";
 
 const TEXT_RENDER_MIN = 24;
 const TEXT_RENDER_MAX = 1200;
+const METHOD_ORDER = ["dtf", "htv", "sublimation", "uv_dtf", "adhesive_vinyl"];
+const METHOD_LABELS = {
+  dtf: "DTF",
+  htv: "HTV",
+  sublimation: "Sublimation",
+  uv_dtf: "UV DTF",
+  adhesive_vinyl: "Adhesive Vinyl",
+};
+
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value || 0)));
 const round = (value) => Math.round(Number(value || 0) * 10) / 10;
+const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
+const compact = (value) => String(value || "").trim();
 
 const TEXT_FONT_OPTIONS = [
   "Roboto", "Montserrat", "Poppins", "Oswald", "Bebas Neue", "Anton", "Raleway",
@@ -239,35 +250,262 @@ function slotHasArtwork(slot = {}) {
   return Boolean(slot.original_url || slot.text_layer || slot.text_content);
 }
 
-function optionPatchForSlot(slot, area, option = {}) {
-  const costing = calculateAreaPrintCost(slot, area, option || {});
+function normaliseColour(colour) {
+  if (!colour && colour !== 0) return null;
+  if (typeof colour === "string") {
+    const value = colour.trim();
+    if (!value) return null;
+    return { id: value, label: value, value, hex: value.startsWith("#") ? value : "" };
+  }
+  const value = compact(colour.value || colour.hex || colour.code || colour.slug || colour.name || colour.label);
+  if (!value) return null;
   return {
-    print_option_id: option?.id || "",
-    rule_name: option?.rule_name || option?.print_method || "",
-    print_method: option?.print_method || option?.rule_name || "",
-    method_key: option?.method_key || "",
-    print_size: option?.print_size || area?.standard_print_size_key || slot.standard_print_size_key || "",
+    ...colour,
+    id: compact(colour.id || colour.slug || value),
+    label: compact(colour.label || colour.name || value),
+    value,
+    hex: compact(colour.hex || (value.startsWith("#") ? value : "")),
+  };
+}
+
+function colourKey(value) {
+  if (!value && value !== 0) return "";
+  if (typeof value === "object") return colourKey(value.value || value.hex || value.name || value.label || value.id);
+  return String(value || "").trim().toLowerCase();
+}
+
+function colourInList(value, colours) {
+  const key = colourKey(value);
+  if (!key) return false;
+  return asArray(colours).some((colour) => {
+    const normalised = normaliseColour(colour);
+    return [normalised?.id, normalised?.value, normalised?.label, normalised?.hex].some((candidate) => colourKey(candidate) === key);
+  });
+}
+
+function methodLabel(methodKey, fallback = "Manufacturing") {
+  const canonical = normalizeProductionMethodKey(methodKey);
+  return METHOD_LABELS[canonical] || compact(fallback) || canonical.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()) || "Manufacturing";
+}
+
+function profileLabel(profile = {}) {
+  return compact(profile.display_label || profile.profile_name || profile.rule_name || profile.name || profile.print_method || profile.method_name || "Manufacturing Profile");
+}
+
+function collectIdentityValues(record = {}) {
+  return [
+    record.id,
+    record.profile_id,
+    record.production_profile_id,
+    record.manufacturing_profile_id,
+    record.print_option_id,
+    record.legacy_print_option_id,
+    record.legacy_source_identifier,
+    record.source_identifier,
+    record.source_id,
+    record.legacy_id,
+  ].map((value) => compact(value)).filter(Boolean);
+}
+
+function profileIdentityValues(profile = {}) {
+  return new Set([profile.id, profile.profile_id, profile.manufacturing_profile_id, profile.print_option_id, profile.legacy_print_option_id, profile.legacy_source_identifier, profile.source_identifier, ...asArray(profile.identity_values)].map((value) => compact(value)).filter(Boolean));
+}
+
+function normaliseManufacturingProfile(raw = {}) {
+  const methodKey = normalizeProductionMethodKey(raw.method_key || raw.production_method_key || raw.method || raw.method_name || raw.print_method || raw.rule_method || "");
+  const methodName = compact(raw.method_name || raw.print_method || raw.method || methodLabel(methodKey));
+  const id = compact(raw.id || raw.profile_id || raw.manufacturing_profile_id || raw.production_profile_id || raw.print_option_id || raw.legacy_print_option_id || raw.name);
+  const colours = asArray(raw.approved_stocked_colours || raw.stocked_colours || raw.approved_colours || raw.colours || raw.colors).map(normaliseColour).filter(Boolean);
+  const rawColourMode = compact(raw.colour_mode || raw.color_mode || raw.print_colour_mode || raw.colour_restriction || raw.color_restriction).toLowerCase();
+  const inferredColourMode = ["dtf", "sublimation", "uv_dtf"].includes(methodKey) ? "rgb" : ["htv", "adhesive_vinyl"].includes(methodKey) ? "stocked" : "rgb";
+  const profileName = compact(raw.profile_name || raw.rule_name || raw.name || raw.print_size || raw.print_method || methodName);
+  const displayLabel = compact(raw.display_label || raw.label || profileName || methodName);
+  return {
+    ...raw,
+    id,
+    profile_id: compact(raw.profile_id || id),
+    manufacturing_profile_id: compact(raw.manufacturing_profile_id || raw.production_profile_id || id),
+    method_key: methodKey,
+    method_name: methodName,
+    profile_name: profileName,
+    rule_name: compact(raw.rule_name || profileName),
+    display_label: displayLabel,
+    calculation_type: compact(raw.calculation_type || "fixed").toLowerCase(),
+    print_cost_max: Number(raw.print_cost_max ?? raw.creator_print_price ?? raw.platform_print_cost ?? 0),
+    platform_print_cost: Number(raw.platform_print_cost ?? raw.print_cost_max ?? 0),
+    cost_per_cm2: Number(raw.cost_per_cm2 ?? 0),
+    minimum_print_cost: Number(raw.minimum_print_cost ?? 0),
+    sheet_width_mm: Number(raw.sheet_width_mm ?? 0),
+    sheet_height_mm: Number(raw.sheet_height_mm ?? 0),
+    sheet_cost: Number(raw.sheet_cost ?? 0),
+    waste_percentage: Number(raw.waste_percentage ?? 0),
+    markup_percentage: Number(raw.markup_percentage ?? 0),
+    creator_print_price: Number(raw.creator_print_price ?? raw.print_cost_max ?? raw.platform_print_cost ?? 0),
+    platform_print_markup_type: compact(raw.platform_print_markup_type || ""),
+    platform_print_markup_value: Number(raw.platform_print_markup_value ?? 0),
+    colour_mode: rawColourMode || inferredColourMode,
+    approved_stocked_colours: colours,
+    source_type: compact(raw.source_type || raw.profile_source_type || "manufacturing_profile"),
+    legacy_source_identifier: compact(raw.legacy_source_identifier || raw.legacy_print_option_id || raw.print_option_id || raw.source_identifier || raw.source_id || ""),
+    legacy_print_option_id: compact(raw.legacy_print_option_id || raw.print_option_id || ""),
+    active: raw.active !== false && !["inactive", "archived", "disabled"].includes(String(raw.status || "active").toLowerCase()),
+    identity_values: collectIdentityValues(raw),
+  };
+}
+
+function profileFromLegacyPrintOption(option = {}) {
+  return normaliseManufacturingProfile({
+    ...option,
+    id: option.id,
+    profile_id: option.id,
+    manufacturing_profile_id: option.id,
+    profile_name: option.rule_name || option.name || option.print_method,
+    display_label: option.display_label || option.name || [option.print_method || option.method, option.print_size].filter(Boolean).join(" · "),
+    method_name: option.print_method || option.method,
+    source_type: "legacy_print_option",
+    legacy_source_identifier: option.id,
+    legacy_print_option_id: option.id,
+  });
+}
+
+function supportsStockedColours(profile = {}) {
+  const methodKey = normalizeProductionMethodKey(profile.method_key || profile.method_name || profile.print_method);
+  const mode = String(profile.colour_mode || profile.color_mode || "").toLowerCase();
+  if (["dtf", "sublimation", "uv_dtf"].includes(methodKey)) return false;
+  if (["rgb", "full_colour", "full_color", "cmyk"].includes(mode)) return false;
+  if (["stocked", "stock", "spot", "single_colour", "single_color", "vinyl_colour", "vinyl_color"].includes(mode)) return true;
+  return ["htv", "adhesive_vinyl"].includes(methodKey);
+}
+
+function profileMatchesAllowedIds(profile, allowedIds) {
+  const allowed = asArray(allowedIds).map((value) => compact(value)).filter(Boolean);
+  if (!allowed.length) return true;
+  const values = profileIdentityValues(profile);
+  return allowed.some((id) => values.has(id));
+}
+
+function resolveProfileForSlot(slot = {}, profiles = [], legacyPrintOptions = []) {
+  const profileCandidates = [
+    slot.manufacturing_profile_id,
+    slot.production_profile_id,
+    slot.profile_id,
+    slot.print_option_id,
+    slot.legacy_print_option_id,
+    slot.legacy_source_identifier,
+  ].map((value) => compact(value)).filter(Boolean);
+  const profile = asArray(profiles).find((item) => {
+    const values = profileIdentityValues(item);
+    return profileCandidates.some((candidate) => values.has(candidate));
+  });
+  if (profile) return profile;
+  const legacy = asArray(legacyPrintOptions).find((option) => profileCandidates.includes(compact(option.id)));
+  return legacy ? profileFromLegacyPrintOption(legacy) : null;
+}
+
+function calculateArtworkPrintSize(area, placement) {
+  const areaWidthMm = Number(area?.width_mm || 0);
+  const areaHeightMm = Number(area?.height_mm || 0);
+  const widthPct = Number(placement?.width ?? placement?.width_pct ?? 100);
+  const heightPct = Number(placement?.height ?? placement?.height_pct ?? 100);
+  if (!areaWidthMm || !areaHeightMm || !widthPct || !heightPct) {
+    return { valid: false, widthPct, heightPct, areaWidthMm, areaHeightMm };
+  }
+  const widthMm = areaWidthMm * (widthPct / 100);
+  const heightMm = areaHeightMm * (heightPct / 100);
+  const areaCm2 = (widthMm / 10) * (heightMm / 10);
+  if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm) || !Number.isFinite(areaCm2) || areaCm2 <= 0) {
+    return { valid: false, widthPct, heightPct, areaWidthMm, areaHeightMm };
+  }
+  return {
+    valid: true,
+    widthMm: round(widthMm),
+    heightMm: round(heightMm),
+    widthCm: Math.round((widthMm / 10) * 10) / 10,
+    heightCm: Math.round((heightMm / 10) * 10) / 10,
+    areaCm2: Math.round(areaCm2 * 10) / 10,
+    areaWidthMm,
+    areaHeightMm,
+    areaWidthCm: Math.round((areaWidthMm / 10) * 10) / 10,
+    areaHeightCm: Math.round((areaHeightMm / 10) * 10) / 10,
+    widthPct: round(widthPct),
+    heightPct: round(heightPct),
+  };
+}
+
+function profilePatchForSlot(slot, area, profile, { preserveSelectedColour = true } = {}) {
+  const stocked = supportsStockedColours(profile);
+  const colours = asArray(profile.approved_stocked_colours).map(normaliseColour).filter(Boolean);
+  const existingColour = slot.selected_stocked_colour || slot.stocked_colour || "";
+  const selectedColour = stocked
+    ? preserveSelectedColour && colourInList(existingColour, colours)
+      ? existingColour
+      : colours[0]?.value || ""
+    : "";
+  const option = { ...profile };
+  const costing = calculateAreaPrintCost({ ...slot, ...profile, placement: sanitizePlacement(slot.placement, area) }, area, option);
+  return {
+    print_option_id: profile.id,
+    production_profile_id: profile.manufacturing_profile_id || profile.id,
+    manufacturing_profile_id: profile.manufacturing_profile_id || profile.id,
+    manufacturing_profile_source_type: profile.source_type,
+    manufacturing_profile_display_label: profile.display_label,
+    manufacturing_profile_name: profile.profile_name,
+    profile_name: profile.profile_name,
+    method_key: profile.method_key,
+    method_name: profile.method_name,
+    print_method: profile.method_name,
+    rule_name: profile.rule_name || profile.profile_name,
+    print_size: profile.print_size || area?.standard_print_size_key || slot.standard_print_size_key || "",
+    source_type: profile.source_type,
+    legacy_source_identifier: profile.legacy_source_identifier,
+    legacy_print_option_id: profile.legacy_print_option_id,
+    active: profile.active,
+    calculation_type: profile.calculation_type || "fixed",
     print_cost_max: costing.calculated_print_cost,
+    platform_print_cost: profile.platform_print_cost,
+    creator_print_price: profile.creator_print_price,
+    cost_per_cm2: Number(profile.cost_per_cm2 || 0),
+    minimum_print_cost: Number(profile.minimum_print_cost || 0),
+    sheet_width_mm: Number(profile.sheet_width_mm || 0),
+    sheet_height_mm: Number(profile.sheet_height_mm || 0),
+    sheet_cost: Number(profile.sheet_cost || 0),
+    waste_percentage: Number(profile.waste_percentage || 0),
+    markup_percentage: Number(profile.markup_percentage || 0),
+    platform_print_markup_type: profile.platform_print_markup_type || "",
+    platform_print_markup_value: Number(profile.platform_print_markup_value || 0),
+    colour_mode: profile.colour_mode || "rgb",
+    approved_stocked_colours: colours,
+    stocked_colour_required: stocked,
+    selected_stocked_colour: selectedColour,
+    stocked_colour: selectedColour,
+    standard_print_size_key: profile.standard_print_size_key || area?.standard_print_size_key || slot.standard_print_size_key || "",
+    width_mm: area?.width_mm ?? slot.width_mm ?? "",
+    height_mm: area?.height_mm ?? slot.height_mm ?? "",
+    dpi: profile.dpi || area?.dpi || slot.dpi || 300,
+    fit_mode: profile.fit_mode || area?.fit_mode || slot.fit_mode || "contain",
+    production_notes: profile.production_notes || slot.production_notes || "",
+    pricing_notes: profile.pricing_notes || "",
+    placement_box_width_mm: costing.placement_box_width_mm,
+    placement_box_height_mm: costing.placement_box_height_mm,
+    artwork_aspect_ratio: costing.artwork_aspect_ratio || slot.artwork_aspect_ratio || 0,
+    print_area_width_mm: costing.print_area_width_mm,
+    print_area_height_mm: costing.print_area_height_mm,
+    artwork_width_mm: costing.artwork_width_mm,
+    artwork_height_mm: costing.artwork_height_mm,
     print_width_mm: costing.print_width_mm,
     print_height_mm: costing.print_height_mm,
     area_cm2: costing.area_cm2,
     raw_print_cost: costing.raw_print_cost,
     calculated_print_cost: costing.calculated_print_cost,
-    calculation_type: option?.calculation_type || "fixed",
-    sheet_width_mm: Number(option?.sheet_width_mm || 0),
-    sheet_height_mm: Number(option?.sheet_height_mm || 0),
-    sheet_cost: Number(option?.sheet_cost || 0),
-    cost_per_cm2: Number(option?.cost_per_cm2 || 0),
-    minimum_print_cost: Number(option?.minimum_print_cost || 0),
-    waste_percentage: Number(option?.waste_percentage || 0),
-    markup_percentage: Number(option?.markup_percentage || 0),
-    pricing_notes: option?.pricing_notes || "",
-    standard_print_size_key: option?.standard_print_size_key || area?.standard_print_size_key || slot.standard_print_size_key || "",
-    width_mm: option?.width_mm ?? area?.width_mm ?? slot.width_mm ?? "",
-    height_mm: option?.height_mm ?? area?.height_mm ?? slot.height_mm ?? "",
-    dpi: option?.dpi || area?.dpi || slot.dpi || 300,
-    fit_mode: option?.fit_mode || area?.fit_mode || slot.fit_mode || "contain",
-    production_notes: option?.production_notes || slot.production_notes || "",
+    base_production_cost: costing.base_production_cost,
+    waste_amount: costing.waste_amount,
+    markup_amount: costing.markup_amount,
+    calculated_profile_cost: costing.calculated_profile_cost,
+    minimum_print_cost_applied: costing.minimum_print_cost_applied,
+    final_artwork_production_cost: costing.final_artwork_production_cost,
+    pricing_source: costing.pricing_source,
+    calculation_source: costing.calculation_source,
+    costing_warnings: costing.warnings || [],
   };
 }
 
@@ -298,6 +536,52 @@ function NumericControl({ label, value, onChange }) {
   );
 }
 
+function ArtworkPrintSizeBlock({ area, placement }) {
+  const size = calculateArtworkPrintSize(area, placement);
+  return (
+    <div className="border border-[#34C759]/30 bg-[#0A1B10] rounded-xl p-3">
+      <div className="overline mb-2">Artwork Print Size</div>
+      {size.valid ? (
+        <div className="space-y-1 text-xs text-zinc-300">
+          <div className="font-display text-3xl text-white">{size.widthCm.toFixed(1)} × {size.heightCm.toFixed(1)} cm</div>
+          <div>{size.widthMm.toFixed(0)} × {size.heightMm.toFixed(0)} mm</div>
+          <div>{size.areaCm2.toFixed(1)} cm²</div>
+          <div className="text-zinc-500 pt-2">Print area: {size.areaWidthCm.toFixed(1)} × {size.areaHeightCm.toFixed(1)} cm</div>
+          <div className="text-zinc-500">Layer: {size.widthPct.toFixed(1)}% × {size.heightPct.toFixed(1)}%</div>
+        </div>
+      ) : (
+        <div className="text-xs text-zinc-500">Set print-area dimensions and layer size to calculate physical artwork dimensions safely.</div>
+      )}
+    </div>
+  );
+}
+
+function ColourRestrictionBlock({ profile, slot, onChange }) {
+  if (!profile) return null;
+  const stocked = supportsStockedColours(profile);
+  const colours = asArray(profile.approved_stocked_colours).map(normaliseColour).filter(Boolean);
+  if (!stocked) {
+    return (
+      <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">
+        <div className="overline mb-2">Colour Mode</div>
+        {methodLabel(profile.method_key)} supports RGB / full-colour artwork for this layer.
+      </div>
+    );
+  }
+  const valid = colourInList(slot.selected_stocked_colour || slot.stocked_colour, colours);
+  return (
+    <div className="border border-[#FFCC00]/40 bg-[#FFCC00]/10 rounded-xl p-3 space-y-2">
+      <div className="overline mb-2 text-[#FFE08A]">Stocked Colour Required</div>
+      <select className="input-base" value={slot.selected_stocked_colour || slot.stocked_colour || ""} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Select stocked colour</option>
+        {colours.map((colour) => <option key={colour.id || colour.value} value={colour.value}>{colour.label}</option>)}
+      </select>
+      {!colours.length && <p className="text-xs text-[#FFE08A]">This profile is restricted to stocked colours, but no approved colours were returned for it.</p>}
+      {colours.length > 0 && !valid && <p className="text-xs text-[#FFE08A]">Choose an approved stocked colour before saving this layer.</p>}
+    </div>
+  );
+}
+
 export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false }) {
   const [activeGroupId, setActiveGroupId] = useState(asArray(artworkGroups)[0]?.id || "");
   const [activeSlotId, setActiveSlotId] = useState("");
@@ -305,6 +589,8 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const [activePrintAreaId, setActivePrintAreaId] = useState("");
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [manufacturingProfiles, setManufacturingProfiles] = useState([]);
   const [previewPlacements, setPreviewPlacements] = useState({});
   const fileInputRef = useRef(null);
   const pendingUploadAreaRef = useRef(null);
@@ -359,27 +645,72 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     return areasForScreen.find((area) => area.id === activePrintAreaId) || areasForScreen[0] || null;
   }, [activeSlot, printAreas, areasForScreen, activePrintAreaId]);
 
-  const activeImage = areasForScreen.find((area) => area.effective_base_image_url)?.effective_base_image_url || activeScreen?.image_url || "";
-  const activePlacement = sanitizePlacement(previewPlacements[activeSlot?.id] || activeSlot?.placement, activeArea);
-  const templateForCosting = useMemo(() => ({ ...(template || {}), print_areas: printAreas }), [template, printAreas]);
-  const currentScreenCostLines = useMemo(() => getAggregatedPrintCostLines([{ ...(activeGroup || {}), artworks: currentScreenSlots }], printOptions, templateForCosting), [activeGroup, currentScreenSlots, printOptions, templateForCosting]);
-  const allCostLines = useMemo(() => getAggregatedPrintCostLines(activeGroup ? [activeGroup] : [], printOptions, templateForCosting), [activeGroup, printOptions, templateForCosting]);
-  const currentScreenPrintCost = Math.round(currentScreenCostLines.reduce((total, line) => total + Number(line.cost || 0), 0) * 100) / 100;
-  const allGroupPrintCost = Math.round(allCostLines.reduce((total, line) => total + Number(line.cost || 0), 0) * 100) / 100;
-  const selectedLayerCost = Number(activeSlot?.calculated_print_cost ?? activeSlot?.print_cost_max ?? 0) || 0;
-  const missingMethodCount = currentScreenSlots.filter((slot) => slotHasArtwork(slot) && !slot.print_option_id).length;
+  const legacyProfileFallbacks = useMemo(() => asArray(printOptions).map(profileFromLegacyPrintOption).filter((profile) => profile.id), [printOptions]);
+  const profileCatalog = useMemo(() => {
+    const primary = asArray(manufacturingProfiles).filter((profile) => profile?.id && profile.active !== false);
+    return primary.length ? primary : legacyProfileFallbacks;
+  }, [manufacturingProfiles, legacyProfileFallbacks]);
 
-  const allowedOptionsForArea = (area) => {
+  const allowedProfilesForArea = (area) => {
     if (!area) return [];
     const templateOptionIds = asArray(template?.print_option_ids);
     const areaOptionIds = asArray(area?.allowed_print_option_ids);
     const allowedIds = areaOptionIds.length ? areaOptionIds : templateOptionIds;
-    if (!allowedIds.length) return [];
-    return printOptions.filter((option) => allowedIds.includes(option.id) && (option.status || "active") === "active");
+    const activeProfiles = profileCatalog.filter((profile) => profile.active !== false);
+    const matched = activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds));
+    return matched.length || !allowedIds.length ? matched : activeProfiles;
   };
-  const allowedOptions = useMemo(() => allowedOptionsForArea(activeArea), [activeArea, template, printOptions]);
-  const selectedOption = allowedOptions.find((option) => option.id === activeSlot?.print_option_id) || null;
+
+  const allowedProfiles = useMemo(() => allowedProfilesForArea(activeArea), [activeArea, profileCatalog, template]);
+  const selectedProfile = useMemo(() => resolveProfileForSlot(activeSlot || {}, profileCatalog, printOptions), [activeSlot, profileCatalog, printOptions]);
+  const activeImage = areasForScreen.find((area) => area.effective_base_image_url)?.effective_base_image_url || activeScreen?.image_url || "";
+  const activePlacement = sanitizePlacement(previewPlacements[activeSlot?.id] || activeSlot?.placement, activeArea);
+  const templateForCosting = useMemo(() => ({ ...(template || {}), print_areas: printAreas }), [template, printAreas]);
+  const currentScreenCostLines = useMemo(() => getAggregatedPrintCostLines([{ ...(activeGroup || {}), artworks: currentScreenSlots }], profileCatalog, templateForCosting), [activeGroup, currentScreenSlots, profileCatalog, templateForCosting]);
+  const allCostLines = useMemo(() => getAggregatedPrintCostLines(activeGroup ? [activeGroup] : [], profileCatalog, templateForCosting), [activeGroup, profileCatalog, templateForCosting]);
+  const allGroupPrintCost = Math.round(allCostLines.reduce((total, line) => total + Number(line.cost || 0), 0) * 100) / 100;
+  const selectedLayerCost = useMemo(() => {
+    if (!activeSlot || !activeArea) return 0;
+    const profile = selectedProfile || activeSlot;
+    return Number(calculateAreaPrintCost(activeSlot, activeArea, profile).calculated_print_cost || activeSlot.calculated_print_cost || activeSlot.print_cost_max || 0);
+  }, [activeSlot, activeArea, selectedProfile]);
+  const missingMethodCount = currentScreenSlots.filter((slot) => slotHasArtwork(slot) && !slot.print_option_id).length;
   const canGenerateMockup = Boolean(activeImage && currentScreenSlots.some((slot) => slotHasArtwork(slot) && slot.print_option_id));
+  const groupedProfiles = useMemo(() => {
+    const map = new Map();
+    allowedProfiles.forEach((profile) => {
+      const methodKey = normalizeProductionMethodKey(profile.method_key || profile.method_name || profile.print_method);
+      const key = methodKey || "other";
+      if (!map.has(key)) map.set(key, { key, label: methodLabel(key, profile.method_name), profiles: [] });
+      map.get(key).profiles.push(profile);
+    });
+    return [...map.values()].sort((a, b) => {
+      const ai = METHOD_ORDER.indexOf(a.key);
+      const bi = METHOD_ORDER.indexOf(b.key);
+      if (ai !== -1 && bi !== -1) return ai - bi;
+      if (ai !== -1) return -1;
+      if (bi !== -1) return 1;
+      return a.label.localeCompare(b.label);
+    }).map((group) => ({ ...group, profiles: group.profiles.sort((a, b) => profileLabel(a).localeCompare(profileLabel(b))) }));
+  }, [allowedProfiles]);
+
+  useEffect(() => {
+    let mounted = true;
+    setProfilesLoading(true);
+    http.get("/production-rules/print-option-profiles?active=true")
+      .then((response) => {
+        if (!mounted) return;
+        const rows = asArray(response.data).map(normaliseManufacturingProfile).filter((profile) => profile.id && profile.active !== false);
+        setManufacturingProfiles(rows);
+      })
+      .catch(() => {
+        if (mounted) setManufacturingProfiles([]);
+      })
+      .finally(() => {
+        if (mounted) setProfilesLoading(false);
+      });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => { slots.filter((slot) => slot.text_layer).forEach((slot) => ensureGoogleFontLink(slot.text_font_family || "Roboto")); }, [slots]);
   useEffect(() => { if (!activeGroupId && groups[0]?.id) setActiveGroupId(groups[0].id); }, [activeGroupId, groups]);
@@ -388,12 +719,6 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     if (!activePrintAreaId && areasForScreen[0]?.id) setActivePrintAreaId(areasForScreen[0].id);
     if (activePrintAreaId && !areasForScreen.some((area) => area.id === activePrintAreaId)) setActivePrintAreaId(areasForScreen[0]?.id || "");
   }, [areasForScreen, activePrintAreaId]);
-
-  const areaRatioFor = (areaId) => {
-    const rect = areaRefs.current[areaId]?.getBoundingClientRect?.();
-    return rect?.height ? rect.width / rect.height : 1;
-  };
-  const fitHeightForAspect = (areaId, widthPercent, aspectRatio) => round(clamp((Number(widthPercent || 50) * areaRatioFor(areaId)) / Number(aspectRatio || 1), 2, 120));
 
   const setGroups = (nextGroups) => onArtworkGroupsChange(nextGroups.map((group, index) => ({ ...group, sort_order: index })));
   const setGroupSlots = (groupId, nextSlots) => {
@@ -407,28 +732,99 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     if (!activeGroup) return;
     setGroupSlots(activeGroup.id, slots.map((slot) => (slot.id === slotId ? { ...slot, ...patch } : slot)));
   };
+
+  useEffect(() => {
+    if (!activeGroup || !profileCatalog.length || !slots.length) return;
+    let changed = false;
+    const nextSlots = slots.map((slot) => {
+      const area = printAreas.find((item) => item.id === slot.print_area_id);
+      const profile = resolveProfileForSlot(slot, profileCatalog, printOptions);
+      if (!area || !profile) return slot;
+      const patch = profilePatchForSlot(slot, area, profile, { preserveSelectedColour: true });
+      const nextProfileId = patch.manufacturing_profile_id || patch.print_option_id;
+      const currentProfileId = slot.manufacturing_profile_id || slot.production_profile_id || slot.print_option_id;
+      const nextCost = roundMoney(patch.calculated_print_cost);
+      const currentCost = roundMoney(slot.calculated_print_cost ?? slot.print_cost_max ?? 0);
+      const nextArea = roundMoney(patch.area_cm2);
+      const currentArea = roundMoney(slot.area_cm2 || 0);
+      if (compact(nextProfileId) !== compact(currentProfileId) || nextCost !== currentCost || nextArea !== currentArea || !slot.manufacturing_profile_display_label) {
+        changed = true;
+        return { ...slot, ...patch };
+      }
+      return slot;
+    });
+    if (changed) setGroupSlots(activeGroup.id, nextSlots);
+  }, [profileCatalog, activeGroup?.id, slots, printAreas, printOptions]);
+
+  const areaRatioFor = (areaId) => {
+    const rect = areaRefs.current[areaId]?.getBoundingClientRect?.();
+    return rect?.height ? rect.width / rect.height : 1;
+  };
+  const fitHeightForAspect = (areaId, widthPercent, aspectRatio) => round(clamp((Number(widthPercent || 50) * areaRatioFor(areaId)) / Number(aspectRatio || 1), 2, 120));
+
   const patchPlacement = (slotId, patch) => {
     const slot = slots.find((item) => item.id === slotId);
     const area = printAreas.find((item) => item.id === slot?.print_area_id);
     if (!slot || !area) return;
     const nextPlacement = sanitizePlacement({ ...(slot.placement || defaultPlacement(area)), ...patch }, area);
-    const option = printOptions.find((item) => item.id === slot.print_option_id) || slot;
-    const costing = calculateAreaPrintCost({ ...slot, placement: nextPlacement }, area, option || {});
-    patchSlot(slot.id, { placement: nextPlacement, placement_box_width_mm: costing.placement_box_width_mm, placement_box_height_mm: costing.placement_box_height_mm, artwork_aspect_ratio: costing.artwork_aspect_ratio || slot.artwork_aspect_ratio || 0, print_width_mm: costing.print_width_mm, print_height_mm: costing.print_height_mm, area_cm2: costing.area_cm2, raw_print_cost: costing.raw_print_cost, calculated_print_cost: costing.calculated_print_cost, print_cost_max: costing.calculated_print_cost, pricing_source: costing.pricing_source });
+    const profile = resolveProfileForSlot(slot, profileCatalog, printOptions) || slot;
+    const costing = calculateAreaPrintCost({ ...slot, placement: nextPlacement }, area, profile || {});
+    patchSlot(slot.id, {
+      placement: nextPlacement,
+      placement_box_width_mm: costing.placement_box_width_mm,
+      placement_box_height_mm: costing.placement_box_height_mm,
+      artwork_aspect_ratio: costing.artwork_aspect_ratio || slot.artwork_aspect_ratio || 0,
+      print_area_width_mm: costing.print_area_width_mm,
+      print_area_height_mm: costing.print_area_height_mm,
+      artwork_width_mm: costing.artwork_width_mm,
+      artwork_height_mm: costing.artwork_height_mm,
+      print_width_mm: costing.print_width_mm,
+      print_height_mm: costing.print_height_mm,
+      area_cm2: costing.area_cm2,
+      raw_print_cost: costing.raw_print_cost,
+      calculated_print_cost: costing.calculated_print_cost,
+      print_cost_max: costing.calculated_print_cost,
+      minimum_print_cost_applied: costing.minimum_print_cost_applied,
+      final_artwork_production_cost: costing.final_artwork_production_cost,
+      pricing_source: costing.pricing_source,
+    });
+  };
+
+  const setLayerManufacturingProfile = (slotId, profileId) => {
+    const slot = slots.find((item) => item.id === slotId);
+    const area = printAreas.find((item) => item.id === slot?.print_area_id);
+    const profile = profileCatalog.find((item) => item.id === profileId);
+    if (!slot || !area) return;
+    if (!profile) {
+      patchSlot(slot.id, { print_option_id: "", manufacturing_profile_id: "", production_profile_id: "", calculated_print_cost: 0, print_cost_max: 0, selected_stocked_colour: "", stocked_colour_required: false, approved_stocked_colours: [] });
+      return;
+    }
+    patchSlot(slot.id, profilePatchForSlot(slot, area, profile, { preserveSelectedColour: false }));
+  };
+
+  const setLayerStockedColour = (slotId, colourValue) => {
+    const slot = slots.find((item) => item.id === slotId);
+    if (!slot) return;
+    const colour = normaliseColour(colourValue);
+    patchSlot(slot.id, {
+      selected_stocked_colour: colourValue,
+      stocked_colour: colourValue,
+      ...(slot.text_layer && colour?.hex ? { text_color: colour.hex } : {}),
+    });
   };
 
   const createLayer = (area, patch = {}) => {
     if (!activeGroup) { toast.error("Create an artwork group first."); return null; }
     if (!area) { toast.error("Add print areas to the selected product view first."); return null; }
     const base = { id: makeId("art"), artwork_group_id: activeGroup.id, print_area_id: area.id, print_option_id: "", screen_id: area.screen_id || "", screen_view: area.screen_view || area.view_key || area.screen_label || "", area_key: area.area_key || area.key || "", standard_print_size_key: area.standard_print_size_key || "", width_mm: area.width_mm || "", height_mm: area.height_mm || "", dpi: area.dpi || "", fit_mode: area.fit_mode || "contain", original_url: "", file_name: "", mime_type: "", status: isAdmin ? "approved" : "pending_review", placement: defaultPlacement(area), lock_aspect_ratio: true, mockup_image_url: "", notes: "", sort_order: slots.length, ...patch };
-    const defaults = allowedOptionsForArea(area);
-    const defaultOption = defaults.length === 1 ? defaults[0] : null;
-    const withMethod = defaultOption ? { ...base, ...optionPatchForSlot(base, area, defaultOption) } : base;
-    setGroupSlots(activeGroup.id, [...slots, withMethod]);
-    setActiveSlotId(withMethod.id);
+    const defaults = allowedProfilesForArea(area);
+    const defaultProfile = defaults.length === 1 ? defaults[0] : null;
+    const withProfile = defaultProfile ? { ...base, ...profilePatchForSlot(base, area, defaultProfile, { preserveSelectedColour: false }) } : base;
+    setGroupSlots(activeGroup.id, [...slots, withProfile]);
+    setActiveSlotId(withProfile.id);
     setActivePrintAreaId(area.id);
     setActiveScreenId(area.screen_id || currentScreenId);
-    return withMethod;
+    return withProfile;
   };
 
   const addTextLayer = () => {
@@ -453,10 +849,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       const width = 70;
       const height = dimensions.aspectRatio ? fitHeightForAspect(area.id, width, dimensions.aspectRatio) : 70;
       const patch = { original_url: response.data.url, file_name: file.name, mime_type: file.type || "", original_width_px: dimensions.width, original_height_px: dimensions.height, artwork_aspect_ratio: dimensions.aspectRatio || 1, lock_aspect_ratio: true, placement: { ...defaultPlacement(area), x: 10, y: 10, width, height } };
-      const slot = { ...patch };
-      const defaults = allowedOptionsForArea(area);
-      const option = defaults.length === 1 ? defaults[0] : null;
-      createLayer(area, option ? { ...patch, ...optionPatchForSlot(slot, area, option) } : patch);
+      createLayer(area, patch);
       toast.success("Image layer uploaded");
     } catch (error) {
       toast.error(error.response?.data?.detail || "Image upload failed");
@@ -473,6 +866,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     const placement = sanitizePlacement(activeSlot.placement, activeArea);
     const nextPlacement = activeSlot.lock_aspect_ratio === false ? placement : { ...placement, height: fitHeightForAspect(activeArea.id, placement.width, asset.artwork_aspect_ratio) };
     patchSlot(activeSlot.id, { ...asset, placement: nextPlacement });
+    window.requestAnimationFrame(() => patchPlacement(activeSlot.id, nextPlacement));
   };
 
   const removeSlot = (slotId) => {
@@ -481,14 +875,6 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     setGroupSlots(activeGroup.id, next);
     const nextSlot = next.find((slot) => slot.screen_id === currentScreenId) || next[0];
     setActiveSlotId(nextSlot?.id || "");
-  };
-
-  const setLayerPrintOption = (slotId, optionId) => {
-    const slot = slots.find((item) => item.id === slotId);
-    const area = printAreas.find((item) => item.id === slot?.print_area_id);
-    const option = printOptions.find((item) => item.id === optionId);
-    if (!slot || !area) return;
-    patchSlot(slot.id, option ? optionPatchForSlot(slot, area, option) : { print_option_id: "", calculated_print_cost: 0, print_cost_max: 0 });
   };
 
   const startDrag = (event, slot, type, handle = "") => {
@@ -557,12 +943,12 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       window.removeEventListener("mouseup", handleUp);
       if (dragRafRef.current) window.cancelAnimationFrame(dragRafRef.current);
     };
-  }, [slots, printAreas]);
+  }, [slots, printAreas, profileCatalog]);
 
   const generateMockup = async () => {
     const drawableSlots = currentScreenSlots.filter((slot) => slotHasArtwork(slot) && slot.print_option_id);
     if (!activeImage || !areasForScreen.length) { toast.error("Select a product view with at least one print area first."); return; }
-    if (!drawableSlots.length) { toast.error("Add image/text and select a print method first."); return; }
+    if (!drawableSlots.length) { toast.error("Add image/text and select a manufacturing profile first."); return; }
     setGenerating(true);
     try {
       const baseImage = await loadImage(activeImage);
@@ -641,21 +1027,28 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
           <div className="text-center font-bold uppercase mb-2">Selected layer</div>
           <div className="grid md:grid-cols-2 gap-3">
             <label>
-              <span className="label">Print method</span>
-              <select className="input-base" value={activeSlot?.print_option_id || ""} disabled={!activeSlot} onChange={(event) => activeSlot && setLayerPrintOption(activeSlot.id, event.target.value)}>
-                <option value="">Select method</option>
-                {allowedOptions.map((option) => <option key={option.id} value={option.id}>{getPrintOptionLabel(option)}</option>)}
+              <span className="label">Manufacturing profile</span>
+              <select className="input-base" value={selectedProfile?.id || activeSlot?.print_option_id || ""} disabled={!activeSlot || profilesLoading} onChange={(event) => activeSlot && setLayerManufacturingProfile(activeSlot.id, event.target.value)}>
+                <option value="">{profilesLoading ? "Loading profiles…" : "Select profile"}</option>
+                {groupedProfiles.map((group) => (
+                  <optgroup key={group.key} label={group.label}>
+                    {group.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profileLabel(profile)}</option>)}
+                  </optgroup>
+                ))}
               </select>
             </label>
             <label>
               <span className="label">Layer</span>
               <select className="input-base" value={activeSlot?.id || ""} onChange={(event) => setActiveSlotId(event.target.value)}>
                 <option value="">Select layer</option>
-                {currentScreenSlots.map((slot) => <option key={slot.id} value={slot.id}>{slot.text_layer ? "Text" : "Image"} · {printAreas.find((area) => area.id === slot.print_area_id)?.name || "Area"}</option>)}
+                {currentScreenSlots.map((slot) => {
+                  const profile = resolveProfileForSlot(slot, profileCatalog, printOptions);
+                  return <option key={slot.id} value={slot.id}>{slot.text_layer ? "Text" : "Image"} · {printAreas.find((area) => area.id === slot.print_area_id)?.name || "Area"} · {profile ? profileLabel(profile) : "No profile"}</option>;
+                })}
               </select>
             </label>
           </div>
-          {selectedOption && <div className="text-[11px] text-[#B8F5C3] mt-2">Selected: {getPrintOptionLabel(selectedOption)}</div>}
+          {selectedProfile && <div className="text-[11px] text-[#B8F5C3] mt-2">Selected: {methodLabel(selectedProfile.method_key)} / {profileLabel(selectedProfile)}</div>}
         </div>
 
         <div className="grid gap-2">
@@ -667,15 +1060,17 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
           <div className="border-r border-white/40 pr-3">
             <div className="text-[10px] uppercase tracking-widest">Selected artwork cost</div>
             <div className="font-display text-4xl mt-2">{money(selectedLayerCost)}</div>
+            {activeSlot?.minimum_print_cost_applied && <div className="text-[10px] text-[#FFE08A] mt-1">Minimum applied</div>}
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-widest">Total artwork cost</div>
             <div className="font-display text-4xl mt-2">{money(allGroupPrintCost)}</div>
+            <div className="text-[10px] text-zinc-500 mt-1">Screen: {money(currentScreenCostLines.reduce((total, line) => total + Number(line.cost || 0), 0))}</div>
           </div>
         </div>
       </section>
 
-      <div className="grid grid-cols-1 2xl:grid-cols-[220px_minmax(720px,1fr)_300px] gap-4">
+      <div className="grid grid-cols-1 2xl:grid-cols-[220px_minmax(720px,1fr)_320px] gap-4">
         <aside className="border border-[#34C759]/40 bg-black/30 p-3 min-h-[680px] flex flex-col">
           <div className="text-center font-bold uppercase mb-3">Layers</div>
           <div className="space-y-3 flex-1 overflow-auto pr-1">
@@ -687,11 +1082,12 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                   <div className="space-y-2">
                     {areaSlots.map((slot) => {
                       const active = activeSlot?.id === slot.id;
-                      const option = printOptions.find((item) => item.id === slot.print_option_id);
+                      const profile = resolveProfileForSlot(slot, profileCatalog, printOptions);
                       return (
                         <button key={slot.id} type="button" onClick={() => { setActiveSlotId(slot.id); setActivePrintAreaId(area.id); }} className={`w-full text-left border px-2 py-2 ${active ? "border-[#FF3B30] bg-[#FF3B30]/15" : "border-white/30 bg-black/40 hover:border-white/60"}`}>
                           <div className="font-bold text-xs uppercase">{slot.text_layer ? "Text Layer" : "Image Layer"}</div>
-                          <div className="text-[10px] text-zinc-500 mt-1 truncate">{option ? getPrintOptionLabel(option) : "No print method"}</div>
+                          <div className="text-[10px] text-zinc-500 mt-1 truncate">{profile ? `${methodLabel(profile.method_key)} · ${profileLabel(profile)}` : "No manufacturing profile"}</div>
+                          {slot.calculated_print_cost !== undefined && <div className="text-[10px] text-[#34C759] mt-1">{money(slot.calculated_print_cost)}</div>}
                         </button>
                       );
                     })}
@@ -739,8 +1135,20 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
               <div className="flex items-start justify-between gap-3"><div><div className="overline mb-1">Inspector</div><h3 className="font-display text-2xl uppercase">{activeSlot.text_layer ? "Text" : "Image"} Layer</h3><p className="text-xs text-zinc-500 mt-1">{activeArea.name} · {activeArea.width_mm || 0}×{activeArea.height_mm || 0}mm</p></div><button type="button" className="text-zinc-500 hover:text-[#FF3B30]" onClick={() => removeSlot(activeSlot.id)}><Trash2 size={16} /></button></div>
               {activeSlot.text_layer && <div className="border border-white/10 bg-black/30 rounded-xl p-3 space-y-3"><div className="font-bold text-sm">Text editor</div><label><span className="label">Text</span><textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(event) => updateTextLayer({ text_content: event.target.value })} /></label><div className="grid grid-cols-2 gap-2"><label><span className="label">Font</span><select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(event) => updateTextLayer({ text_font_family: event.target.value })}>{TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}</select></label><label><span className="label">Weight</span><select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(event) => updateTextLayer({ text_font_weight: event.target.value })}><option value="400">Regular</option><option value="600">Semi-bold</option><option value="700">Bold</option><option value="900">Heavy</option></select></label><label><span className="label">Text render size</span><input className="input-base" type="text" inputMode="numeric" value={Number(activeSlot.text_font_size || 180)} onChange={(event) => updateTextLayer({ text_font_size: event.target.value })} onBlur={(event) => updateTextLayer({ text_font_size: clamp(event.target.value, TEXT_RENDER_MIN, TEXT_RENDER_MAX) })} /></label><label><span className="label">Colour</span><input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(event) => updateTextLayer({ text_color: event.target.value })} /></label></div><p className="text-[11px] text-zinc-500">Use handles to resize text. Render size controls sharpness, not final product size.</p></div>}
               {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
+              <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} />
+              <ColourRestrictionBlock profile={selectedProfile} slot={activeSlot} onChange={(value) => setLayerStockedColour(activeSlot.id, value)} />
+              <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">
+                <div className="overline mb-2">Costing</div>
+                <div className="grid grid-cols-2 gap-y-1">
+                  <span>Profile</span><span className="text-right text-zinc-200">{selectedProfile ? profileLabel(selectedProfile) : "None"}</span>
+                  <span>Calculation</span><span className="text-right text-zinc-200">{activeSlot.calculation_type || selectedProfile?.calculation_type || "—"}</span>
+                  <span>Minimum</span><span className="text-right text-zinc-200">{money(activeSlot.minimum_print_cost || selectedProfile?.minimum_print_cost || 0)}</span>
+                  <span>Layer cost</span><span className="text-right text-[#34C759]">{money(selectedLayerCost)}</span>
+                </div>
+                {activeSlot.minimum_print_cost_applied && <p className="text-[#FFE08A] mt-2">Minimum print cost has been applied to this layer.</p>}
+              </div>
               <div className="border-t border-white/10 pt-4"><div className="overline mb-2">Placement</div><p className="text-xs text-zinc-500 mb-3 flex items-center gap-2"><Move size={13} /> Drag the layer on the preview.</p><label className="flex items-center gap-2 text-xs text-zinc-300 mb-3"><input type="checkbox" checked={activeSlot.lock_aspect_ratio !== false} onChange={(event) => patchSlot(activeSlot.id, { lock_aspect_ratio: event.target.checked })} /> Lock aspect ratio</label><div className="grid grid-cols-2 gap-2"><NumericControl label="X %" value={activePlacement.x} onChange={(value) => patchPlacement(activeSlot.id, { x: value })} /><NumericControl label="Y %" value={activePlacement.y} onChange={(value) => patchPlacement(activeSlot.id, { y: value })} /><NumericControl label="W %" value={activePlacement.width} onChange={(value) => patchPlacement(activeSlot.id, { width: value })} /><NumericControl label="H %" value={activePlacement.height} onChange={(value) => patchPlacement(activeSlot.id, { height: value })} /><NumericControl label="Rotation" value={activePlacement.rotation} onChange={(value) => patchPlacement(activeSlot.id, { rotation: value })} /></div><div className="grid grid-cols-3 gap-2 mt-3"><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 0, y: 0, width: 100, height: 100, rotation: 0 })}>Fit</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 25, y: 25, width: 50, height: 50, rotation: 0 })}>Center</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, defaultPlacement(activeArea))}>Reset</button></div></div>
-              {missingMethodCount > 0 && <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg">{missingMethodCount} layer(s) need print methods.</div>}
+              {missingMethodCount > 0 && <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg">{missingMethodCount} layer(s) need manufacturing profiles.</div>}
             </div>
           ) : <div className="text-zinc-500 text-sm"><div className="overline mb-3">Inspector</div><p>Add an image or text layer to begin.</p></div>}
         </aside>
