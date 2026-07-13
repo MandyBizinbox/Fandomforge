@@ -1,6 +1,7 @@
 import React from "react";
 import "@/App.css";
 import "@/index.css";
+import "./components/product-builder/productBuilderStudioViewport.css";
 import "./components/product-builder/productBuilderV2Runtime";
 import "./components/product-builder/productBuilderTextColourRuntime";
 // Builder V2 now owns manufacturing profile selection, stocked colour state,
