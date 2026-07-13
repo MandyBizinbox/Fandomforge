@@ -1,11 +1,41 @@
-// Builder V2 text colour guard.
-// React owns profile/stocked-colour state; this runtime only prevents the legacy
-// native RGB text colour input from appearing when the active layer requires a
-// stocked manufacturing colour. The stocked-colour selector remains the single
-// visible colour control for HTV/adhesive-vinyl text layers.
+// Builder V2 text control guard.
+// React owns profile, stocked-colour, text and font state. This runtime only
+// guards UI edge cases in the active Text Layer inspector while the larger
+// Builder Studio is being stabilised.
+
+const GOOGLE_FONT_FAMILIES = new Set([
+  "Roboto", "Montserrat", "Poppins", "Oswald", "Bebas Neue", "Anton", "Raleway",
+  "Playfair Display", "Lobster", "Pacifico", "Bangers", "Permanent Marker",
+]);
 
 function normaliseText(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function rawText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function fontCssFamily(fontFamily) {
+  return GOOGLE_FONT_FAMILIES.has(fontFamily)
+    ? `"${fontFamily}", Arial, sans-serif`
+    : `${fontFamily || "Arial"}, Arial, sans-serif`;
+}
+
+function googleFontHref(fontFamily) {
+  const family = String(fontFamily || "").trim().replace(/\s+/g, "+");
+  return `https://fonts.googleapis.com/css2?family=${family}:wght@400;600;700;900&display=swap`;
+}
+
+function ensureGoogleFontLink(fontFamily) {
+  if (typeof document === "undefined" || !GOOGLE_FONT_FAMILIES.has(fontFamily)) return;
+  const id = `ff-google-font-${String(fontFamily).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+  if (document.getElementById(id)) return;
+  const link = document.createElement("link");
+  link.id = id;
+  link.rel = "stylesheet";
+  link.href = googleFontHref(fontFamily);
+  document.head.appendChild(link);
 }
 
 function studioRoot() {
@@ -40,6 +70,61 @@ function activeLayerRequiresStockedColour(inspector) {
   return normaliseText(inspector.textContent).includes("stocked colour required");
 }
 
+function findFieldByLabel(textEditor, labelText, selector) {
+  if (!textEditor) return null;
+  const labels = [...textEditor.querySelectorAll("label")];
+  const label = labels.find((node) => normaliseText(node.textContent).startsWith(normaliseText(labelText)));
+  return label?.querySelector(selector) || null;
+}
+
+function activeTextSettings(root, inspector) {
+  const textEditor = findTextEditor(inspector);
+  const textarea = textEditor?.querySelector("textarea") || null;
+  const fontSelect = findFieldByLabel(textEditor, "Font", "select");
+  const weightSelect = findFieldByLabel(textEditor, "Weight", "select");
+  const text = rawText(textarea?.value || textarea?.textContent || "");
+  return {
+    text,
+    fontFamily: fontSelect?.value || "Roboto",
+    fontWeight: weightSelect?.value || "700",
+  };
+}
+
+function findActivePreviewTextNodes(root, text) {
+  if (!root || !text) return [];
+  const main = root.querySelector("main");
+  if (!main) return [];
+  const candidates = [...main.querySelectorAll("div")].filter((node) => {
+    if (node.querySelector("div, img, button, textarea, select, input")) return false;
+    return rawText(node.textContent) === text;
+  });
+  return candidates;
+}
+
+async function applyActiveTextFont() {
+  const root = studioRoot();
+  const inspector = findInspector(root);
+  if (!root || !inspector) return;
+
+  const { text, fontFamily, fontWeight } = activeTextSettings(root, inspector);
+  if (!text || !fontFamily) return;
+
+  ensureGoogleFontLink(fontFamily);
+  try {
+    if (document.fonts?.load) {
+      await document.fonts.load(`${fontWeight || "700"} 48px "${fontFamily}"`);
+    }
+  } catch (error) {
+    // Font loading failures should not block the Builder UI.
+  }
+
+  const nodes = findActivePreviewTextNodes(root, text);
+  nodes.forEach((node) => {
+    node.style.fontFamily = fontCssFamily(fontFamily);
+    node.style.fontWeight = fontWeight || "700";
+  });
+}
+
 function hideNativeTextColourPickerWhenStocked() {
   const root = studioRoot();
   const inspector = findInspector(root);
@@ -55,21 +140,28 @@ function hideNativeTextColourPickerWhenStocked() {
   if (input) input.disabled = requiresStocked;
 }
 
-function runTextColourGuard() {
+function runTextControlGuard() {
   hideNativeTextColourPickerWhenStocked();
-  window.setTimeout(hideNativeTextColourPickerWhenStocked, 60);
-  window.setTimeout(hideNativeTextColourPickerWhenStocked, 200);
+  applyActiveTextFont();
+  window.setTimeout(() => {
+    hideNativeTextColourPickerWhenStocked();
+    applyActiveTextFont();
+  }, 60);
+  window.setTimeout(() => {
+    hideNativeTextColourPickerWhenStocked();
+    applyActiveTextFont();
+  }, 200);
 }
 
 if (typeof window !== "undefined") {
   if (!window.__ffBuilderTextColourGuardAttached) {
     window.__ffBuilderTextColourGuardAttached = true;
-    window.addEventListener("load", runTextColourGuard);
-    window.addEventListener("click", runTextColourGuard, true);
-    window.addEventListener("change", runTextColourGuard, true);
-    window.addEventListener("input", runTextColourGuard, true);
+    window.addEventListener("load", runTextControlGuard);
+    window.addEventListener("click", runTextControlGuard, true);
+    window.addEventListener("change", runTextControlGuard, true);
+    window.addEventListener("input", runTextControlGuard, true);
 
-    const observer = new MutationObserver(runTextColourGuard);
+    const observer = new MutationObserver(runTextControlGuard);
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 }
