@@ -101,6 +101,42 @@ function findActivePreviewTextNodes(root, text) {
   return candidates;
 }
 
+function textEditorContainsTarget(target) {
+  const root = studioRoot();
+  const inspector = findInspector(root);
+  const textEditor = findTextEditor(inspector);
+  return Boolean(textEditor && target instanceof Element && textEditor.contains(target));
+}
+
+function markTextLayerEditRafSuppression(event) {
+  const target = event?.target;
+  if (!textEditorContainsTarget(target)) return;
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)) return;
+
+  // ProductArtworkStudio currently regenerates the text layer and then schedules a
+  // requestAnimationFrame placement recalculation using the previous render's slot.
+  // That stale frame can overwrite the just-selected font/text settings back to
+  // the old value, most visibly reverting fonts to Roboto. Suppress the next
+  // immediate frame for text-editor changes; the atomic React text patch already
+  // includes the new asset and placement.
+  window.__ffSuppressNextTextLayerRafCount = Math.max(Number(window.__ffSuppressNextTextLayerRafCount || 0), 1);
+}
+
+function installTextLayerRafGuard() {
+  if (typeof window === "undefined" || window.__ffTextLayerRafGuardInstalled) return;
+  window.__ffTextLayerRafGuardInstalled = true;
+  const nativeRequestAnimationFrame = window.requestAnimationFrame?.bind(window);
+  if (!nativeRequestAnimationFrame) return;
+
+  window.requestAnimationFrame = (callback) => {
+    if (Number(window.__ffSuppressNextTextLayerRafCount || 0) > 0) {
+      window.__ffSuppressNextTextLayerRafCount = Number(window.__ffSuppressNextTextLayerRafCount || 0) - 1;
+      return nativeRequestAnimationFrame(() => undefined);
+    }
+    return nativeRequestAnimationFrame(callback);
+  };
+}
+
 async function applyActiveTextFont() {
   const root = studioRoot();
   const inspector = findInspector(root);
@@ -156,7 +192,10 @@ function runTextControlGuard() {
 if (typeof window !== "undefined") {
   if (!window.__ffBuilderTextColourGuardAttached) {
     window.__ffBuilderTextColourGuardAttached = true;
+    installTextLayerRafGuard();
     window.addEventListener("load", runTextControlGuard);
+    window.addEventListener("change", markTextLayerEditRafSuppression, true);
+    window.addEventListener("input", markTextLayerEditRafSuppression, true);
     window.addEventListener("click", runTextControlGuard, true);
     window.addEventListener("change", runTextControlGuard, true);
     window.addEventListener("input", runTextControlGuard, true);
