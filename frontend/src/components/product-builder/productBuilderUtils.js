@@ -314,12 +314,15 @@ export function getCreatorBlankPrice(source, template) {
   return Number(value || 0);
 }
 export function getVariationCost(variation, template) { return getCreatorBlankPrice(variation, template); }
-export function getPrintOptionLabel(option) { return option ? [option.print_method || option.method, option.print_size].filter(Boolean).join(" · ") || option.name || "Print option" : "Print option"; }
-export function getPrintOptionCost(option) { return Number(option?.print_cost_max || 0); }
+export function getPrintOptionLabel(option) {
+  if (!option) return "Print option";
+  return option.display_label || option.profile_name || option.rule_name || [option.print_method || option.method_name || option.method, option.print_size].filter(Boolean).join(" · ") || option.name || "Print option";
+}
+export function getPrintOptionCost(option) { return Number(option?.creator_print_price ?? option?.platform_print_cost ?? option?.print_cost_max ?? 0); }
 
 export function normalizeProductionMethodKey(value) {
   const key = String(value || "").trim().toLowerCase().replace(/[-\s]+/g, "_");
-  const aliases = { dtf_transfers: "dtf", dtf_transfer: "dtf", dtf_print: "dtf", uvdtf: "uv_dtf", uv_dtf_transfer: "uv_dtf", heat_transfer_vinyl: "htv", vinyl: "adhesive_vinyl", adhesive: "adhesive_vinyl" };
+  const aliases = { dtf_transfers: "dtf", dtf_transfer: "dtf", dtf_print: "dtf", uvdtf: "uv_dtf", uv_dtf_transfer: "uv_dtf", heat_transfer_vinyl: "htv", htv_vinyl: "htv", vinyl: "adhesive_vinyl", adhesive: "adhesive_vinyl", adhesive_vinyls: "adhesive_vinyl" };
   if (aliases[key]) return aliases[key];
   for (const [prefix, canonical] of [["adhesive_vinyl_", "adhesive_vinyl"], ["sublimation_", "sublimation"], ["uv_dtf_", "uv_dtf"], ["dtf_", "dtf"], ["htv_", "htv"]]) {
     if (key.startsWith(prefix)) return canonical;
@@ -327,10 +330,20 @@ export function normalizeProductionMethodKey(value) {
   return key;
 }
 
-function optionForSlot(slot, printOptions) { return asArray(printOptions).find((item) => item.id === slot.print_option_id) || slot; }
+function optionForSlot(slot, printOptions) {
+  if (slot?.manufacturing_profile_id || slot?.production_profile_id) return slot;
+  return asArray(printOptions).find((item) => item.id === slot.print_option_id) || slot;
+}
 function areaForSlot(slot, template) { return asArray(template?.print_areas).find((item) => item.id === slot.print_area_id) || {}; }
-function methodForSlot(slot, option = {}) { return normalizeProductionMethodKey(option.method_key || slot.method_key || option.print_method || option.method || slot.print_method || slot.rule_name); }
+function methodForSlot(slot, option = {}) { return normalizeProductionMethodKey(option.method_key || slot.method_key || option.print_method || option.method_name || option.method || slot.print_method || slot.rule_name); }
 function hasArtworkPayload(slot) { return Boolean(slot?.original_url || slot?.text_layer || slot?.text_content); }
+function safeNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+function roundMoney(value) { return Math.round(safeNumber(value) * 100) / 100; }
+function roundMm(value) { return Math.round(safeNumber(value) * 10) / 10; }
+function roundArea(value) { return Math.round(safeNumber(value) * 100) / 100; }
 
 export function isCombinablePrintMethod(methodKey, option = {}) {
   if (option.combine_same_method_layers === false || option.combine_layers === false || option.additive_layer_pricing === true) return false;
@@ -341,10 +354,10 @@ export function isCombinablePrintMethod(methodKey, option = {}) {
 
 function placementBounds(slot) {
   const p = slot.placement || {};
-  const x = Number(p.x ?? p.x_pct ?? 0);
-  const y = Number(p.y ?? p.y_pct ?? 0);
-  const width = Number(p.width ?? p.width_pct ?? 100);
-  const height = Number(p.height ?? p.height_pct ?? 100);
+  const x = safeNumber(p.x ?? p.x_pct ?? 0);
+  const y = safeNumber(p.y ?? p.y_pct ?? 0);
+  const width = safeNumber(p.width ?? p.width_pct ?? 100);
+  const height = safeNumber(p.height ?? p.height_pct ?? 100);
   return { x, y, right: x + width, bottom: y + height };
 }
 
@@ -358,14 +371,97 @@ function combinedSlotFromGroup(groupSlots) {
   return {
     ...first,
     combined_layer_count: groupSlots.length,
-    placement: {
-      ...(first.placement || {}),
-      x,
-      y,
-      width: Math.max(1, right - x),
-      height: Math.max(1, bottom - y),
-      rotation: 0,
-    },
+    placement: { ...(first.placement || {}), x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y), rotation: 0 },
+  };
+}
+
+export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
+  const calculationType = String(option.calculation_type || slot.calculation_type || "fixed").toLowerCase();
+  const warnings = [];
+  const placement = slot.placement || {};
+  const areaWidthMm = safeNumber(area.width_mm || slot.print_area_width_mm || slot.width_mm || option.width_mm || 0);
+  const areaHeightMm = safeNumber(area.height_mm || slot.print_area_height_mm || slot.height_mm || option.height_mm || 0);
+  const placementWidthPct = safeNumber(placement.width ?? placement.width_pct ?? 100, 100);
+  const placementHeightPct = safeNumber(placement.height ?? placement.height_pct ?? 100, 100);
+  const printWidthMm = areaWidthMm * (placementWidthPct / 100);
+  const printHeightMm = areaHeightMm * (placementHeightPct / 100);
+  const areaCm2 = Math.max(0, (printWidthMm / 10) * (printHeightMm / 10));
+  const artworkWidthPx = safeNumber(slot.original_width_px || slot.artwork_width_px || 0);
+  const artworkHeightPx = safeNumber(slot.original_height_px || slot.artwork_height_px || 0);
+  const aspectRatio = artworkWidthPx > 0 && artworkHeightPx > 0 ? artworkWidthPx / artworkHeightPx : safeNumber(slot.artwork_aspect_ratio || 0);
+  const minimum = Math.max(0, safeNumber(option.minimum_print_cost ?? slot.minimum_print_cost ?? 0));
+  const wastePct = Math.max(0, safeNumber(option.waste_percentage ?? slot.waste_percentage ?? 0));
+  const markupPct = Math.max(0, safeNumber(option.markup_percentage ?? slot.markup_percentage ?? 0));
+  let costPerCm2 = safeNumber(option.cost_per_cm2 ?? slot.cost_per_cm2 ?? 0);
+  const sheetWidthMm = safeNumber(option.sheet_width_mm ?? slot.sheet_width_mm ?? 0);
+  const sheetHeightMm = safeNumber(option.sheet_height_mm ?? slot.sheet_height_mm ?? 0);
+  const sheetCost = safeNumber(option.sheet_cost ?? slot.sheet_cost ?? 0);
+  const sheetAreaCm2 = (sheetWidthMm / 10) * (sheetHeightMm / 10);
+
+  let baseProductionCost = 0;
+  let calculationSource = calculationType;
+
+  if (["fixed", "manual", "flat_rate", "flat"].includes(calculationType)) {
+    baseProductionCost = safeNumber(option.creator_print_price ?? option.platform_print_cost ?? option.print_cost_max ?? slot.creator_print_price ?? slot.platform_print_cost ?? slot.print_cost_max ?? slot.calculated_print_cost ?? 0);
+  } else if (["full_sheet", "sheet_full"].includes(calculationType)) {
+    baseProductionCost = sheetCost || safeNumber(option.print_cost_max ?? slot.print_cost_max ?? 0);
+  } else if (["sheet", "area_from_sheet"].includes(calculationType)) {
+    if (!costPerCm2 && sheetAreaCm2 > 0 && sheetCost > 0) {
+      costPerCm2 = sheetCost / sheetAreaCm2;
+      calculationSource = "sheet_area_rate";
+    }
+    if (!costPerCm2 && sheetCost > 0 && calculationType === "sheet") {
+      baseProductionCost = sheetCost;
+      calculationSource = "sheet_flat_cost";
+    } else {
+      baseProductionCost = areaCm2 * costPerCm2;
+    }
+  } else if (["area_fixed_rate", "area", "cm2"].includes(calculationType)) {
+    baseProductionCost = areaCm2 * costPerCm2;
+  } else {
+    warnings.push(`Unknown calculation type: ${calculationType}`);
+    baseProductionCost = safeNumber(option.print_cost_max ?? slot.print_cost_max ?? slot.calculated_print_cost ?? 0);
+    calculationSource = "fallback_fixed";
+  }
+
+  if (areaWidthMm <= 0 || areaHeightMm <= 0) warnings.push("Missing print-area physical dimensions");
+  if (areaCm2 <= 0 && !["fixed", "manual", "flat_rate", "flat", "full_sheet", "sheet_full"].includes(calculationType)) warnings.push("Artwork area is zero");
+
+  const wasteAmount = baseProductionCost * (wastePct / 100);
+  const afterWaste = baseProductionCost + wasteAmount;
+  const markupAmount = afterWaste * (markupPct / 100);
+  const calculatedProfileCost = afterWaste + markupAmount;
+  const minimumPrintCostApplied = minimum > 0 && calculatedProfileCost < minimum;
+  const finalCost = Math.max(calculatedProfileCost, minimum);
+
+  return {
+    calculation_type: calculationType,
+    placement_box_width_mm: roundMm(printWidthMm),
+    placement_box_height_mm: roundMm(printHeightMm),
+    artwork_aspect_ratio: Math.round(aspectRatio * 10000) / 10000,
+    print_area_width_mm: roundMm(areaWidthMm),
+    print_area_height_mm: roundMm(areaHeightMm),
+    artwork_width_mm: roundMm(printWidthMm),
+    artwork_height_mm: roundMm(printHeightMm),
+    charged_width_mm: roundMm(printWidthMm),
+    charged_height_mm: roundMm(printHeightMm),
+    charged_area_cm2: roundArea(areaCm2),
+    pricing_source: calculationSource,
+    calculation_source: calculationSource,
+    print_width_mm: roundMm(printWidthMm),
+    print_height_mm: roundMm(printHeightMm),
+    area_cm2: roundArea(areaCm2),
+    cost_per_cm2: costPerCm2,
+    base_production_cost: roundMoney(baseProductionCost),
+    waste_amount: roundMoney(wasteAmount),
+    markup_amount: roundMoney(markupAmount),
+    calculated_profile_cost: roundMoney(calculatedProfileCost),
+    minimum_print_cost: roundMoney(minimum),
+    minimum_print_cost_applied: minimumPrintCostApplied,
+    final_artwork_production_cost: roundMoney(finalCost),
+    raw_print_cost: roundMoney(calculatedProfileCost),
+    calculated_print_cost: roundMoney(finalCost),
+    warnings,
   };
 }
 
@@ -373,7 +469,6 @@ export function getAggregatedPrintCostLines(groups, printOptions = [], template 
   const slots = flattenArtworkGroups(groups).filter((slot) => slot.print_option_id && hasArtworkPayload(slot));
   const additive = [];
   const combinable = new Map();
-
   slots.forEach((slot) => {
     const option = optionForSlot(slot, printOptions);
     const method = methodForSlot(slot, option);
@@ -402,7 +497,6 @@ export function getAggregatedPrintCostLines(groups, printOptions = [], template 
     const result = calculateAreaPrintCost(slot, area, option);
     lines.push({ slot_ids: items.map((item) => item.id), method_key: methodForSlot(slot, option), print_area_id: slot.print_area_id, combined: items.length > 1, layer_count: items.length, cost: Number(result.calculated_print_cost || 0), costing: result });
   });
-
   return lines;
 }
 
@@ -530,47 +624,35 @@ export function templateHasSelectableVariations(template) { return getEnabledTem
 
 export function buildStandardProductVariation(template = {}) {
   const baseCost = getCreatorBlankPrice(template);
-  return { id: "standard", template_variation_id: null, label: "Standard", sku: template?.blank_sku ? `${template.blank_sku}-STANDARD` : undefined, stock_status: "made_to_order", price_override: null, attribute_values: {}, attributes: {}, size: "One Size", color: "Default", creator_blank_price: baseCost, base_price: baseCost };
+  return { id: "standard", template_variation_id: null, label: "Standard", sku: template?.blank_sku ? `${template.blank_sku}-STANDARD` : undefined, stock_status: "made_to_order", price_override: null, attribute_values: {}, size: "One Size", color: "Default", base_cost: baseCost };
 }
-export function createDefaultArtworkGroup() { return { id: "default-all", label: "Default artwork", scope_type: "all", attribute_key: null, attribute_value: null, variation_ids: [], inherits_from: null, artworks: [], primary_mockup_image_url: "", sort_order: 0 }; }
+
+export function createDefaultArtworkGroup() {
+  return { id: "default-all", label: "Default artwork", scope_type: "all", attribute_key: null, attribute_value: null, variation_ids: [], inherits_from: null, artworks: [], primary_mockup_image_url: "", sort_order: 0 };
+}
 export function createColourArtworkGroups(selectedVariations) {
   const { rows } = getVariationMatrix(selectedVariations);
   return rows.map((row, index) => ({ id: `colour-${row.colour.toLowerCase().replace(/[^a-z0-9]+/g, "-") || index}`, label: row.colour, scope_type: "attribute", attribute_key: "Colour", attribute_value: row.colour, variation_ids: row.items.map((variation) => variation.id), inherits_from: "default-all", artworks: [], primary_mockup_image_url: "", sort_order: index }));
 }
-export function createVariationArtworkGroups(selectedVariations) { return asArray(selectedVariations).map((variation, index) => ({ id: `variation-${variation.id}`, label: getVariationLabel(variation), scope_type: "variation", attribute_key: null, attribute_value: null, variation_ids: [variation.id], inherits_from: "default-all", artworks: [], primary_mockup_image_url: "", sort_order: index })); }
-export function getGroupRepresentativeVariationId(group, selectedVariations) { if (group?.variation_ids?.length) return group.variation_ids[0]; return asArray(selectedVariations)[0]?.id || ""; }
-export function flattenArtworkGroups(groups) { const out = []; asArray(groups).forEach((group) => asArray(group.artworks).forEach((artwork) => out.push({ ...artwork, artwork_group_id: group.id, artwork_group_label: group.label }))); return out; }
-export function getPrimaryMockupFromGroups(groups) { for (const group of asArray(groups)) { if (group.primary_mockup_image_url) return group.primary_mockup_image_url; const mockup = asArray(group.artworks).find((artwork) => artwork.mockup_image_url)?.mockup_image_url; if (mockup) return mockup; } return ""; }
-
-export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
-  const calculationType = option.calculation_type || slot.calculation_type || "fixed";
-  const placement = slot.placement || {};
-  const areaWidthMm = Number(area.width_mm || slot.width_mm || option.width_mm || 0);
-  const areaHeightMm = Number(area.height_mm || slot.height_mm || option.height_mm || 0);
-  const placementWidthPct = Number(placement.width ?? placement.width_pct ?? 100);
-  const placementHeightPct = Number(placement.height ?? placement.height_pct ?? 100);
-  const boxWidthMm = areaWidthMm * (placementWidthPct / 100);
-  const boxHeightMm = areaHeightMm * (placementHeightPct / 100);
-  const artworkWidthPx = Number(slot.original_width_px || slot.artwork_width_px || 0);
-  const artworkHeightPx = Number(slot.original_height_px || slot.artwork_height_px || 0);
-  const aspectRatio = artworkWidthPx > 0 && artworkHeightPx > 0 ? artworkWidthPx / artworkHeightPx : Number(slot.artwork_aspect_ratio || 0);
-  const printWidthMm = boxWidthMm;
-  const printHeightMm = boxHeightMm;
-  const areaCm2 = (printWidthMm / 10) * (printHeightMm / 10);
-  const common = { placement_box_width_mm: Math.round(boxWidthMm * 10) / 10, placement_box_height_mm: Math.round(boxHeightMm * 10) / 10, artwork_aspect_ratio: Math.round(aspectRatio * 10000) / 10000, print_area_width_mm: Math.round(areaWidthMm * 10) / 10, print_area_height_mm: Math.round(areaHeightMm * 10) / 10, artwork_width_mm: Math.round(printWidthMm * 10) / 10, artwork_height_mm: Math.round(printHeightMm * 10) / 10, charged_width_mm: Math.round(printWidthMm * 10) / 10, charged_height_mm: Math.round(printHeightMm * 10) / 10, charged_area_cm2: Math.round(areaCm2 * 100) / 100, pricing_source: "placed_artwork_box_size", print_width_mm: Math.round(printWidthMm * 10) / 10, print_height_mm: Math.round(printHeightMm * 10) / 10, area_cm2: Math.round(areaCm2 * 100) / 100 };
-  if (calculationType === "fixed") {
-    const cost = Number(option.print_cost_max || slot.print_cost_max || 0);
-    return { calculation_type: "fixed", ...common, raw_print_cost: Math.round(cost * 100) / 100, calculated_print_cost: Math.round(cost * 100) / 100 };
+export function createVariationArtworkGroups(selectedVariations) {
+  return asArray(selectedVariations).map((variation, index) => ({ id: `variation-${variation.id}`, label: getVariationLabel(variation), scope_type: "variation", attribute_key: null, attribute_value: null, variation_ids: [variation.id], inherits_from: "default-all", artworks: [], primary_mockup_image_url: "", sort_order: index }));
+}
+export function getGroupRepresentativeVariationId(group, selectedVariations) {
+  if (group?.variation_ids?.length) return group.variation_ids[0];
+  return asArray(selectedVariations)[0]?.id || "";
+}
+export function flattenArtworkGroups(groups) {
+  const out = [];
+  asArray(groups).forEach((group) => {
+    asArray(group.artworks).forEach((artwork) => out.push({ ...artwork, artwork_group_id: group.id, artwork_group_label: group.label }));
+  });
+  return out;
+}
+export function getPrimaryMockupFromGroups(groups) {
+  for (const group of asArray(groups)) {
+    if (group.primary_mockup_image_url) return group.primary_mockup_image_url;
+    const mockup = asArray(group.artworks).find((artwork) => artwork.mockup_image_url)?.mockup_image_url;
+    if (mockup) return mockup;
   }
-  let costPerCm2 = Number(option.cost_per_cm2 || slot.cost_per_cm2 || 0);
-  if (calculationType === "area_from_sheet" && !costPerCm2) {
-    const sheetAreaCm2 = (Number(option.sheet_width_mm || slot.sheet_width_mm || 0) / 10) * (Number(option.sheet_height_mm || slot.sheet_height_mm || 0) / 10);
-    const sheetCost = Number(option.sheet_cost || slot.sheet_cost || 0);
-    costPerCm2 = sheetAreaCm2 > 0 ? sheetCost / sheetAreaCm2 : 0;
-  }
-  let raw = areaCm2 * costPerCm2;
-  raw *= 1 + Number(option.waste_percentage || slot.waste_percentage || 0) / 100;
-  raw *= 1 + Number(option.markup_percentage || slot.markup_percentage || 0) / 100;
-  const finalCost = Math.max(raw, Number(option.minimum_print_cost || slot.minimum_print_cost || 0));
-  return { calculation_type: calculationType, ...common, raw_print_cost: Math.round(raw * 100) / 100, calculated_print_cost: Math.round(finalCost * 100) / 100 };
+  return "";
 }
