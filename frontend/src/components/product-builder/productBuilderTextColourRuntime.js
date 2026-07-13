@@ -1,12 +1,19 @@
 // Builder V2 text control guard.
 // React owns profile, stocked-colour, text and font state. This runtime only
 // guards UI edge cases in the active Text Layer inspector while the larger
-// Builder Studio is being stabilised.
+// Builder Studio is being stabilised. Keep this intentionally lightweight.
 
 const GOOGLE_FONT_FAMILIES = new Set([
   "Roboto", "Montserrat", "Poppins", "Oswald", "Bebas Neue", "Anton", "Raleway",
   "Playfair Display", "Lobster", "Pacifico", "Bangers", "Permanent Marker",
 ]);
+
+let guardTimer = null;
+let guardRunning = false;
+let lastAppliedFontSignature = "";
+let lastColourHiddenState = null;
+let studioObserver = null;
+let studioObserverRoot = null;
 
 function normaliseText(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -77,7 +84,7 @@ function findFieldByLabel(textEditor, labelText, selector) {
   return label?.querySelector(selector) || null;
 }
 
-function activeTextSettings(root, inspector) {
+function activeTextSettings(inspector) {
   const textEditor = findTextEditor(inspector);
   const textarea = textEditor?.querySelector("textarea") || null;
   const fontSelect = findFieldByLabel(textEditor, "Font", "select");
@@ -94,11 +101,10 @@ function findActivePreviewTextNodes(root, text) {
   if (!root || !text) return [];
   const main = root.querySelector("main");
   if (!main) return [];
-  const candidates = [...main.querySelectorAll("div")].filter((node) => {
+  return [...main.querySelectorAll("div")].filter((node) => {
     if (node.querySelector("div, img, button, textarea, select, input")) return false;
     return rawText(node.textContent) === text;
   });
-  return candidates;
 }
 
 function textEditorContainsTarget(target) {
@@ -137,13 +143,13 @@ function installTextLayerRafGuard() {
   };
 }
 
-async function applyActiveTextFont() {
-  const root = studioRoot();
-  const inspector = findInspector(root);
-  if (!root || !inspector) return;
-
-  const { text, fontFamily, fontWeight } = activeTextSettings(root, inspector);
+async function applyActiveTextFont(root, inspector) {
+  const { text, fontFamily, fontWeight } = activeTextSettings(inspector);
   if (!text || !fontFamily) return;
+
+  const signature = `${text}|${fontFamily}|${fontWeight}`;
+  if (signature === lastAppliedFontSignature) return;
+  lastAppliedFontSignature = signature;
 
   ensureGoogleFontLink(fontFamily);
   try {
@@ -161,14 +167,15 @@ async function applyActiveTextFont() {
   });
 }
 
-function hideNativeTextColourPickerWhenStocked() {
-  const root = studioRoot();
-  const inspector = findInspector(root);
+function hideNativeTextColourPickerWhenStocked(inspector) {
   const textEditor = findTextEditor(inspector);
   const colourLabel = labelForNativeColourInput(textEditor);
   if (!colourLabel) return;
 
   const requiresStocked = activeLayerRequiresStockedColour(inspector);
+  if (requiresStocked === lastColourHiddenState && colourLabel.style.display === (requiresStocked ? "none" : "")) return;
+  lastColourHiddenState = requiresStocked;
+
   colourLabel.style.display = requiresStocked ? "none" : "";
   colourLabel.setAttribute("aria-hidden", requiresStocked ? "true" : "false");
 
@@ -176,31 +183,70 @@ function hideNativeTextColourPickerWhenStocked() {
   if (input) input.disabled = requiresStocked;
 }
 
-function runTextControlGuard() {
-  hideNativeTextColourPickerWhenStocked();
-  applyActiveTextFont();
-  window.setTimeout(() => {
-    hideNativeTextColourPickerWhenStocked();
-    applyActiveTextFont();
-  }, 60);
-  window.setTimeout(() => {
-    hideNativeTextColourPickerWhenStocked();
-    applyActiveTextFont();
-  }, 200);
+async function runTextControlGuardNow() {
+  if (guardRunning) return;
+  guardRunning = true;
+  try {
+    const root = studioRoot();
+    const inspector = findInspector(root);
+    if (!root || !inspector) return;
+    hideNativeTextColourPickerWhenStocked(inspector);
+    await applyActiveTextFont(root, inspector);
+  } finally {
+    guardRunning = false;
+  }
+}
+
+function scheduleTextControlGuard(delay = 80) {
+  if (typeof window === "undefined") return;
+  if (guardTimer) window.clearTimeout(guardTimer);
+  guardTimer = window.setTimeout(() => {
+    guardTimer = null;
+    runTextControlGuardNow();
+  }, delay);
+}
+
+function eventIsRelevantToTextControls(event) {
+  const target = event?.target;
+  if (!(target instanceof Element)) return false;
+  if (textEditorContainsTarget(target)) return true;
+  return Boolean(target.closest?.('[data-testid="product-artwork-studio"]'));
+}
+
+function bindStudioObserverWhenAvailable() {
+  const root = studioRoot();
+  if (!root || studioObserverRoot === root) return;
+  if (studioObserver) studioObserver.disconnect();
+  studioObserverRoot = root;
+  studioObserver = new MutationObserver((mutations) => {
+    const relevant = mutations.some((mutation) => {
+      const target = mutation.target;
+      return target instanceof Element && Boolean(target.closest?.('aside'));
+    });
+    if (relevant) scheduleTextControlGuard(120);
+  });
+  studioObserver.observe(root, { childList: true, subtree: true });
 }
 
 if (typeof window !== "undefined") {
   if (!window.__ffBuilderTextColourGuardAttached) {
     window.__ffBuilderTextColourGuardAttached = true;
     installTextLayerRafGuard();
-    window.addEventListener("load", runTextControlGuard);
+    window.addEventListener("load", () => {
+      bindStudioObserverWhenAvailable();
+      scheduleTextControlGuard(120);
+    });
     window.addEventListener("change", markTextLayerEditRafSuppression, true);
     window.addEventListener("input", markTextLayerEditRafSuppression, true);
-    window.addEventListener("click", runTextControlGuard, true);
-    window.addEventListener("change", runTextControlGuard, true);
-    window.addEventListener("input", runTextControlGuard, true);
-
-    const observer = new MutationObserver(runTextControlGuard);
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    window.addEventListener("click", (event) => {
+      bindStudioObserverWhenAvailable();
+      if (eventIsRelevantToTextControls(event)) scheduleTextControlGuard(80);
+    }, true);
+    window.addEventListener("change", (event) => {
+      if (eventIsRelevantToTextControls(event)) scheduleTextControlGuard(40);
+    }, true);
+    window.addEventListener("input", (event) => {
+      if (textEditorContainsTarget(event?.target)) scheduleTextControlGuard(180);
+    }, true);
   }
 }
