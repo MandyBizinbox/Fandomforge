@@ -2,10 +2,9 @@ import React from "react";
 import "@/App.css";
 import "@/index.css";
 import "./components/product-builder/productBuilderV2Runtime";
-import "./components/product-builder/productBuilderPrintTotalsRuntime";
-import "./components/product-builder/productBuilderProductionRulesRuntime";
-import "./components/product-builder/productBuilderLivePricingRuntime";
-import "./components/product-builder/productBuilderLayerDimensionsRuntime";
+// Builder V2 now owns manufacturing profile selection, stocked colour state,
+// artwork dimensions and pricing in React. These legacy DOM helpers mutate the
+// same selects/totals after render and are intentionally no longer loaded here.
 import "./components/admin/adminManufacturingRulesThemeRuntime";
 import "./components/admin/legacyPrintOptionCostingSeedRuntime";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
