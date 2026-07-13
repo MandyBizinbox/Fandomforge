@@ -167,6 +167,101 @@ def _method_default_profile(method: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+def _colour_value(colour: Dict[str, Any]) -> str:
+    return str(colour.get("hex") or colour.get("value") or colour.get("code") or colour.get("id") or colour.get("name") or "").strip()
+
+
+def _normalise_colour(colour: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(colour, str):
+        value = colour.strip()
+        if not value:
+            return None
+        return {"id": _slug(value) or value, "name": value, "label": value, "value": value, "hex": value if value.startswith("#") else "", "active": True}
+    if not isinstance(colour, dict):
+        return None
+    if colour.get("active") is False:
+        return None
+    value = _colour_value(colour)
+    label = str(colour.get("label") or colour.get("name") or colour.get("id") or value or "").strip()
+    colour_id = str(colour.get("id") or colour.get("slug") or _slug(label or value) or value).strip()
+    if not (value or label or colour_id):
+        return None
+    return {
+        **colour,
+        "id": colour_id,
+        "name": label or colour_id,
+        "label": label or colour_id,
+        # React uses value as the form value. Prefer hex so selected stocked colours
+        # can immediately update text colour without another lookup.
+        "value": value or label or colour_id,
+        "hex": str(colour.get("hex") or (value if str(value).startswith("#") else "")).strip(),
+        "active": colour.get("active", True),
+    }
+
+
+def _method_colour_mode(method: Dict[str, Any]) -> str:
+    supported = method.get("supported_colours") or {}
+    restrictions = method.get("creator_restrictions") or {}
+    mode = str(
+        supported.get("mode")
+        or restrictions.get("colour_picker")
+        or restrictions.get("colour_mode")
+        or ""
+    ).strip().lower()
+    if mode in {"restricted_library", "stocked_library", "stocked", "restricted", "vinyl"}:
+        return "stocked"
+    if mode in {"unlimited_rgb", "rgb", "full_colour", "full_color", "cmyk"}:
+        return "rgb"
+    method_key = normalize_method_key(method.get("method_key") or method.get("internal_id"))
+    if method_key in {"htv", "adhesive_vinyl"}:
+        return "stocked"
+    return "rgb"
+
+
+def _method_stocked_colours(method: Dict[str, Any]) -> List[Dict[str, Any]]:
+    supported = method.get("supported_colours") or {}
+    colours = supported.get("colours") if isinstance(supported, dict) else []
+    return [item for item in (_normalise_colour(colour) for colour in _list(colours)) if item]
+
+
+def _normalise_sheet_dimensions(width_mm: Any, height_mm: Any) -> tuple[float, float]:
+    width = _num(width_mm, 0)
+    height = _num(height_mm, 0)
+    # Some seeded HTV profiles were stored in centimetres despite the *_mm field.
+    # Treat small sheet values as cm and convert to mm for deterministic costing.
+    if 0 < width <= 60 and 0 < height <= 150:
+        return width * 10, height * 10
+    return width, height
+
+
+def _normalise_pricing_numbers(row: Dict[str, Any]) -> None:
+    calculation_type = str(row.get("calculation_type") or "fixed").strip().lower()
+    row["calculation_type"] = calculation_type
+
+    sheet_width, sheet_height = _normalise_sheet_dimensions(row.get("sheet_width_mm"), row.get("sheet_height_mm"))
+    sheet_cost = _num(row.get("sheet_cost"), 0)
+    row["sheet_width_mm"] = sheet_width
+    row["sheet_height_mm"] = sheet_height
+    row["sheet_cost"] = sheet_cost
+
+    row["platform_print_cost"] = _num(row.get("platform_print_cost") if _is_set(row.get("platform_print_cost")) else row.get("print_cost_max"), 0)
+    row["print_cost_max"] = _num(row.get("print_cost_max") if _is_set(row.get("print_cost_max")) else row.get("platform_print_cost"), 0)
+    row["minimum_print_cost"] = _num(row.get("minimum_print_cost"), 0)
+    row["waste_percentage"] = _num(row.get("waste_percentage"), 0)
+    row["markup_percentage"] = _num(row.get("markup_percentage"), 0)
+
+    cost_per_cm2 = _num(row.get("cost_per_cm2"), 0)
+    if calculation_type in {"area_from_sheet", "sheet"} and sheet_width > 0 and sheet_height > 0 and sheet_cost > 0:
+        sheet_area_cm2 = (sheet_width / 10) * (sheet_height / 10)
+        if sheet_area_cm2 > 0:
+            cost_per_cm2 = round(sheet_cost / sheet_area_cm2, 4)
+    row["cost_per_cm2"] = cost_per_cm2
+
+    row["dpi"] = int(_num(row.get("dpi"), 300) or 300)
+    row["fit_mode"] = row.get("fit_mode") or "contain"
+    row["print_positions"] = _list(row.get("print_positions"))
+
+
 def production_method_profile_to_print_option(method: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     method_key = normalize_method_key(method.get("method_key") or method.get("internal_id"))
     method_name = method.get("display_name") or method_key
@@ -177,11 +272,16 @@ def production_method_profile_to_print_option(method: Dict[str, Any], profile: D
     calculation_type = _value(profile, "calculation_type", "fixed") or "fixed"
     platform_print_cost = _num(_value(profile, "platform_print_cost", _value(profile, "print_cost_max", 0)), 0)
     print_cost_max = _num(_value(profile, "print_cost_max", _value(profile, "platform_print_cost", 0)), 0)
+    stocked_colours = _method_stocked_colours(method)
+    colour_mode = _method_colour_mode(method)
 
     row: Dict[str, Any] = {
         "id": profile_id,
+        "profile_id": profile_id,
+        "manufacturing_profile_id": profile_id,
         "legacy_print_option_id": profile.get("print_option_id") or None,
         "source": "production_method_profile",
+        "source_type": "production_method_profile",
         "production_method_profile": True,
         "production_profile_source": profile.get("source") or "legacy_print_option",
         "production_method_id": method.get("id"),
@@ -189,9 +289,12 @@ def production_method_profile_to_print_option(method: Dict[str, Any], profile: D
         "production_method_key": method_key,
         "method_key": method_key,
         "method": method_name,
+        "method_name": method_name,
         "print_method": label,
         "rule_name": rule_name,
+        "profile_name": label,
         "profile_label": label,
+        "display_label": label,
         "display_name": label,
         "print_size": "",
         "profile_print_size": original_print_size,
@@ -203,8 +306,14 @@ def production_method_profile_to_print_option(method: Dict[str, Any], profile: D
         "status": _value(profile, "status", profile.get("status") or ("active" if method.get("active", True) else "draft")),
         "source_print_option_id": profile.get("print_option_id") or None,
         "source_print_option_slug": profile.get("print_option_slug") or None,
+        "legacy_source_identifier": profile.get("print_option_id") or profile_id,
+        "source_identifier": profile.get("print_option_id") or profile_id,
         "supported_colours": method.get("supported_colours") or {},
         "creator_restrictions": method.get("creator_restrictions") or {},
+        "colour_mode": colour_mode,
+        "color_mode": colour_mode,
+        "approved_stocked_colours": stocked_colours,
+        "stocked_colours": stocked_colours,
         "layer_behaviour": method.get("layer_behaviour") or {},
         "press_behaviour": method.get("press_behaviour") or {},
         "cost_calculation_model": method.get("cost_calculation_model") or {},
@@ -220,21 +329,12 @@ def production_method_profile_to_print_option(method: Dict[str, Any], profile: D
     # available through profile_print_size and standard_print_size_key for costing.
     row["print_method"] = label
     row["display_name"] = label
+    row["display_label"] = label
+    row["profile_name"] = label
     row["print_size"] = ""
     row["profile_print_size"] = original_print_size
 
-    row["platform_print_cost"] = _num(row.get("platform_print_cost") if _is_set(row.get("platform_print_cost")) else row.get("print_cost_max"), 0)
-    row["print_cost_max"] = _num(row.get("print_cost_max") if _is_set(row.get("print_cost_max")) else row.get("platform_print_cost"), 0)
-    row["cost_per_cm2"] = _num(row.get("cost_per_cm2"), 0)
-    row["minimum_print_cost"] = _num(row.get("minimum_print_cost"), 0)
-    row["sheet_width_mm"] = _num(row.get("sheet_width_mm"), 0)
-    row["sheet_height_mm"] = _num(row.get("sheet_height_mm"), 0)
-    row["sheet_cost"] = _num(row.get("sheet_cost"), 0)
-    row["waste_percentage"] = _num(row.get("waste_percentage"), 0)
-    row["markup_percentage"] = _num(row.get("markup_percentage"), 0)
-    row["dpi"] = int(_num(row.get("dpi"), 300) or 300)
-    row["fit_mode"] = row.get("fit_mode") or "contain"
-    row["print_positions"] = _list(row.get("print_positions"))
+    _normalise_pricing_numbers(row)
     return row
 
 
