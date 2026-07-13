@@ -4,6 +4,7 @@ import "@/index.css";
 import "./components/product-builder/productBuilderStudioViewport.css";
 import "./components/product-builder/productBuilderV2Runtime";
 import "./components/product-builder/productBuilderTextColourRuntime";
+import "./components/product-builder/productBuilderDraftButtonRuntime";
 // Builder V2 now owns manufacturing profile selection, stocked colour state,
 // artwork dimensions and pricing in React. These legacy DOM helpers mutate the
 // same selects/totals after render and are intentionally no longer loaded here.
