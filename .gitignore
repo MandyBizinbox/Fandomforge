@@ -32,6 +32,14 @@ yarn-error.log*
 # Uploads / generated user files
 backend/uploads/
 uploads/
+storage/
+
+# Backups / imports / launch evidence generated on deployed hosts
+backend/backups/
+backups/
+imports/
+fandomforge_template_product_launch_gate_phase4.csv
+storage/app/audits/*.csv
 
 # Backups / snapshots / build work
 *.bak
