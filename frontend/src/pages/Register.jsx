@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/Navbar";
+import { usePlatformConfig } from "../lib/platform";
 
 export default function Register() {
   const [email, setEmail] = useState("");
@@ -10,23 +11,26 @@ export default function Register() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
+  const { platform } = usePlatformConfig();
   const navigate = useNavigate();
   const [search] = useSearchParams();
   const initialRole = search.get("role") || "buyer";
-  const [role, setRole] = useState(["buyer","creator","printer"].includes(initialRole) ? initialRole : "buyer");
+  const [role, setRole] = useState(["buyer", "creator", "printer"].includes(initialRole) ? initialRole : "buyer");
 
-  const submit = async (e) => {
-    e.preventDefault();
+  const submit = async (event) => {
+    event.preventDefault();
     setErr("");
     setLoading(true);
     try {
-      const u = await register(email, password, name, role);
-      if (u.role === "creator") navigate("/creator/profile-setup");
-      else if (u.role === "printer") navigate("/printer/apply");
+      const user = await register(email, password, name, role);
+      if (user.role === "creator") navigate("/creator/profile-setup");
+      else if (user.role === "printer") navigate("/printer/apply");
       else navigate("/");
-    } catch (e) {
-      setErr(e.response?.data?.detail || "Registration failed");
-    } finally { setLoading(false); }
+    } catch (error) {
+      setErr(error.response?.data?.detail || "Registration failed");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -34,7 +38,7 @@ export default function Register() {
       <Navbar />
       <div className="pt-28 pb-20 px-6 flex items-center justify-center">
         <div className="w-full max-w-md">
-          <div className="overline mb-2">Join FandomForge</div>
+          <div className="overline mb-2">Join {platform.platform_name || "Fandom Forge"}</div>
           <h1 className="font-display text-5xl uppercase mb-8">Create account</h1>
 
           <div className="grid grid-cols-3 gap-0 border border-[var(--ff-card-border)] mb-6">
@@ -42,11 +46,15 @@ export default function Register() {
               { v: "buyer", l: "Fan" },
               { v: "creator", l: "Creator" },
               { v: "printer", l: "Printer" },
-            ].map((r, i) => (
-              <button key={r.v} type="button" onClick={() => setRole(r.v)}
-                className={`px-4 py-3 text-xs uppercase tracking-widest font-bold ${i < 2 ? 'border-r border-[var(--ff-card-border)]' : ''} ${role === r.v ? 'bg-[var(--ff-primary)] text-[var(--ff-button-primary-text)]' : 'text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)]'}`}
-                data-testid={`register-role-${r.v}`}>
-                {r.l}
+            ].map((item, index) => (
+              <button
+                key={item.v}
+                type="button"
+                onClick={() => setRole(item.v)}
+                className={`px-4 py-3 text-xs uppercase tracking-widest font-bold ${index < 2 ? "border-r border-[var(--ff-card-border)]" : ""} ${role === item.v ? "bg-[var(--ff-primary)] text-[var(--ff-button-primary-text)]" : "text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)]"}`}
+                data-testid={`register-role-${item.v}`}
+              >
+                {item.l}
               </button>
             ))}
           </div>
@@ -54,15 +62,15 @@ export default function Register() {
           <form onSubmit={submit} className="space-y-4" data-testid="register-form">
             <div>
               <label className="label">{role === "creator" ? "Creator name" : role === "printer" ? "Company name" : "Full name"}</label>
-              <input className="input-base" value={name} onChange={(e) => setName(e.target.value)} required data-testid="register-name" />
+              <input className="input-base" value={name} onChange={(event) => setName(event.target.value)} required data-testid="register-name" />
             </div>
             <div>
               <label className="label">Email</label>
-              <input className="input-base" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="register-email" />
+              <input className="input-base" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required data-testid="register-email" />
             </div>
             <div>
               <label className="label">Password</label>
-              <input className="input-base" type="password" minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} required data-testid="register-password" />
+              <input className="input-base" type="password" minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} required data-testid="register-password" />
             </div>
             {err && <div className="text-[var(--ff-primary)] text-sm" data-testid="register-error">{err}</div>}
             <button type="submit" className="btn-primary w-full" disabled={loading} data-testid="register-submit">
