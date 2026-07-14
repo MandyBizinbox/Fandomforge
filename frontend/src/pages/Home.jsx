@@ -1,260 +1,80 @@
-import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useMemo } from "react";
 import Navbar from "../components/Navbar";
-import { http, assetUrl } from "../lib/api";
-import { ArrowRight, BadgeCheck, Boxes, CreditCard, HeartHandshake, Link as LinkIcon, PackageCheck, Paintbrush, ShieldCheck, Shirt, Store, Truck } from "lucide-react";
+import PublicHomepageSections from "../components/public/PublicHomepageSections";
+import { usePlatformConfig } from "../lib/platform";
 
-const trustTags = ["Print-on-demand", "Secure payments", "South African production", "No inventory required"];
-
-const communityCards = [
-  { title: "Scout Groups", text: "A simple direct-link store for group kit, fundraising drops and supporter merchandise." },
-  { title: "Schools", text: "Spirit wear, event shirts, leavers gear and campaign merch for school communities." },
-  { title: "Clubs", text: "Branded products for members, supporters and local audiences without stock admin." },
-  { title: "Community Organisations", text: "Merchandise campaigns for causes, groups, and local audiences without marketplace listing." },
-];
-
-const flow = ["Join", "Create Store", "Share Store Link", "Customers Order", "FandomForge Prints & Ships", "Creator Earns"];
-
-const features = [
-  ["Print-on-demand", "Products can be produced after customers order, helping you avoid bulk stock risk."],
-  ["No inventory", "No boxes of unsold sizes sitting with a volunteer, teacher, treasurer or organiser."],
-  ["Secure online payments", "Customers order and pay online, reducing manual payment tracking."],
-  ["Fundraising support", "Use branded merchandise as a practical fundraiser for your group or campaign."],
-  ["Shipping handled", "Production and fulfilment workflows are managed through the platform."],
-  ["South African production", "Built around local production partners and South African customer needs."],
-  ["Creator branding", "Your store can carry your logo, banner, messaging and community identity."],
-  ["Easy store management", "Manage products, orders and store details from a focused creator dashboard."],
-];
-
-const audiences = [
-  "Scout Groups",
-  "Schools",
-  "Churches",
-  "Sports Clubs",
-  "Charities",
-  "Community Organisations",
-  "Fan Communities",
-  "Small Businesses",
-  "Event Organisers",
-];
-
-function SectionHeading({ eyebrow, title, children }) {
-  return (
-    <div className="mb-8 max-w-3xl">
-      {eyebrow && <p className="overline mb-2">{eyebrow}</p>}
-      <h2 className="font-display text-4xl md:text-5xl uppercase leading-none">{title}</h2>
-      {children && <p className="text-[var(--ff-muted-text)] mt-4">{children}</p>}
-    </div>
-  );
-}
-
-function IconForFeature({ title }) {
-  const icons = {
-    "Print-on-demand": Shirt,
-    "No inventory": Boxes,
-    "Secure online payments": CreditCard,
-    "Fundraising support": HeartHandshake,
-    "Shipping handled": Truck,
-    "South African production": BadgeCheck,
-    "Creator branding": Paintbrush,
-    "Easy store management": Store,
-  };
-  const Icon = icons[title] || PackageCheck;
-  return <Icon size={28} className="text-[var(--ff-primary)] mb-4" />;
-}
-
-function GalleryCreatorCard({ creator }) {
-  const banner = assetUrl(creator.banner_url);
-  const logo = assetUrl(creator.logo_url);
-  const displayName = creator.display_name || "FandomForge Creator";
-
-  return (
-    <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] min-w-[260px] sm:min-w-0 overflow-hidden">
-      <div className="h-28 bg-[var(--ff-surface-bg)] border-b border-[var(--ff-card-border)] relative flex items-center justify-center">
-        {banner ? (
-          <img src={banner} alt="" className="absolute inset-0 w-full h-full object-cover" />
-        ) : (
-          <Store size={34} className="text-[var(--ff-primary)]" />
-        )}
-        <div className="absolute inset-0 bg-black/25" />
-      </div>
-      <div className="p-5">
-        <div className="h-16 w-16 border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] flex items-center justify-center -mt-12 mb-4 relative z-10 overflow-hidden">
-          {logo ? (
-            <img src={logo} alt="" className="w-full h-full object-contain" />
-          ) : (
-            <Store className="text-[var(--ff-primary)]" />
-          )}
-        </div>
-        <h3 className="font-display text-3xl uppercase leading-none">{displayName}</h3>
-      </div>
-    </div>
-  );
-}
-
-function CommunityFallbackCard({ card }) {
-  return (
-    <div className="card min-h-[190px] min-w-[260px] sm:min-w-0">
-      <div className="h-16 w-16 border border-[var(--ff-card-border)] bg-[var(--ff-primary)]/10 flex items-center justify-center mb-5">
-        <Store className="text-[var(--ff-primary)]" />
-      </div>
-      <h3 className="font-display text-3xl uppercase mb-2">{card.title}</h3>
-      <p className="text-[var(--ff-muted-text)] text-sm">{card.text}</p>
-    </div>
-  );
+function fallbackSections(platform) {
+  const homepage = platform?.homepage || {};
+  const platformName = platform?.platform_name || "Fandom Forge";
+  return [
+    {
+      id: "fallback-hero",
+      type: "hero",
+      enabled: true,
+      sort_order: 10,
+      eyebrow: `${platformName} for communities`,
+      title: homepage.hero_title || "Create merchandise for your community without buying stock or managing fulfilment.",
+      subtitle: homepage.hero_subtitle || "Choose products, add artwork, set pricing and launch a dedicated storefront through the Creator Studio.",
+      body_html: "",
+      button_label: homepage.creator_cta_label || "Start Creating",
+      button_url: homepage.creator_cta_url || "/register/creator",
+      secondary_button_label: "See How It Works",
+      secondary_button_url: "/how-it-works",
+      image_url: "",
+      settings: {},
+    },
+    {
+      id: "fallback-how-it-works",
+      type: "how_it_works",
+      enabled: true,
+      sort_order: 20,
+      eyebrow: "How it works",
+      title: "Create, price, publish, share and fulfil",
+      subtitle: "The platform keeps product creation, pricing, orders and production information in one flow.",
+      button_label: "View the Full Journey",
+      button_url: "/how-it-works",
+      settings: {},
+    },
+    {
+      id: "fallback-audiences",
+      type: "audience_cards",
+      enabled: true,
+      sort_order: 30,
+      eyebrow: "Who it is for",
+      title: "Merchandise for every kind of community",
+      subtitle: "Creators, designers, gaming groups, racing communities, clubs, schools, teams, events and organisations can build through the same platform.",
+      button_label: "Community Stores",
+      button_url: "/clubs-schools-organisations",
+      settings: {},
+    },
+    {
+      id: "fallback-cta",
+      type: "cta_banner",
+      enabled: true,
+      sort_order: 40,
+      eyebrow: "Start creating",
+      title: "Build your first product and storefront",
+      subtitle: "Create your account, complete onboarding and use the Creator Studio to prepare your launch.",
+      button_label: "Create Your Account",
+      button_url: "/register/creator",
+      secondary_button_label: "Creator Onboarding",
+      secondary_button_url: "/creator-onboarding",
+      settings: {},
+    },
+  ];
 }
 
 export default function Home() {
-  const [galleryCreators, setGalleryCreators] = useState([]);
-
-  useEffect(() => {
-    let mounted = true;
-
-    http.get("/public/creators/gallery")
-      .then((response) => {
-        if (!mounted) return;
-        setGalleryCreators(Array.isArray(response.data) ? response.data : []);
-      })
-      .catch(() => {
-        if (mounted) setGalleryCreators([]);
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const hasGalleryCreators = galleryCreators.length > 0;
+  const { platform } = usePlatformConfig();
+  const sections = useMemo(() => {
+    const configured = Array.isArray(platform?.homepage_sections) ? platform.homepage_sections : [];
+    return configured.length ? configured : fallbackSections(platform);
+  }, [platform]);
 
   return (
     <div className="min-h-screen page-shell">
       <Navbar />
-
-      <section className="pt-32 pb-16 md:pb-20 border-b border-[var(--ff-card-border)]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 grid lg:grid-cols-[1.15fr_0.85fr] gap-10 items-center">
-          <div>
-            <p className="overline mb-4">FandomForge for communities</p>
-            <h1 className="font-display text-5xl md:text-7xl lg:text-8xl uppercase leading-[0.9] mb-6">
-              Your own online merch store, without the stock, admin, or shipping headaches.
-            </h1>
-            <p className="text-[var(--ff-muted-text)] text-lg max-w-3xl mb-8">
-              FandomForge helps schools, Scout groups, clubs, churches, creators, and communities sell branded merchandise online. You share your store link, your supporters order, and we handle the printing, payments, and delivery.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 mb-8">
-              <Link to="/sell" className="btn-primary">Sell Online <ArrowRight size={18} /></Link>
-              <Link to="/sell#how-it-works" className="btn-secondary">Learn More</Link>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {trustTags.map((tag) => (
-                <span key={tag} className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] px-3 py-2 text-xs uppercase tracking-widest text-[var(--ff-muted-text)]">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-6 md:p-8">
-            <div className="grid grid-cols-2 gap-4">
-              {features.slice(0, 4).map(([title, text]) => (
-                <div key={title} className="border border-[var(--ff-card-border)] bg-white/[0.03] p-5 min-h-[150px]">
-                  <IconForFeature title={title} />
-                  <h3 className="font-display text-2xl uppercase leading-none mb-2">{title}</h3>
-                  <p className="text-[var(--ff-muted-text)] text-sm">{text}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="py-16 border-b border-[var(--ff-card-border)]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10">
-          <SectionHeading eyebrow="Social proof" title="Communities using FandomForge">
-            FandomForge supports groups, organisations, and creators who want a simple way to offer branded merchandise to their own communities.
-          </SectionHeading>
-          <div className="grid md:grid-cols-4 gap-6 overflow-x-auto sm:overflow-visible pb-2">
-            {hasGalleryCreators
-              ? galleryCreators.map((creator) => <GalleryCreatorCard key={creator.id || creator.display_name} creator={creator} />)
-              : communityCards.map((card) => <CommunityFallbackCard key={card.title} card={card} />)}
-          </div>
-        </div>
-      </section>
-
-      <section id="how-it-works" className="py-16 border-b border-[var(--ff-card-border)]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10">
-          <SectionHeading eyebrow="How it works" title="From link to delivered order" />
-          <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {flow.map((step, index) => (
-              <div key={step} className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-5 min-h-[150px]">
-                <p className="text-[var(--ff-primary)] font-display text-4xl mb-4">{index + 1}</p>
-                <h3 className="font-display text-2xl uppercase leading-none">{step}</h3>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-16 border-b border-[var(--ff-card-border)]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10">
-          <SectionHeading eyebrow="Features" title="Built to reduce merch admin" />
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {features.map(([title, text]) => (
-              <div key={title} className="card">
-                <IconForFeature title={title} />
-                <h3 className="font-display text-2xl uppercase mb-2">{title}</h3>
-                <p className="text-[var(--ff-muted-text)] text-sm">{text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-16 border-b border-[var(--ff-card-border)]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10">
-          <SectionHeading eyebrow="Who it is for" title="Made for groups with an audience" />
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {audiences.map((name) => (
-              <div key={name} className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-5 flex items-center gap-3">
-                <ShieldCheck size={20} className="text-[var(--ff-primary)] shrink-0" />
-                <span className="font-bold uppercase tracking-widest text-sm">{name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-16 border-b border-[var(--ff-card-border)]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 grid lg:grid-cols-[0.85fr_1.15fr] gap-8 items-center">
-          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-8">
-            <LinkIcon size={42} className="text-[var(--ff-primary)] mb-6" />
-            <p className="overline mb-2">Direct-link stores</p>
-            <h2 className="font-display text-4xl md:text-5xl uppercase leading-none mb-4">Your store can stay private to your community.</h2>
-            <p className="text-[var(--ff-muted-text)] mb-6">
-              FandomForge does not need to publicly list your merchandise. You can share your store directly with your audience, and your products do not have to appear in a public catalogue.
-            </p>
-            <Link to="/sell#store-visibility" className="btn-secondary">Learn how store visibility works</Link>
-          </div>
-          <div className="grid sm:grid-cols-3 gap-4">
-            {[["Public", "For discoverable brands."], ["Unlisted", "Recommended for groups and fundraisers."], ["Private", "Future restricted-access option."]].map(([title, text]) => (
-              <div key={title} className="border border-[var(--ff-card-border)] bg-white/[0.03] p-6 min-h-[170px]">
-                <h3 className="font-display text-3xl uppercase mb-3">{title}</h3>
-                <p className="text-[var(--ff-muted-text)] text-sm">{text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-16">
-        <div className="max-w-4xl mx-auto px-6 md:px-10 text-center">
-          <p className="overline mb-2">Start selling</p>
-          <h2 className="font-display text-5xl md:text-6xl uppercase leading-none mb-6">Ready to sell merchandise without managing the admin?</h2>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/sell" className="btn-primary">Sell Online <ArrowRight size={18} /></Link>
-            <Link to="/contact" className="btn-secondary">Contact Us</Link>
-          </div>
-        </div>
-      </section>
+      <PublicHomepageSections sections={sections} />
     </div>
   );
 }
