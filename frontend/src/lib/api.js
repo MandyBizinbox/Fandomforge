@@ -53,6 +53,12 @@ function isPrintOptionsRequest(response) {
   return method === "get" && (url === "/print-options" || url.endsWith("/print-options"));
 }
 
+function isInstanceSettingsUpdate(response) {
+  const url = String(response?.config?.url || "");
+  const method = String(response?.config?.method || "get").toLowerCase();
+  return method === "patch" && (url === "/admin/instance-settings" || url.endsWith("/admin/instance-settings"));
+}
+
 async function loadProductionMethodProfiles() {
   const token = localStorage.getItem("mf_token");
   const response = await axios.get(`${API}/production-rules/print-option-profiles`, {
@@ -67,6 +73,10 @@ async function loadProductionMethodProfiles() {
 }
 
 http.interceptors.response.use(async (response) => {
+  if (isInstanceSettingsUpdate(response) && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("fandomforge:platform-updated", { detail: response.data || {} }));
+  }
+
   if (!isPrintOptionsRequest(response) || !isBuilderContext() || response.config?._productionProfilesInjected) {
     return response;
   }
