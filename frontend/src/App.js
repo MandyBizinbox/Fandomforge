@@ -155,6 +155,7 @@ function AppRoutes() {
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/order-confirmation/:id" element={<OrderConfirmation />} />
         <Route path="/order-tracking/:token" element={<OrderTracking />} />
+
         <Route path="/policies/:policyKey" element={<PolicyPage />} />
         <Route path="/terms" element={<PolicyPage />} />
         <Route path="/privacy" element={<PolicyPage />} />
@@ -162,6 +163,11 @@ function AppRoutes() {
         <Route path="/shipping-policy" element={<PolicyPage />} />
         <Route path="/creator-terms" element={<PolicyPage />} />
         <Route path="/printer-terms" element={<PolicyPage />} />
+        <Route path="/intellectual-property" element={<PolicyPage />} />
+        <Route path="/prohibited-content" element={<PolicyPage />} />
+        <Route path="/copyright-complaints" element={<PolicyPage />} />
+        <Route path="/payout-policy" element={<PolicyPage />} />
+        <Route path="/store-suspension" element={<PolicyPage />} />
 
         <Route path="/apply-printer" element={<ApplyPrinter />} />
         <Route path="/printer/apply" element={<Navigate to="/apply-printer" replace />} />
