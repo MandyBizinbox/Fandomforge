@@ -21,6 +21,33 @@ body,
   color: var(--ff-primary) !important;
 }
 
+/* Compatibility for older JSX that embedded the former brand colours directly
+ * in Tailwind arbitrary-value utilities. These selectors make those visual
+ * utilities follow Platform Settings while the remaining files are audited. */
+[class*="text-[#FF3B30]"],
+[class*="text-[#ff3b30]"],
+[class*="text-[#FF7A1A]"],
+[class*="text-[#ff7a1a]"],
+[class*="text-[#ff8c01]"] {
+  color: var(--ff-primary) !important;
+}
+
+[class*="bg-[#FF3B30]"],
+[class*="bg-[#ff3b30]"],
+[class*="bg-[#FF7A1A]"],
+[class*="bg-[#ff7a1a]"],
+[class*="bg-[#ff8c01]"] {
+  background-color: var(--ff-primary) !important;
+}
+
+[class*="border-[#FF3B30]"],
+[class*="border-[#ff3b30]"],
+[class*="border-[#FF7A1A]"],
+[class*="border-[#ff7a1a]"],
+[class*="border-[#ff8c01]"] {
+  border-color: var(--ff-primary) !important;
+}
+
 .btn-primary {
   background: var(--ff-button-primary-bg) !important;
   color: var(--ff-button-primary-text) !important;
