@@ -16,7 +16,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote_to_bytes
-from uuid import uuid4
 
 from fastapi import HTTPException
 
@@ -97,9 +96,13 @@ def _materialize_text_slot(slot: dict | None) -> dict:
     digest = hashlib.sha256(content).hexdigest()
     _TEXT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-    file_name = f"{uuid4().hex}.svg"
+    # Content-addressed names make repeated saves idempotent: unchanged text reuses
+    # the same production file, while an actual text/font/colour change creates a
+    # new immutable artwork asset.
+    file_name = f"{digest}.svg"
     destination = _TEXT_UPLOAD_DIR / file_name
-    destination.write_bytes(content)
+    if not destination.exists():
+        destination.write_bytes(content)
 
     next_slot.update(
         {
