@@ -21,31 +21,95 @@ body,
   color: var(--ff-primary) !important;
 }
 
-/* Compatibility for older JSX that embedded the former brand colours directly
- * in Tailwind arbitrary-value utilities. These selectors make those visual
- * utilities follow Platform Settings while the remaining files are audited. */
-[class*="text-[#FF3B30]"],
-[class*="text-[#ff3b30]"],
-[class*="text-[#FF7A1A]"],
-[class*="text-[#ff7a1a]"],
-[class*="text-[#ff8c01]"] {
+/* Compatibility for older JSX that embedded former brand colours directly in
+ * Tailwind arbitrary-value utilities. Exact token selectors preserve opacity
+ * variants instead of converting every translucent state into a solid block. */
+[class~="text-[#FF3B30]"],
+[class~="text-[#ff3b30]"] {
   color: var(--ff-primary) !important;
 }
 
-[class*="bg-[#FF3B30]"],
-[class*="bg-[#ff3b30]"],
-[class*="bg-[#FF7A1A]"],
-[class*="bg-[#ff7a1a]"],
-[class*="bg-[#ff8c01]"] {
+[class~="text-[#FF7A1A]"],
+[class~="text-[#ff7a1a]"],
+[class~="text-[#ff8c01]"] {
+  color: var(--ff-accent) !important;
+}
+
+[class~="bg-[#FF3B30]"],
+[class~="bg-[#ff3b30]"] {
   background-color: var(--ff-primary) !important;
 }
 
-[class*="border-[#FF3B30]"],
-[class*="border-[#ff3b30]"],
-[class*="border-[#FF7A1A]"],
-[class*="border-[#ff7a1a]"],
-[class*="border-[#ff8c01]"] {
+[class~="bg-[#FF3B30]/5"],
+[class~="bg-[#ff3b30]/5"] {
+  background-color: color-mix(in srgb, var(--ff-primary) 5%, transparent) !important;
+}
+
+[class~="bg-[#FF3B30]/10"],
+[class~="bg-[#ff3b30]/10"] {
+  background-color: color-mix(in srgb, var(--ff-primary) 10%, transparent) !important;
+}
+
+[class~="bg-[#FF3B30]/15"],
+[class~="bg-[#ff3b30]/15"] {
+  background-color: color-mix(in srgb, var(--ff-primary) 15%, transparent) !important;
+}
+
+[class~="bg-[#FF3B30]/20"],
+[class~="bg-[#ff3b30]/20"] {
+  background-color: color-mix(in srgb, var(--ff-primary) 20%, transparent) !important;
+}
+
+[class~="bg-[#FF7A1A]"],
+[class~="bg-[#ff7a1a]"],
+[class~="bg-[#ff8c01]"] {
+  background-color: var(--ff-accent) !important;
+}
+
+[class~="border-[#FF3B30]"],
+[class~="border-[#ff3b30]"] {
   border-color: var(--ff-primary) !important;
+}
+
+[class~="border-[#FF3B30]/30"],
+[class~="border-[#ff3b30]/30"] {
+  border-color: color-mix(in srgb, var(--ff-primary) 30%, transparent) !important;
+}
+
+[class~="border-[#FF3B30]/50"],
+[class~="border-[#ff3b30]/50"] {
+  border-color: color-mix(in srgb, var(--ff-primary) 50%, transparent) !important;
+}
+
+[class~="border-[#FF3B30]/60"],
+[class~="border-[#ff3b30]/60"] {
+  border-color: color-mix(in srgb, var(--ff-primary) 60%, transparent) !important;
+}
+
+[class~="border-[#FF7A1A]"],
+[class~="border-[#ff7a1a]"],
+[class~="border-[#ff8c01]"] {
+  border-color: var(--ff-accent) !important;
+}
+
+[class~="hover:border-[#FF3B30]"]:hover,
+[class~="hover:border-[#ff3b30]"]:hover {
+  border-color: var(--ff-primary) !important;
+}
+
+[class~="hover:text-[#FF3B30]"]:hover,
+[class~="hover:text-[#ff3b30]"]:hover {
+  color: var(--ff-primary) !important;
+}
+
+[class~="hover:bg-[#FF3B30]/5"]:hover,
+[class~="hover:bg-[#ff3b30]/5"]:hover {
+  background-color: color-mix(in srgb, var(--ff-primary) 5%, transparent) !important;
+}
+
+[class~="hover:bg-[#FF3B30]/15"]:hover,
+[class~="hover:bg-[#ff3b30]/15"]:hover {
+  background-color: color-mix(in srgb, var(--ff-primary) 15%, transparent) !important;
 }
 
 .btn-primary {
