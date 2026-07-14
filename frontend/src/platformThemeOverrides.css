@@ -61,10 +61,15 @@ body,
 }
 
 .input-base,
-.input-base[type="number"],
-textarea.input-base,
-select.input-base,
-input,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="tel"],
+input[type="url"],
+input[type="search"],
+input[type="date"],
+input[type="time"],
 textarea,
 select {
   background-color: var(--ff-input-bg) !important;
@@ -73,7 +78,15 @@ select {
 }
 
 .input-base:focus,
-input:focus,
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+input[type="tel"]:focus,
+input[type="url"]:focus,
+input[type="search"]:focus,
+input[type="date"]:focus,
+input[type="time"]:focus,
 textarea:focus,
 select:focus {
   border-color: var(--ff-primary) !important;
@@ -81,7 +94,13 @@ select:focus {
 }
 
 .input-base::placeholder,
-input::placeholder,
+input[type="text"]::placeholder,
+input[type="email"]::placeholder,
+input[type="password"]::placeholder,
+input[type="number"]::placeholder,
+input[type="tel"]::placeholder,
+input[type="url"]::placeholder,
+input[type="search"]::placeholder,
 textarea::placeholder {
   color: var(--ff-muted-text) !important;
   opacity: 0.75;
@@ -92,6 +111,11 @@ select optgroup,
 .input-base option {
   background-color: var(--ff-input-bg) !important;
   color: var(--ff-input-text) !important;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--ff-primary);
 }
 
 .overline,
