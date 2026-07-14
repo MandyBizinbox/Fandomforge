@@ -86,6 +86,7 @@ from routes_main import (
     orders_router, admin_router, payments_router, platform_billing_router, files_router, public_router,
     band_dash_router, printer_dash_router, categories_router, attributes_router, print_options_router,
 )
+from routes_public_platform import public_platform_router
 from builder_draft_routes import builder_drafts_router
 from routes_production_operations import production_operations_router
 from routes_production_rules import production_rules_router
@@ -101,6 +102,9 @@ api_router.include_router(orders_router)
 api_router.include_router(payments_router)
 api_router.include_router(platform_billing_router)
 api_router.include_router(admin_router)
+# Platform-aware routes must be registered before legacy public routes with the
+# same path so configured contact details and branding remain authoritative.
+api_router.include_router(public_platform_router)
 api_router.include_router(public_router)
 api_router.include_router(files_router)
 api_router.include_router(band_dash_router)
