@@ -41,6 +41,7 @@ import ManagerDashboard from "./pages/ManagerDashboard";
 import Account from "./pages/Account";
 import Sell from "./pages/Sell";
 import Print from "./pages/Print";
+import Marketplace, { CreatorDirectory } from "./pages/Marketplace";
 import {
   BecomeCreatorPage,
   HowItWorksPage,
@@ -143,8 +144,8 @@ function AppRoutes() {
         <Route path="/register/printer" element={<RegisterPrinter />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
 
-        <Route path="/shop" element={<Navigate to="/sell" replace />} />
-        <Route path="/creators" element={<Navigate to="/sell" replace />} />
+        <Route path="/shop" element={<Marketplace />} />
+        <Route path="/creators" element={<CreatorDirectory />} />
         <Route path="/creators/:slug" element={<BandStorefront />} />
         <Route path="/sell" element={<Sell />} />
         <Route path="/sell-online" element={<Navigate to="/become-a-creator" replace />} />
