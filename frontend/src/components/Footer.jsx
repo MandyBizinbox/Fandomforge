@@ -44,25 +44,30 @@ export default function Footer() {
             ["Start Your Free Store", "/register/creator"],
             ["Login", "/login"],
             ["How It Works", "/sell#how-it-works"],
-            ["Store Privacy", "/sell#store-visibility"],
+            ["Creator Terms", "/creator-terms"],
+            ["Payout Policy", "/payout-policy"],
           ]} />
 
           <FooterColumn title="Support" links={[
             ["Contact Us", "/contact"],
-             ["Order Help", "/help/orders"],
-             ["Creator Help", "/help/creators"],
+            ["Order Help", "/help/orders"],
+            ["Creator Help", "/help/creators"],
+            ["Shipping Policy", "/shipping-policy"],
+            ["Returns Policy", "/returns"],
           ]} />
 
           <FooterColumn title="Legal" links={[
-            ["Terms", "/shop-terms"],
+            ["Legal & Policies", "/legal"],
+            ["Customer Terms", "/terms"],
             ["Privacy Policy", "/privacy-policy"],
-            ["Refund Policy", "/shop-terms"],
+            ["Intellectual Property", "/intellectual-property"],
+            ["Prohibited Content", "/prohibited-content"],
           ]} />
         </div>
 
         <div className="border-t border-[var(--ff-card-border)] mt-8 pt-5 text-xs text-[var(--ff-muted-text)] flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
           <span>© {new Date().getFullYear()} FandomForge. All rights reserved.</span>
-          <span>Direct-link merch stores, made to order in South Africa.</span>
+          <span>FandomForge (Pty) Ltd · Reg. 2024/705706/07 · South Africa</span>
         </div>
       </div>
     </footer>
@@ -73,9 +78,11 @@ function FooterColumn({ title, links }) {
   return (
     <div>
       <div className="overline mb-3">{title}</div>
-      <nav className="grid gap-2 text-sm">
+      <nav className="grid gap-2 text-sm" aria-label={`${title} links`}>
         {links.map(([label, to]) => (
-          <Link key={`${title}-${label}`} to={to} className="hover:text-[var(--ff-primary)]">{label}</Link>
+          <Link key={`${title}-${label}`} to={to} className="hover:text-[var(--ff-primary)]">
+            {label}
+          </Link>
         ))}
       </nav>
     </div>
