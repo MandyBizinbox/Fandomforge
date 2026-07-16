@@ -97,9 +97,11 @@ function FooterColumn({ title, links }) {
   return (
     <div>
       <div className="overline mb-3">{title}</div>
-      <nav className="grid gap-2 text-sm">
+      <nav className="grid gap-2 text-sm" aria-label={`${title} links`}>
         {links.map(([label, to]) => (
-          <Link key={`${title}-${label}`} to={to} className="hover:text-[var(--ff-primary)]">{label}</Link>
+          <Link key={`${title}-${label}`} to={to} className="hover:text-[var(--ff-primary)]">
+            {label}
+          </Link>
         ))}
       </nav>
     </div>

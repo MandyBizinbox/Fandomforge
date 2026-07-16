@@ -1,100 +1,101 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Eye, EyeOff } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { clearAuthToken } from "../lib/authToken";
 import Navbar from "../components/Navbar";
+
+function accountHome(role) {
+  if (["super_admin", "admin"].includes(role)) return "/admin";
+  if (role === "manager") return "/manager";
+  if (role === "creator") return "/creator";
+  if (role === "printer") return "/printer";
+  return "/account";
+}
+
+function safeNextPath(value) {
+  const path = String(value || "");
+  return path.startsWith("/") && !path.startsWith("//") ? path : "";
+}
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [err, setErr] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { login, user, logout } = useAuth();
   const navigate = useNavigate();
   const [search] = useSearchParams();
-  const next = search.get("next") || "/";
+  const nextPath = safeNextPath(search.get("next"));
 
-  // If a stale token exists but no user yet, clear it on mount so the login attempt is clean.
-  useEffect(() => {
-    if (!user && localStorage.getItem("mf_token")) {
-      // Token failed validation server-side; AuthContext already removed it, but be explicit.
-      localStorage.removeItem("mf_token");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    setErr("");
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
     setLoading(true);
-    try {
-      // Always clear any prior auth state before logging in (prevents stale-token edge cases)
-      localStorage.removeItem("mf_token");
-      const u = await login(email, password);
-      const dest = u.role === "super_admin" ? "/admin" : u.role === "creator" ? "/creator" : u.role === "printer" ? "/printer" : next;
-      navigate(dest, { replace: true });
-    } catch (ex) {
-      setErr(ex.response?.data?.detail || ex.message || "Login failed");
-    } finally { setLoading(false); }
-  };
 
-  const googleLogin = () => {
-    const cb = `${window.location.origin}/auth/callback`;
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(cb)}`;
+    try {
+      clearAuthToken();
+      const signedInUser = await login(email.trim(), password);
+      navigate(nextPath || accountHome(signedInUser.role), { replace: true });
+    } catch (requestError) {
+      setError(requestError.response?.data?.detail || "The email address or password could not be verified.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen page-shell">
       <Navbar />
-      <div className="pt-28 pb-20 px-6 flex items-center justify-center min-h-screen">
+      <main className="pt-28 pb-20 px-4 sm:px-6 flex items-center justify-center min-h-screen">
         <div className="w-full max-w-md">
           <div className="overline mb-2">Welcome back</div>
-          <h1 className="font-display text-5xl uppercase mb-8">Sign in</h1>
+          <h1 className="font-display text-5xl uppercase mb-3">Sign in</h1>
+          <p className="text-[var(--ff-muted-text)] mb-8">Access your FandomForge account, store or production dashboard.</p>
 
           {user && (
             <div className="card mb-6 text-sm" data-testid="login-already-signed-in">
-              <div className="overline mb-1">Currently signed in as</div>
-              <div className="font-bold">{user.email} · {user.role}</div>
-              <div className="flex gap-3 mt-3">
-                <button onClick={() => navigate(user.role === "super_admin" ? "/admin" : user.role === "creator" ? "/creator" : user.role === "printer" ? "/printer" : "/")}
-                  className="text-xs uppercase tracking-widest text-[var(--ff-primary)] hover:text-[var(--ff-primary)] font-bold" data-testid="login-go-dashboard">Go to dashboard →</button>
-                <button onClick={() => { logout(); }} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)] font-bold" data-testid="login-switch-account">Switch account</button>
+              <div className="overline mb-1">Currently signed in</div>
+              <div className="font-bold break-all">{user.email}</div>
+              <div className="text-xs text-[var(--ff-muted-text)] mt-1">Account type: {user.role}</div>
+              <div className="flex flex-wrap gap-3 mt-4">
+                <button type="button" onClick={() => navigate(accountHome(user.role))} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] font-bold" data-testid="login-go-dashboard">Go to dashboard →</button>
+                <button type="button" onClick={logout} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)] font-bold" data-testid="login-switch-account">Switch account</button>
               </div>
             </div>
           )}
 
-          <form onSubmit={submit} className="space-y-4" data-testid="login-form">
+          <form onSubmit={submit} className="card space-y-4" data-testid="login-form">
             <div>
               <label className="label">Email</label>
-              <input className="input-base" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" data-testid="login-email" />
+              <input className="input-base" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" data-testid="login-email" />
             </div>
             <div>
               <label className="label">Password</label>
-              <input className="input-base" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" data-testid="login-password" />
+              <div className="relative">
+                <input className="input-base pr-14" type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" data-testid="login-password" />
+                <button type="button" onClick={() => setShowPassword((current) => !current)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)]" aria-label={showPassword ? "Hide password" : "Show password"}>
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
-            {err && <div className="text-[var(--ff-primary)] text-sm" data-testid="login-error">{err}</div>}
-            <button type="submit" className="btn-primary w-full" disabled={loading} data-testid="login-submit">
-              {loading ? "Signing in..." : "Sign in"}
+            {error && <div className="text-[var(--ff-primary)] text-sm" role="alert" data-testid="login-error">{error}</div>}
+            <button type="submit" className="btn-primary w-full justify-center" disabled={loading} data-testid="login-submit">
+              {loading ? "Signing in…" : "Sign in"}
             </button>
           </form>
 
-          <div className="my-6 flex items-center gap-3">
-            <div className="flex-1 h-px bg-white/15" />
-            <span className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)]">or</span>
-            <div className="flex-1 h-px bg-white/15" />
-          </div>
-
-          <button onClick={googleLogin} className="btn-secondary w-full" data-testid="login-google-btn">
-            Continue with Google
-          </button>
-
           <div className="mt-8 text-sm text-[var(--ff-muted-text)]">
-            New here?{" "}
-            <Link to="/register" className="text-[var(--ff-page-text)] underline" data-testid="login-register-link">Create account</Link>
+            New customer?{" "}
+            <Link to="/register" className="text-[var(--ff-page-text)] underline" data-testid="login-register-link">Create an account</Link>
           </div>
-
-          
+          <div className="mt-3 text-sm text-[var(--ff-muted-text)]">
+            Want to sell merchandise?{" "}
+            <Link to="/register/creator" className="text-[var(--ff-page-text)] underline">Create a creator store</Link>
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

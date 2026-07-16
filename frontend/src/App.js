@@ -23,6 +23,7 @@ import Register from "./pages/Register";
 import RegisterCreator from "./pages/RegisterCreator";
 import RegisterPrinter from "./pages/RegisterPrinter";
 import PolicyPage from "./pages/PolicyPage";
+import LegalIndex from "./pages/LegalIndex";
 import AuthCallback from "./pages/AuthCallback";
 import BandStorefront from "./pages/BandStorefront";
 import ProductDetail from "./pages/ProductDetail";

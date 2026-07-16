@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getAuthToken } from "./authToken";
 
 function resolveApiBase() {
   const configured = process.env.REACT_APP_BACKEND_URL;
@@ -26,14 +27,14 @@ export const http = axios.create({
   baseURL: API,
 });
 
-http.interceptors.request.use((cfg) => {
-  const token = localStorage.getItem("mf_token");
+http.interceptors.request.use((config) => {
+  const token = getAuthToken();
 
   if (token) {
-    cfg.headers.Authorization = `Bearer ${token}`;
+    config.headers.Authorization = `Bearer ${token}`;
   }
 
-  return cfg;
+  return config;
 });
 
 function isBuilderContext() {

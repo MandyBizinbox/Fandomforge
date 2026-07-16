@@ -5,6 +5,7 @@ import { http, assetUrl } from "../lib/api";
 import StatusBadge from "../components/StatusBadge";
 import { Copy, ExternalLink } from "lucide-react";
 import { creatorStorePath, getCreatorStoreFromItems, getLastCreatorStore } from "../lib/creatorStoreContext";
+import { useCart } from "../context/CartContext";
 import { toast } from "sonner";
 
 function safeMoney(value) {
@@ -14,14 +15,10 @@ function safeMoney(value) {
 function getVariationLabel(item) {
   const design = item?.customization?.design_json || {};
 
-  if (design.variation_label) {
-    return design.variation_label;
-  }
+  if (design.variation_label) return design.variation_label;
 
   const snapshotVariation = item?.production_snapshot?.variation || {};
-  if (snapshotVariation.label) {
-    return snapshotVariation.label;
-  }
+  if (snapshotVariation.label) return snapshotVariation.label;
 
   const attrs = snapshotVariation.attributes || design.attribute_values || item?.attribute_values || {};
   const attrLabel = Object.entries(attrs)
@@ -29,14 +26,9 @@ function getVariationLabel(item) {
     .map(([key, value]) => `${key}: ${value}`)
     .join(" / ");
 
-  if (attrLabel) {
-    return attrLabel;
-  }
+  if (attrLabel) return attrLabel;
 
-  const size = item?.size || "";
-  const color = item?.color || "";
-  const fallback = [size, color].filter(Boolean).join(" / ");
-
+  const fallback = [item?.size || "", item?.color || ""].filter(Boolean).join(" / ");
   return fallback || "Selected variation";
 }
 
@@ -65,11 +57,23 @@ function getOrderItemImage(item) {
   );
 }
 
+function readablePaymentDetails(details) {
+  if (!details || typeof details !== "object") return [];
+  return Object.entries(details)
+    .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "")
+    .map(([key, value]) => ({
+      label: key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      value: String(value),
+    }));
+}
+
 export default function OrderConfirmation() {
   const { id } = useParams();
   const location = useLocation();
+  const { clear } = useCart();
   const [order, setOrder] = useState(null);
   const [verifying, setVerifying] = useState(false);
+  const [verificationWarning, setVerificationWarning] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -81,12 +85,15 @@ export default function OrderConfirmation() {
       try {
         if (reference) {
           setVerifying(true);
+          setVerificationWarning("");
           try {
             await http.get(`/payments/verify/${reference}`);
           } catch (verifyError) {
-            console.warn("Payment verification failed", verifyError.response?.data || verifyError.message);
+            if (mounted) {
+              setVerificationWarning("Payment could not be confirmed automatically yet. The order status below is the current recorded status.");
+            }
           } finally {
-            setVerifying(false);
+            if (mounted) setVerifying(false);
           }
         }
 
@@ -95,9 +102,9 @@ export default function OrderConfirmation() {
           setOrder(response.data);
           setError("");
         }
-      } catch (err) {
+      } catch (requestError) {
         if (mounted) {
-          setError(err.response?.data?.detail || "Could not load this order.");
+          setError(requestError.response?.data?.detail || "Could not load this order.");
         }
       }
     }
@@ -109,9 +116,19 @@ export default function OrderConfirmation() {
     };
   }, [id, location.search]);
 
+  useEffect(() => {
+    if (order?.payment_status === "paid") {
+      clear();
+      sessionStorage.removeItem("ff_pending_order_id");
+    }
+  }, [clear, order?.payment_status]);
+
   const items = useMemo(() => (Array.isArray(order?.items) ? order.items : []), [order]);
   const creatorStore = getCreatorStoreFromItems(items) || getLastCreatorStore();
   const trackingUrl = order?.tracking_token ? `${window.location.origin}/order-tracking/${order.tracking_token}` : "";
+  const paymentDetails = readablePaymentDetails(location.state?.manual_payment_details || order?.manual_payment_details);
+  const isPaid = order?.payment_status === "paid";
+  const isFailed = ["failed", "cancelled", "canceled", "declined"].includes(String(order?.payment_status || "").toLowerCase());
 
   const copyTrackingUrl = async () => {
     try {
@@ -126,14 +143,17 @@ export default function OrderConfirmation() {
     return (
       <div className="min-h-screen page-shell">
         <Navbar />
-        <div className="pt-32 pb-16 max-w-3xl mx-auto px-6 md:px-10 text-center">
+        <main className="pt-32 pb-16 max-w-3xl mx-auto px-4 sm:px-6 md:px-10 text-center">
           <div className="card">
             <p className="overline mb-2 text-[var(--ff-primary)]">Order error</p>
             <h1 className="font-display text-4xl uppercase mb-4">Could not load order</h1>
             <p className="text-[var(--ff-muted-text)] mb-6">{error}</p>
-            <Link to="/" className="btn-secondary">Return home</Link>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link to="/contact" className="btn-primary">Contact Support</Link>
+              <Link to="/" className="btn-secondary">Return home</Link>
+            </div>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
@@ -142,7 +162,7 @@ export default function OrderConfirmation() {
     return (
       <div className="min-h-screen page-shell">
         <Navbar />
-        <div className="pt-32 overline text-center">Loading…</div>
+        <div className="pt-32 overline text-center">Loading order…</div>
       </div>
     );
   }
@@ -150,10 +170,12 @@ export default function OrderConfirmation() {
   return (
     <div className="min-h-screen page-shell">
       <Navbar />
-      <div className="pt-24 pb-16">
-        <div className="max-w-4xl mx-auto px-6 md:px-10 text-center">
-          <div className="overline mb-4 text-[#34C759]">{order.payment_status === "paid" ? "Order confirmed" : "Order received"}</div>
-          <h1 className="font-display text-6xl uppercase mb-2" data-testid="oc-order-number">
+      <main className="pt-24 pb-16">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 md:px-10 text-center">
+          <div className={`overline mb-4 ${isPaid ? "text-[#34C759]" : "text-[var(--ff-primary)]"}`}>
+            {isPaid ? "Order confirmed" : isFailed ? "Payment not completed" : "Order received — payment pending"}
+          </div>
+          <h1 className="font-display text-5xl sm:text-6xl uppercase mb-2" data-testid="oc-order-number">
             {order.order_number}
           </h1>
           <div className="mb-6">
@@ -162,21 +184,45 @@ export default function OrderConfirmation() {
           <p className="text-[var(--ff-muted-text)] mb-8">
             {verifying
               ? "Verifying your payment…"
-              : order.payment_status === "paid"
-              ? "Thanks for your order. You can track production and dispatch from your tracking page."
-              : "Your order has been created and is waiting for payment confirmation."}
+              : isPaid
+                ? "Thanks for your order. You can track production and dispatch from your tracking page."
+                : isFailed
+                  ? "Your order was recorded, but payment was not completed. Your cart has been kept so you can return and try again."
+                  : "Your order has been created and is waiting for payment confirmation. Production begins after payment is confirmed."}
           </p>
 
-          <div className="flex justify-center gap-3 mb-8">
-            <StatusBadge status={order.payment_status === "paid" ? "paid" : order.payment_status || "pending"} />
-            <StatusBadge status={order.payment_provider || "payment"} />
+          {verificationWarning && (
+            <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-4 mb-6 text-sm text-[var(--ff-muted-text)]" role="status">
+              {verificationWarning}
+            </div>
+          )}
+
+          <div className="flex flex-wrap justify-center gap-3 mb-8">
+            <StatusBadge status={isPaid ? "paid" : order.payment_status || "pending"} />
+            {order.payment_provider && <StatusBadge status={order.payment_provider} />}
           </div>
 
+          {!isPaid && paymentDetails.length > 0 && (
+            <section className="card text-left mb-6 border-[var(--ff-primary)]">
+              <p className="overline mb-2">Payment instructions</p>
+              <h2 className="font-display text-3xl uppercase mb-4">Complete your payment</h2>
+              <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                {paymentDetails.map((detail) => (
+                  <div key={detail.label} className="border border-[var(--ff-card-border)] p-3">
+                    <div className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)] mb-1">{detail.label}</div>
+                    <div className="font-bold break-all">{detail.value}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm text-[var(--ff-muted-text)] mt-4">Use the order number as the payment reference unless the instructions above specify another reference.</p>
+            </section>
+          )}
+
           {trackingUrl && (
-            <div className="card text-left mb-6 border-[#34C759]/40 bg-[#34C759]/5">
+            <section className="card text-left mb-6 border-[#34C759]/40 bg-[#34C759]/5">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
-                  <div className="overline mb-2 text-[#34C759]">Tracking link</div>
+                  <div className="overline mb-2 text-[#34C759]">Order tracking link</div>
                   <p className="text-sm text-[var(--ff-muted-text)] break-all">{trackingUrl}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -188,12 +234,12 @@ export default function OrderConfirmation() {
                   </Link>
                 </div>
               </div>
-            </div>
+            </section>
           )}
 
-          <div className="card text-left" data-testid="oc-items">
+          <section className="card text-left" data-testid="oc-items">
             <div className="overline mb-4">Items</div>
-            <div className="divide-y divide-white/10">
+            <div className="divide-y divide-[var(--ff-card-border)]">
               {items.map((item) => {
                 const image = getOrderItemImage(item);
                 const variationLabel = getVariationLabel(item);
@@ -201,23 +247,17 @@ export default function OrderConfirmation() {
                 const lineTotal = Number(item.unit_price || 0) * Number(item.quantity || 0);
 
                 return (
-                  <div key={item.id} className="py-4 flex items-center gap-4">
+                  <div key={item.id} className="py-4 flex flex-col sm:flex-row sm:items-center gap-4">
                     <div className="w-20 h-20 bg-[var(--ff-surface-bg)] border border-[var(--ff-card-border)] flex-shrink-0 overflow-hidden flex items-center justify-center">
                       {image ? (
-                        <img
-                          src={assetUrl(image)}
-                          alt={item.product_title || "Order item"}
-                          className="w-full h-full object-contain"
-                        />
+                        <img src={assetUrl(image)} alt={item.product_title || "Order item"} className="w-full h-full object-contain" />
                       ) : (
-                        <div className="font-display text-zinc-700 text-xl">MF</div>
+                        <div className="font-display text-[var(--ff-muted-text)] text-xl">FF</div>
                       )}
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="font-display text-lg uppercase leading-tight">
-                        {item.product_title}
-                      </div>
+                      <div className="font-display text-lg uppercase leading-tight">{item.product_title}</div>
                       <div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mt-1">
                         {variationLabel} × {item.quantity}
                       </div>
@@ -236,7 +276,7 @@ export default function OrderConfirmation() {
 
             <div className="border-t border-[var(--ff-card-border)] mt-4 pt-4 space-y-2">
               <div className="flex justify-between text-sm"><span className="text-[var(--ff-muted-text)]">Subtotal</span><span>R {safeMoney(order.subtotal)}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-[var(--ff-muted-text)]">Shipping{order.shipping_method_name ? ` · ${order.shipping_method_name}` : ""}</span><span>{Number(order.shipping_total || 0) === 0 ? "Free" : `R ${safeMoney(order.shipping_total)}`}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-[var(--ff-muted-text)]">Delivery{order.shipping_method_name ? ` · ${order.shipping_method_name}` : ""}</span><span>{Number(order.shipping_total || 0) === 0 ? "Free" : `R ${safeMoney(order.shipping_total)}`}</span></div>
               {order.shipping_method_key === "group_delivery" && (
                 <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3 text-xs text-[var(--ff-muted-text)] space-y-1">
                   {order.group_delivery_batch_date && <div>Next batch date: <span className="font-bold text-[var(--ff-card-text)]">{new Date(order.group_delivery_batch_date).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}</span></div>}
@@ -248,25 +288,23 @@ export default function OrderConfirmation() {
                 </div>
               )}
               <div className="flex justify-between items-baseline border-t border-[var(--ff-card-border)] pt-3">
-                <div className="overline">Total paid</div>
-                <div className="font-display text-2xl" data-testid="oc-total">
-                  R {safeMoney(order.total)}
-                </div>
+                <div className="overline">{isPaid ? "Total paid" : "Order total"}</div>
+                <div className="font-display text-2xl" data-testid="oc-total">R {safeMoney(order.total)}</div>
               </div>
             </div>
-          </div>
+          </section>
 
-          {creatorStore ? (
-            <Link to={creatorStorePath(creatorStore)} className="btn-secondary mt-10" data-testid="oc-continue">
-              Back to {creatorStore.name}
-            </Link>
-          ) : (
-            <Link to="/" className="btn-secondary mt-10" data-testid="oc-continue">
-              Return home
-            </Link>
-          )}
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mt-10">
+            {!isPaid && !isFailed && <Link to="/contact" className="btn-primary">Payment Help</Link>}
+            {isFailed && <Link to="/checkout" className="btn-primary">Return to Checkout</Link>}
+            {creatorStore ? (
+              <Link to={creatorStorePath(creatorStore)} className="btn-secondary" data-testid="oc-continue">Back to {creatorStore.name}</Link>
+            ) : (
+              <Link to="/" className="btn-secondary" data-testid="oc-continue">Return home</Link>
+            )}
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import RichTextRenderer from "../components/RichTextRenderer";
 import { http } from "../lib/api";
+import { getLocalPolicy, normalizePolicyKey } from "../content/policies";
 
 const PATH_POLICY_MAP = {
   "/terms": "terms_and_conditions",
