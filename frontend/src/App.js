@@ -12,6 +12,7 @@ import Register from "./pages/Register";
 import RegisterCreator from "./pages/RegisterCreator";
 import RegisterPrinter from "./pages/RegisterPrinter";
 import PolicyPage from "./pages/PolicyPage";
+import LegalIndex from "./pages/LegalIndex";
 import AuthCallback from "./pages/AuthCallback";
 import BandStorefront from "./pages/BandStorefront";
 import ProductDetail from "./pages/ProductDetail";
@@ -28,13 +29,13 @@ import ManagerDashboard from "./pages/ManagerDashboard";
 import Account from "./pages/Account";
 import Sell from "./pages/Sell";
 import Print from "./pages/Print";
-
 import StaticContentPage from "./pages/StaticContentPage";
 import Footer from "./components/Footer";
+
 function getRoleHome(role) {
   if (["super_admin", "admin"].includes(role)) return "/admin";
   if (role === "manager") return "/manager";
-  if (["creator", "creator"].includes(role)) return "/creator";
+  if (role === "creator") return "/creator";
   if (role === "printer") return "/printer";
   return "/account";
 }
@@ -70,10 +71,10 @@ function Protected({ roles, children }) {
             Account role mismatch
           </h1>
           <p className="text-zinc-400 text-sm mb-4">
-            Your account role is not allowed for this page.
+            Your account does not have access to this page.
           </p>
           <p className="text-zinc-500 text-xs">
-            Current role: {user.role || "unknown"}
+            Current account type: {user.role || "unknown"}
           </p>
         </div>
       </div>
@@ -87,111 +88,117 @@ function AppRoutes() {
   return (
     <>
       <Routes>
-      <Route path="/" element={<Home />} />
+        <Route path="/" element={<Home />} />
 
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route path="/register/creator" element={<RegisterCreator />} />
-      <Route path="/register/printer" element={<RegisterPrinter />} />
-      <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/register/creator" element={<RegisterCreator />} />
+        <Route path="/register/printer" element={<RegisterPrinter />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
 
-      <Route path="/shop" element={<Navigate to="/sell" replace />} />
-      <Route path="/creators" element={<Navigate to="/sell" replace />} />
-      <Route path="/creators/:slug" element={<BandStorefront />} />
-      <Route path="/sell" element={<Sell />} />
-      <Route path="/sell-online" element={<Navigate to="/sell" replace />} />
-      <Route path="/print" element={<Print />} />
+        <Route path="/shop" element={<Navigate to="/sell" replace />} />
+        <Route path="/creators" element={<Navigate to="/sell" replace />} />
+        <Route path="/creators/:slug" element={<BandStorefront />} />
+        <Route path="/sell" element={<Sell />} />
+        <Route path="/sell-online" element={<Navigate to="/sell" replace />} />
+        <Route path="/print" element={<Print />} />
 
-      <Route path="/product/:id" element={<ProductDetail />} />
-      <Route path="/cart" element={<Cart />} />
-      <Route path="/checkout" element={<Checkout />} />
-      <Route path="/order-confirmation/:id" element={<OrderConfirmation />} />
-      <Route path="/order-tracking/:token" element={<OrderTracking />} />
-      <Route path="/policies/:policyKey" element={<PolicyPage />} />
-      <Route path="/terms" element={<PolicyPage />} />
-      <Route path="/privacy" element={<PolicyPage />} />
-      <Route path="/returns" element={<PolicyPage />} />
-      <Route path="/shipping-policy" element={<PolicyPage />} />
-      <Route path="/creator-terms" element={<PolicyPage />} />
-      <Route path="/printer-terms" element={<PolicyPage />} />
+        <Route path="/product/:id" element={<ProductDetail />} />
+        <Route path="/cart" element={<Cart />} />
+        <Route path="/checkout" element={<Checkout />} />
+        <Route path="/order-confirmation/:id" element={<OrderConfirmation />} />
+        <Route path="/order-tracking/:token" element={<OrderTracking />} />
 
-      <Route path="/apply-printer" element={<ApplyPrinter />} />
-      <Route path="/printer/apply" element={<Navigate to="/apply-printer" replace />} />
+        <Route path="/legal" element={<LegalIndex />} />
+        <Route path="/terms" element={<PolicyPage policyKeyOverride="terms_and_conditions" />} />
+        <Route path="/shop-terms" element={<PolicyPage policyKeyOverride="terms_and_conditions" />} />
+        <Route path="/privacy" element={<PolicyPage policyKeyOverride="privacy_policy" />} />
+        <Route path="/privacy-policy" element={<PolicyPage policyKeyOverride="privacy_policy" />} />
+        <Route path="/returns" element={<PolicyPage policyKeyOverride="returns_policy" />} />
+        <Route path="/shipping-policy" element={<PolicyPage policyKeyOverride="shipping_policy" />} />
+        <Route path="/delivery-terms" element={<PolicyPage policyKeyOverride="shipping_policy" />} />
+        <Route path="/creator-terms" element={<PolicyPage policyKeyOverride="creator_terms" />} />
+        <Route path="/printer-terms" element={<PolicyPage policyKeyOverride="printer_terms" />} />
+        <Route path="/intellectual-property" element={<PolicyPage policyKeyOverride="intellectual_property" />} />
+        <Route path="/prohibited-content" element={<PolicyPage policyKeyOverride="prohibited_content" />} />
+        <Route path="/copyright-complaints" element={<PolicyPage policyKeyOverride="copyright_complaints" />} />
+        <Route path="/payout-policy" element={<PolicyPage policyKeyOverride="payout_policy" />} />
+        <Route path="/store-suspension-policy" element={<PolicyPage policyKeyOverride="store_suspension" />} />
+        <Route path="/policies/:policyKey" element={<PolicyPage />} />
 
-      <Route
-        path="/account"
-        element={
-          <Protected
-            roles={[
-              "buyer",
-              "customer",
-              "creator",
-              "creator",
-              "printer",
-              "manager",
-              "admin",
-              "super_admin",
-            ]}
-          >
-            <Account />
-          </Protected>
-        }
-      />
+        <Route path="/apply-printer" element={<ApplyPrinter />} />
+        <Route path="/printer/apply" element={<Navigate to="/apply-printer" replace />} />
 
-      <Route
-        path="/creator/profile-setup"
-        element={
-          <Protected roles={["buyer", "creator", "creator", "admin", "super_admin"]}>
-            <BandProfileSetup />
-          </Protected>
-        }
-      />
+        <Route
+          path="/account"
+          element={
+            <Protected
+              roles={[
+                "buyer",
+                "customer",
+                "creator",
+                "printer",
+                "manager",
+                "admin",
+                "super_admin",
+              ]}
+            >
+              <Account />
+            </Protected>
+          }
+        />
 
-      <Route
-        path="/creator/*"
-        element={
-          <Protected roles={["creator", "creator", "admin", "super_admin"]}>
-            <BandDashboard />
-          </Protected>
-        }
-      />
+        <Route
+          path="/creator/profile-setup"
+          element={
+            <Protected roles={["buyer", "creator", "admin", "super_admin"]}>
+              <BandProfileSetup />
+            </Protected>
+          }
+        />
 
-      <Route
-        path="/printer/*"
-        element={
-          <Protected roles={["printer", "admin", "super_admin"]}>
-            <PrinterDashboard />
-          </Protected>
-        }
-      />
+        <Route
+          path="/creator/*"
+          element={
+            <Protected roles={["creator", "admin", "super_admin"]}>
+              <BandDashboard />
+            </Protected>
+          }
+        />
 
-      <Route
-        path="/manager/*"
-        element={
-          <Protected roles={["manager", "admin", "super_admin"]}>
-            <ManagerDashboard />
-          </Protected>
-        }
-      />
+        <Route
+          path="/printer/*"
+          element={
+            <Protected roles={["printer", "admin", "super_admin"]}>
+              <PrinterDashboard />
+            </Protected>
+          }
+        />
 
-      <Route
-        path="/admin/*"
-        element={
-          <Protected roles={["admin", "super_admin"]}>
-            <AdminDashboard />
-          </Protected>
-        }
-      />
+        <Route
+          path="/manager/*"
+          element={
+            <Protected roles={["manager", "admin", "super_admin"]}>
+              <ManagerDashboard />
+            </Protected>
+          }
+        />
 
-      <Route path="/about" element={<StaticContentPage pageKey="about" />} />
-      <Route path="/contact" element={<StaticContentPage pageKey="contact" />} />
-      <Route path="/help/orders" element={<StaticContentPage pageKey="help-orders" />} />
-      <Route path="/help/creators" element={<StaticContentPage pageKey="help-creators" />} />
-      <Route path="/privacy-policy" element={<StaticContentPage pageKey="privacy-policy" />} />
-      <Route path="/delivery-terms" element={<StaticContentPage pageKey="delivery-terms" />} />
-      <Route path="/shop-terms" element={<StaticContentPage pageKey="shop-terms" />} />
+        <Route
+          path="/admin/*"
+          element={
+            <Protected roles={["admin", "super_admin"]}>
+              <AdminDashboard />
+            </Protected>
+          }
+        />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/about" element={<StaticContentPage pageKey="about" />} />
+        <Route path="/contact" element={<StaticContentPage pageKey="contact" />} />
+        <Route path="/help/orders" element={<StaticContentPage pageKey="help-orders" />} />
+        <Route path="/help/creators" element={<StaticContentPage pageKey="help-creators" />} />
+
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Footer />
     </>
