@@ -10,7 +10,7 @@ const communityCards = [
   { title: "Scout Groups", text: "A simple direct-link store for group kit, fundraising drops and supporter merchandise." },
   { title: "Schools", text: "Spirit wear, event shirts, leavers gear and campaign merch for school communities." },
   { title: "Clubs", text: "Branded products for members, supporters and local audiences without stock admin." },
-  { title: "Community Organisations", text: "Merchandise campaigns for causes, groups, and local audiences without marketplace listing." },
+  { title: "Community Organisations", text: "Merchandise campaigns for causes, groups and local audiences without marketplace listing." },
 ];
 
 const flow = ["Join", "Create Store", "Share Store Link", "Customers Order", "FandomForge Prints & Ships", "Creator Earns"];
@@ -36,6 +36,12 @@ const audiences = [
   "Fan Communities",
   "Small Businesses",
   "Event Organisers",
+];
+
+const visibilityOptions = [
+  ["Public", "A discoverable storefront for creators and brands that want broader visibility."],
+  ["Unlisted", "Hidden from public discovery and shared directly with your members, supporters or customers."],
+  ["Private", "Restricted according to the store access rules configured for your account."],
 ];
 
 function SectionHeading({ eyebrow, title, children }) {
@@ -67,12 +73,13 @@ function GalleryCreatorCard({ creator }) {
   const banner = assetUrl(creator.banner_url);
   const logo = assetUrl(creator.logo_url);
   const displayName = creator.display_name || "FandomForge Creator";
+  const slug = creator.slug || creator.id;
 
-  return (
-    <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] min-w-[260px] sm:min-w-0 overflow-hidden">
+  const content = (
+    <>
       <div className="h-28 bg-[var(--ff-surface-bg)] border-b border-[var(--ff-card-border)] relative flex items-center justify-center">
         {banner ? (
-          <img src={banner} alt="" className="absolute inset-0 w-full h-full object-cover" />
+          <img src={banner} alt={`${displayName} store banner`} className="absolute inset-0 w-full h-full object-cover" />
         ) : (
           <Store size={34} className="text-[var(--ff-primary)]" />
         )}
@@ -81,14 +88,23 @@ function GalleryCreatorCard({ creator }) {
       <div className="p-5">
         <div className="h-16 w-16 border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] flex items-center justify-center -mt-12 mb-4 relative z-10 overflow-hidden">
           {logo ? (
-            <img src={logo} alt="" className="w-full h-full object-contain" />
+            <img src={logo} alt={`${displayName} logo`} className="w-full h-full object-contain" />
           ) : (
             <Store className="text-[var(--ff-primary)]" />
           )}
         </div>
         <h3 className="font-display text-3xl uppercase leading-none">{displayName}</h3>
+        {slug && <span className="inline-flex items-center gap-2 mt-4 text-xs uppercase tracking-widest text-[var(--ff-primary)] font-bold">Visit store <ArrowRight size={14} /></span>}
       </div>
-    </div>
+    </>
+  );
+
+  const className = "border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] min-w-[260px] sm:min-w-0 overflow-hidden hover:border-[var(--ff-primary)] transition-colors";
+
+  return slug ? (
+    <Link to={`/creators/${slug}`} className={className}>{content}</Link>
+  ) : (
+    <div className={className}>{content}</div>
   );
 }
 
@@ -135,10 +151,10 @@ export default function Home() {
           <div>
             <p className="overline mb-4">FandomForge for communities</p>
             <h1 className="font-display text-5xl md:text-7xl lg:text-8xl uppercase leading-[0.9] mb-6">
-              Your own online merch store, without the stock, admin, or shipping headaches.
+              Your own online merch store, without the stock, admin or shipping headaches.
             </h1>
             <p className="text-[var(--ff-muted-text)] text-lg max-w-3xl mb-8">
-              FandomForge helps schools, Scout groups, clubs, churches, creators, and communities sell branded merchandise online. You share your store link, your supporters order, and we handle the printing, payments, and delivery.
+              FandomForge helps schools, Scout groups, clubs, churches, creators and communities sell branded merchandise online. You share your store link, your supporters order, and we handle the printing, payments and delivery.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 mb-8">
               <Link to="/sell" className="btn-primary">Sell Online <ArrowRight size={18} /></Link>
@@ -169,12 +185,17 @@ export default function Home() {
 
       <section className="py-16 border-b border-[var(--ff-card-border)]">
         <div className="max-w-7xl mx-auto px-6 md:px-10">
-          <SectionHeading eyebrow="Social proof" title="Communities using FandomForge">
-            FandomForge supports groups, organisations, and creators who want a simple way to offer branded merchandise to their own communities.
+          <SectionHeading
+            eyebrow={hasGalleryCreators ? "Creator stores" : "Built for communities"}
+            title={hasGalleryCreators ? "Explore FandomForge creators" : "Merch stores shaped around real community needs"}
+          >
+            {hasGalleryCreators
+              ? "Visit public creator stores and see how communities present their merchandise through FandomForge."
+              : "FandomForge supports groups, organisations and creators who need a practical way to offer branded merchandise to their own audiences."}
           </SectionHeading>
           <div className="grid md:grid-cols-4 gap-6 overflow-x-auto sm:overflow-visible pb-2">
             {hasGalleryCreators
-              ? galleryCreators.map((creator) => <GalleryCreatorCard key={creator.id || creator.display_name} creator={creator} />)
+              ? galleryCreators.map((creator) => <GalleryCreatorCard key={creator.id || creator.slug || creator.display_name} creator={creator} />)
               : communityCards.map((card) => <CommunityFallbackCard key={card.title} card={card} />)}
           </div>
         </div>
@@ -227,15 +248,15 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6 md:px-10 grid lg:grid-cols-[0.85fr_1.15fr] gap-8 items-center">
           <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-8">
             <LinkIcon size={42} className="text-[var(--ff-primary)] mb-6" />
-            <p className="overline mb-2">Direct-link stores</p>
-            <h2 className="font-display text-4xl md:text-5xl uppercase leading-none mb-4">Your store can stay private to your community.</h2>
+            <p className="overline mb-2">Store visibility</p>
+            <h2 className="font-display text-4xl md:text-5xl uppercase leading-none mb-4">Choose how your audience reaches your store.</h2>
             <p className="text-[var(--ff-muted-text)] mb-6">
-              FandomForge does not need to publicly list your merchandise. You can share your store directly with your audience, and your products do not have to appear in a public catalogue.
+              A store can be discoverable, shared only by direct link or restricted according to the visibility options available for the account. Your selected visibility should match how you want customers to find the store.
             </p>
             <Link to="/sell#store-visibility" className="btn-secondary">Learn how store visibility works</Link>
           </div>
           <div className="grid sm:grid-cols-3 gap-4">
-            {[["Public", "For discoverable brands."], ["Unlisted", "Recommended for groups and fundraisers."], ["Private", "Future restricted-access option."]].map(([title, text]) => (
+            {visibilityOptions.map(([title, text]) => (
               <div key={title} className="border border-[var(--ff-card-border)] bg-white/[0.03] p-6 min-h-[170px]">
                 <h3 className="font-display text-3xl uppercase mb-3">{title}</h3>
                 <p className="text-[var(--ff-muted-text)] text-sm">{text}</p>
