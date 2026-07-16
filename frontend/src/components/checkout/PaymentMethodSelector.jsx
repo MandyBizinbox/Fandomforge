@@ -17,7 +17,6 @@ export default function PaymentMethodSelector({ value, onChange }) {
         if (!mounted) return;
         const rows = (Array.isArray(response.data) ? response.data : []).filter((method) => method?.key && method.key !== "mock");
         setMethods(rows);
-        if (!value && rows[0]) onChange(rows[0].key, rows[0]);
       })
       .catch((error) => {
         if (!mounted) return;
@@ -29,7 +28,7 @@ export default function PaymentMethodSelector({ value, onChange }) {
     return () => {
       mounted = false;
     };
-  }, [onChange, value]);
+  }, []);
 
   useEffect(() => {
     if (!value && methods[0]) onChange(methods[0].key, methods[0]);
