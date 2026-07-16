@@ -76,17 +76,20 @@ export default function Footer() {
           ]} />
 
           <FooterColumn title="Legal" links={[
-            ["Creator Terms", "/creator-terms"],
+            ["Legal & Policies", "/legal"],
             ["Customer Terms", "/terms"],
-            ["Privacy Policy", "/privacy"],
+            ["Creator Terms", "/creator-terms"],
+            ["Privacy Policy", "/privacy-policy"],
             ["Shipping Policy", "/shipping-policy"],
             ["Returns Policy", "/returns"],
+            ["Intellectual Property", "/intellectual-property"],
+            ["Prohibited Content", "/prohibited-content"],
           ]} />
         </div>
 
         <div className="border-t border-[var(--ff-card-border)] mt-8 pt-5 text-xs text-[var(--ff-muted-text)] flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
           <span>© {new Date().getFullYear()} {platformName}. All rights reserved.</span>
-          <span>{platform.platform_tagline || "Merchandise made for every community."}</span>
+          <span>FandomForge (Pty) Ltd · Reg. 2024/705706/07 · South Africa</span>
         </div>
       </div>
     </footer>

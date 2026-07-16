@@ -157,19 +157,24 @@ function AppRoutes() {
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/order-confirmation/:id" element={<OrderConfirmation />} />
         <Route path="/order-tracking/:token" element={<OrderTracking />} />
-
+        <Route path="/legal" element={<LegalIndex />} />
+        <Route path="/terms" element={<PolicyPage policyKeyOverride="terms_and_conditions" />} />
+        <Route path="/shop-terms" element={<PolicyPage policyKeyOverride="terms_and_conditions" />} />
+        <Route path="/privacy" element={<PolicyPage policyKeyOverride="privacy_policy" />} />
+        <Route path="/privacy-policy" element={<PolicyPage policyKeyOverride="privacy_policy" />} />
+        <Route path="/returns" element={<PolicyPage policyKeyOverride="returns_policy" />} />
+        <Route path="/shipping-policy" element={<PolicyPage policyKeyOverride="shipping_policy" />} />
+        <Route path="/delivery-terms" element={<PolicyPage policyKeyOverride="shipping_policy" />} />
+        <Route path="/creator-terms" element={<PolicyPage policyKeyOverride="creator_terms" />} />
+        <Route path="/printer-terms" element={<PolicyPage policyKeyOverride="printer_terms" />} />
+        <Route path="/intellectual-property" element={<PolicyPage policyKeyOverride="intellectual_property" />} />
+        <Route path="/prohibited-content" element={<PolicyPage policyKeyOverride="prohibited_content" />} />
+        <Route path="/copyright-complaints" element={<PolicyPage policyKeyOverride="copyright_complaints" />} />
+        <Route path="/payout-policy" element={<PolicyPage policyKeyOverride="payout_policy" />} />
+        <Route path="/store-suspension-policy" element={<PolicyPage policyKeyOverride="store_suspension" />} />
         <Route path="/policies/:policyKey" element={<PolicyPage />} />
-        <Route path="/terms" element={<PolicyPage />} />
-        <Route path="/privacy" element={<PolicyPage />} />
-        <Route path="/returns" element={<PolicyPage />} />
-        <Route path="/shipping-policy" element={<PolicyPage />} />
-        <Route path="/creator-terms" element={<PolicyPage />} />
-        <Route path="/printer-terms" element={<PolicyPage />} />
-        <Route path="/intellectual-property" element={<PolicyPage />} />
-        <Route path="/prohibited-content" element={<PolicyPage />} />
-        <Route path="/copyright-complaints" element={<PolicyPage />} />
-        <Route path="/payout-policy" element={<PolicyPage />} />
-        <Route path="/store-suspension" element={<PolicyPage />} />
+
+        <Route path="/store-suspension" element={<PolicyPage policyKeyOverride="store_suspension" />} />
 
         <Route path="/apply-printer" element={<ApplyPrinter />} />
         <Route path="/printer/apply" element={<Navigate to="/apply-printer" replace />} />
@@ -250,9 +255,6 @@ function AppRoutes() {
         <Route path="/contact" element={<StaticContentPage pageKey="contact" />} />
         <Route path="/help/orders" element={<StaticContentPage pageKey="help-orders" />} />
         <Route path="/help/creators" element={<StaticContentPage pageKey="help-creators" />} />
-        <Route path="/privacy-policy" element={<StaticContentPage pageKey="privacy-policy" />} />
-        <Route path="/delivery-terms" element={<StaticContentPage pageKey="delivery-terms" />} />
-        <Route path="/shop-terms" element={<StaticContentPage pageKey="shop-terms" />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -61,7 +61,7 @@ function isInstanceSettingsUpdate(response) {
 }
 
 async function loadProductionMethodProfiles() {
-  const token = localStorage.getItem("mf_token");
+  const token = getAuthToken();
   const response = await axios.get(`${API}/production-rules/print-option-profiles`, {
     params: { active: true, _: Date.now() },
     headers: {
