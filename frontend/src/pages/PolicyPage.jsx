@@ -23,12 +23,27 @@ const PATH_POLICY_KEYS = {
   "/store-suspension-policy": "store_suspension",
 };
 
+const PLACEHOLDER_PHRASES = [
+  "not available yet",
+  "will be published here",
+  "coming soon",
+  "placeholder",
+  "to be confirmed",
+  "to be published",
+];
+
 function isUsablePolicy(value) {
   const content = String(value?.content || "").trim();
   if (!content) return false;
 
-  const normalised = content.toLowerCase();
-  return !normalised.includes("not available yet") && !normalised.includes("placeholder");
+  const normalised = content
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  if (normalised.length < 120) return false;
+  return !PLACEHOLDER_PHRASES.some((phrase) => normalised.includes(phrase));
 }
 
 export default function PolicyPage({ policyKeyOverride = "" }) {
