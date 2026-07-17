@@ -1,8 +1,9 @@
 """FandomForge API server."""
-import os
+import asyncio
+from contextlib import asynccontextmanager, suppress
 import logging
+import os
 from pathlib import Path
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,20 +28,39 @@ logger = logging.getLogger("fandomforge")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.db = client[db_name]
+    email_task = None
     try:
         from seed import seed_if_empty
         from seed_production_operations import seed_production_operations
         from seed_production_rules import seed_production_rules
         from payout_launch_routes import ensure_payout_launch_indexes
+        from email_delivery import (
+            email_delivery_loop,
+            ensure_email_delivery_indexes,
+        )
 
         await seed_if_empty(app.state.db)
         await seed_production_operations(app.state.db)
         await seed_production_rules(app.state.db)
         await ensure_payout_launch_indexes(app.state.db)
-        logger.info("Seed and safe index checks complete")
-    except Exception as e:
-        logger.exception(f"Seed or index check failed: {e}")
+        await ensure_email_delivery_indexes(app.state.db)
+
+        worker_id = f"api-{os.getpid()}"
+        email_task = asyncio.create_task(
+            email_delivery_loop(app.state.db, worker_id),
+            name=f"fandomforge-email-{worker_id}",
+        )
+        app.state.email_delivery_task = email_task
+        logger.info("Seed, safe index and email-delivery startup checks complete")
+    except Exception as exc:
+        logger.exception("Startup checks failed: %s", exc)
+
     yield
+
+    if email_task:
+        email_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await email_task
     client.close()
 
 
@@ -59,7 +79,16 @@ async def root():
 
 @api_router.get("/health")
 async def health():
-    return {"status": "ok"}
+    from email_delivery import load_email_delivery_settings
+
+    email = load_email_delivery_settings()
+    return {
+        "status": "ok",
+        "email_delivery": {
+            "configured": email.configured,
+            "provider": email.provider,
+        },
+    }
 
 
 # Mount sub-routers on /api
