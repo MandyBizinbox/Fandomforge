@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { CartProvider } from "./context/CartContext";
 import { usePlatformConfig } from "./lib/platform";
 import Footer from "./components/Footer";
+import ImagePerformanceHints from "./components/ImagePerformanceHints";
 
 const lazyNamed = (importer, exportName) => lazy(
   () => importer().then((module) => ({ default: module[exportName] })),
@@ -307,6 +308,7 @@ export default function App() {
       <AuthProvider>
         <CartProvider>
           <BrowserRouter>
+            <ImagePerformanceHints />
             <AppRoutes />
             <PlatformToaster />
           </BrowserRouter>
