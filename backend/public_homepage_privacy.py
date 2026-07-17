@@ -77,7 +77,7 @@ async def homepage_creators(
         "gallery_banner_url": 1,
         "gallery_display_name": 1,
     }
-    docs = await db.bands.find(query, projection).sort("created_at", -1).limit(safe_limit).to_list(safe_limit)
+    docs = await db.creators.find(query, projection).sort("created_at", -1).limit(safe_limit).to_list(safe_limit)
     return [_creator_card(doc) for doc in docs]
 
 
@@ -97,7 +97,7 @@ async def homepage_products(
         "name": 1,
         "gallery_display_name": 1,
     }
-    creators = await db.bands.find(
+    creators = await db.creators.find(
         {"status": "active", "visibility": "public"},
         creator_projection,
     ).to_list(5000)
