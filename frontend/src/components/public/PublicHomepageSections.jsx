@@ -16,6 +16,14 @@ function sectionClass(section) {
   return `py-14 md:py-16 border-b border-[var(--ff-card-border)] ${section.settings?.class_name || ""}`;
 }
 
+function isPublicHomepageCreator(creator) {
+  return creator?.visibility === "public" && creator?.show_on_platform_gallery === true;
+}
+
+function isPublicHomepageProduct(product) {
+  return product?.creator_visibility === "public" && product?.published !== false;
+}
+
 function SectionHeader({ section, centered = false }) {
   return (
     <div className={`${centered ? "text-center mx-auto" : ""} max-w-3xl mb-8`}>
@@ -210,7 +218,7 @@ function CtaSection({ section }) {
 
 function FeaturedProductsSection({ section, products }) {
   const limit = Math.max(1, Number(section.settings?.limit || 8));
-  const rows = products.slice(0, limit);
+  const rows = products.filter(isPublicHomepageProduct).slice(0, limit);
   return (
     <section className={sectionClass(section)}>
       <div className="max-w-7xl mx-auto px-6 md:px-10">
@@ -220,7 +228,7 @@ function FeaturedProductsSection({ section, products }) {
             {rows.map((product) => <ProductCard key={product.id} product={product} />)}
           </div>
         ) : (
-          <div className="card text-[var(--ff-muted-text)]">Published products will appear here when they are available.</div>
+          <div className="card text-[var(--ff-muted-text)]">Recent products from public creator stores will appear here when they are available.</div>
         )}
         <ActionButtons section={section} />
       </div>
@@ -230,7 +238,7 @@ function FeaturedProductsSection({ section, products }) {
 
 function FeaturedCreatorsSection({ section, creators }) {
   const limit = Math.max(1, Number(section.settings?.limit || 6));
-  const rows = creators.slice(0, limit);
+  const rows = creators.filter(isPublicHomepageCreator).slice(0, limit);
   return (
     <section className={sectionClass(section)}>
       <div className="max-w-7xl mx-auto px-6 md:px-10">
@@ -247,7 +255,7 @@ function FeaturedCreatorsSection({ section, creators }) {
             ))}
           </div>
         ) : (
-          <div className="card text-[var(--ff-muted-text)]">Active creator stores will appear here when they are available.</div>
+          <div className="card text-[var(--ff-muted-text)]">Public creator stores that opt into the platform gallery will appear here.</div>
         )}
         <ActionButtons section={section} />
       </div>
@@ -268,13 +276,13 @@ export default function PublicHomepageSections({ sections = [] }) {
   useEffect(() => {
     let mounted = true;
     if (needsProducts) {
-      http.get("/products?published=true")
-        .then((response) => mounted && setProducts(Array.isArray(response.data) ? response.data : []))
+      http.get("/public/homepage/products?limit=32")
+        .then((response) => mounted && setProducts((Array.isArray(response.data) ? response.data : []).filter(isPublicHomepageProduct)))
         .catch(() => mounted && setProducts([]));
     }
     if (needsCreators) {
-      http.get("/public/creators/gallery")
-        .then((response) => mounted && setCreators(Array.isArray(response.data) ? response.data : []))
+      http.get("/public/homepage/creators?limit=24")
+        .then((response) => mounted && setCreators((Array.isArray(response.data) ? response.data : []).filter(isPublicHomepageCreator)))
         .catch(() => mounted && setCreators([]));
     }
     return () => { mounted = false; };
