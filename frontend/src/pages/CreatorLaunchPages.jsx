@@ -296,46 +296,26 @@ export function CreatorOnboardingPage() {
       secondaryLabel="See Products and Pricing"
       secondaryTo="/products-and-pricing"
     >
-      <Section
-        eyebrow="What you can launch"
-        title="A complete merchandise store built around your audience"
-        intro="Start with one product or build a growing range. FandomForge gives you the storefront and operational structure needed to sell professionally."
-      >
+      <Section eyebrow="What you can launch" title="A complete merchandise store built around your audience" intro="Start with one product or build a growing range. FandomForge gives you the storefront and operational structure needed to sell professionally.">
         <Cards items={launchBenefits} columns="sm:grid-cols-2 lg:grid-cols-3" />
       </Section>
 
-      <Section
-        eyebrow="What you need"
-        title="You can start before everything is perfect"
-        intro="You do not need a finished catalogue, bulk stock or production experience before joining."
-      >
+      <Section eyebrow="What you need" title="You can start before everything is perfect" intro="You do not need a finished catalogue, bulk stock or production experience before joining.">
         <Cards items={gettingStarted} columns="sm:grid-cols-2 lg:grid-cols-4" />
         <div className="mt-6">
           <OperationalNote>Start with the identity and product idea you already have. You can refine your storefront and expand your merchandise range as you grow.</OperationalNote>
         </div>
       </Section>
 
-      <Section
-        eyebrow="Your launch journey"
-        title="Four steps from signup to a shareable store"
-        intro="The setup journey is designed to move you directly toward your first published product."
-      >
+      <Section eyebrow="Your launch journey" title="Four steps from signup to a shareable store" intro="The setup journey is designed to move you directly toward your first published product.">
         <NumberedSteps steps={launchSteps} />
       </Section>
 
-      <Section
-        eyebrow="Built into FandomForge"
-        title="You build the brand. We handle the operational workflow."
-        intro="The platform keeps the technical product, pricing, order and production information connected behind the scenes."
-      >
+      <Section eyebrow="Built into FandomForge" title="You build the brand. We handle the operational workflow." intro="The platform keeps the technical product, pricing, order and production information connected behind the scenes.">
         <Cards items={platformHandles} />
       </Section>
 
-      <Section
-        eyebrow="Creator control"
-        title="Your store still belongs to your vision"
-        intro="FandomForge supports the workflow without taking control of how you present, price and promote your merchandise."
-      >
+      <Section eyebrow="Creator control" title="Your store still belongs to your vision" intro="FandomForge supports the workflow without taking control of how you present, price and promote your merchandise.">
         <Cards items={creatorControls} />
       </Section>
 
@@ -394,10 +374,6 @@ export function CreatorEarningsPage() {
             ["Estimated creator earnings", "The creator amount displayed before the product is submitted or published."],
           ].map(([title, text], index) => <article key={title} className="card"><div className="font-display text-4xl text-[var(--ff-primary)] mb-3">{index + 1}</div><h3 className="font-display text-2xl uppercase mb-2">{title}</h3><p className="text-sm text-[var(--ff-muted-text)]">{text}</p></article>)}
         </div>
-      </Section>
-      <Section eyebrow="Finance controls" title="Rules that must match the production system" narrow>
-        <OperationalNote>Fixed payout frequency, payout thresholds, VAT treatment, transaction-fee treatment, refunds, cancellations and chargeback effects must be confirmed in the published Creator Terms and Payout Policy before public worked examples are added.</OperationalNote>
-        <div className="mt-6"><Link to="/creator-terms" className="btn-secondary">View Current Creator Terms</Link></div>
       </Section>
     </PageShell>
   );
