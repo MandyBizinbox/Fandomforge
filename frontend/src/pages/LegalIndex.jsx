@@ -13,10 +13,10 @@ export default function LegalIndex() {
         <header className="mb-10 max-w-3xl">
           <p className="overline mb-2">Legal and platform policies</p>
           <h1 className="font-display text-5xl sm:text-6xl uppercase leading-none">
-            Clear rules for creators and customers
+            Clear rules for customers, creators and communities
           </h1>
           <p className="text-[var(--ff-muted-text)] mt-4 text-lg">
-            These policies explain how FandomForge accounts, orders, content, production, delivery, returns, earnings and store enforcement work.
+            Find the current rules for accounts, orders, payments, content, production, delivery, returns, creator payouts and store enforcement.
           </p>
         </header>
 
@@ -48,13 +48,14 @@ export default function LegalIndex() {
         <section className="mt-8 border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-6 flex gap-4 items-start">
           <ShieldCheck className="text-[var(--ff-primary)] shrink-0 mt-1" />
           <div>
-            <h2 className="font-display text-2xl uppercase mb-2">Need clarification?</h2>
+            <h2 className="font-display text-2xl uppercase mb-2">Need help applying a policy?</h2>
             <p className="text-sm text-[var(--ff-muted-text)]">
               Contact FandomForge before placing an order, publishing a product or submitting content when you are unsure how a policy applies.
             </p>
-            <Link to="/contact" className="btn-secondary mt-4">
-              Contact Support
-            </Link>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link to="/contact" className="btn-secondary">Contact Support</Link>
+              <a href="mailto:help@fandomforge.co.za" className="btn-secondary">help@fandomforge.co.za</a>
+            </div>
           </div>
         </section>
       </main>
