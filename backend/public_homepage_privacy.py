@@ -26,6 +26,22 @@ def _creator_card(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _public_artwork_groups(groups: Any) -> List[Dict[str, Any]]:
+    public_groups: List[Dict[str, Any]] = []
+    for group in groups if isinstance(groups, list) else []:
+        if not isinstance(group, dict):
+            continue
+        public_artworks = []
+        for artwork in group.get("artworks") or []:
+            if isinstance(artwork, dict) and artwork.get("mockup_image_url"):
+                public_artworks.append({"mockup_image_url": artwork.get("mockup_image_url")})
+        public_groups.append({
+            "primary_mockup_image_url": group.get("primary_mockup_image_url"),
+            "artworks": public_artworks,
+        })
+    return public_groups
+
+
 def _public_product(doc: Dict[str, Any], creator: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": doc.get("id"),
@@ -40,8 +56,7 @@ def _public_product(doc: Dict[str, Any], creator: Dict[str, Any]) -> Dict[str, A
         "mockup_images": doc.get("mockup_images") or [],
         "mockup_image_url": doc.get("mockup_image_url"),
         "primary_mockup_image_url": doc.get("primary_mockup_image_url"),
-        "variations": doc.get("variations") or [],
-        "artwork_groups": doc.get("artwork_groups") or [],
+        "artwork_groups": _public_artwork_groups(doc.get("artwork_groups")),
         "customization_enabled": bool(doc.get("customization_enabled", False)),
         "published": True,
         "creator_name": creator.get("gallery_display_name") or creator.get("name") or "",
@@ -52,19 +67,11 @@ def _public_product(doc: Dict[str, Any], creator: Dict[str, Any]) -> Dict[str, A
     }
 
 
-@public_homepage_router.get("/creators")
-async def homepage_creators(
-    request: Request,
-    limit: int = Query(default=6, ge=1, le=24),
-) -> List[Dict[str, Any]]:
-    """Return only active creators who explicitly allow public gallery discovery."""
-    db = request.app.state.db
-    safe_limit = _bounded_limit(limit, 24)
-    query = {
-        "status": "active",
-        "visibility": "public",
-        "show_on_platform_gallery": True,
-    }
+async def _public_creators(db, *, gallery_only: bool) -> List[Dict[str, Any]]:
+    query: Dict[str, Any] = {"status": "active", "visibility": "public"}
+    if gallery_only:
+        query["show_on_platform_gallery"] = True
+
     projection = {
         "_id": 0,
         "id": 1,
@@ -76,9 +83,34 @@ async def homepage_creators(
         "gallery_logo_url": 1,
         "gallery_banner_url": 1,
         "gallery_display_name": 1,
+        "created_at": 1,
     }
-    docs = await db.creators.find(query, projection).sort("created_at", -1).limit(safe_limit).to_list(safe_limit)
-    return [_creator_card(doc) for doc in docs]
+
+    merged: Dict[str, Dict[str, Any]] = {}
+    for collection_name in ("bands", "creators"):
+        collection = getattr(db, collection_name)
+        docs = await collection.find(query, projection).sort("created_at", -1).to_list(5000)
+        for doc in docs:
+            creator_id = doc.get("id")
+            if creator_id:
+                merged[creator_id] = doc
+
+    return sorted(
+        merged.values(),
+        key=lambda creator: creator.get("created_at") or "",
+        reverse=True,
+    )
+
+
+@public_homepage_router.get("/creators")
+async def homepage_creators(
+    request: Request,
+    limit: int = Query(default=6, ge=1, le=24),
+) -> List[Dict[str, Any]]:
+    """Return only active public creators who explicitly allow gallery discovery."""
+    safe_limit = _bounded_limit(limit, 24)
+    creators = await _public_creators(request.app.state.db, gallery_only=True)
+    return [_creator_card(creator) for creator in creators[:safe_limit]]
 
 
 @public_homepage_router.get("/products")
@@ -90,17 +122,7 @@ async def homepage_products(
     db = request.app.state.db
     safe_limit = _bounded_limit(limit, 32)
 
-    creator_projection = {
-        "_id": 0,
-        "id": 1,
-        "slug": 1,
-        "name": 1,
-        "gallery_display_name": 1,
-    }
-    creators = await db.creators.find(
-        {"status": "active", "visibility": "public"},
-        creator_projection,
-    ).to_list(5000)
+    creators = await _public_creators(db, gallery_only=False)
     creators_by_id = {creator.get("id"): creator for creator in creators if creator.get("id")}
 
     if not creators_by_id:
@@ -120,7 +142,6 @@ async def homepage_products(
         "mockup_images": 1,
         "mockup_image_url": 1,
         "primary_mockup_image_url": 1,
-        "variations": 1,
         "artwork_groups": 1,
         "customization_enabled": 1,
         "created_at": 1,
