@@ -57,36 +57,33 @@ export default function PolicyPage({ policyKeyOverride = "" }) {
 
   const localPolicy = useMemo(() => getLocalPolicy(mappedKey), [mappedKey]);
   const [policy, setPolicy] = useState(localPolicy);
-  const [loading, setLoading] = useState(true);
-  const [usingFallback, setUsingFallback] = useState(false);
+  const [loading, setLoading] = useState(!localPolicy);
 
   useEffect(() => {
     let active = true;
+
+    if (localPolicy) {
+      setPolicy(localPolicy);
+      setLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setPolicy(null);
     setLoading(true);
-    setPolicy(localPolicy);
-    setUsingFallback(false);
 
     http
       .get(`/public/policies/${mappedKey}`)
       .then((response) => {
         if (!active) return;
-
-        if (isUsablePolicy(response.data)) {
-          setPolicy({
-            platform_name: response.data.platform_name || "FandomForge",
-            ...response.data,
-          });
-          setUsingFallback(false);
-          return;
-        }
-
-        setPolicy(localPolicy);
-        setUsingFallback(Boolean(localPolicy));
+        setPolicy(isUsablePolicy(response.data) ? {
+          platform_name: response.data.platform_name || "FandomForge",
+          ...response.data,
+        } : null);
       })
       .catch(() => {
-        if (!active) return;
-        setPolicy(localPolicy);
-        setUsingFallback(Boolean(localPolicy));
+        if (active) setPolicy(null);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -112,27 +109,20 @@ export default function PolicyPage({ policyKeyOverride = "" }) {
           {policy?.title || "Platform Policy"}
         </h1>
 
-        {loading && !policy ? (
+        {loading ? (
           <div className="card text-[var(--ff-muted-text)]">Loading policy…</div>
         ) : policy?.content ? (
-          <>
-            {usingFallback && (
-              <div className="border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] p-4 mb-5 text-sm text-[var(--ff-muted-text)]">
-                This is the current FandomForge public policy for this topic.
-              </div>
-            )}
-            <div className="card leading-7 text-[var(--ff-muted-text)] policy-content">
-              <RichTextRenderer html={policy.content} />
-            </div>
-          </>
+          <div className="card leading-7 text-[var(--ff-muted-text)] policy-content">
+            <RichTextRenderer html={policy.content} />
+          </div>
         ) : (
           <div className="card">
             <AlertTriangle className="text-[var(--ff-primary)] mb-4" />
             <h2 className="font-display text-3xl uppercase mb-3">Policy unavailable</h2>
             <p className="text-[var(--ff-muted-text)] mb-5">
-              We could not load this policy. Please contact FandomForge before continuing with the related transaction or account action.
+              We could not load this policy. Email help@fandomforge.co.za before continuing with the related transaction or account action.
             </p>
-            <Link to="/contact" className="btn-primary">Contact Support</Link>
+            <a href="mailto:help@fandomforge.co.za" className="btn-primary">Email Support</a>
           </div>
         )}
       </main>
