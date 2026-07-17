@@ -67,6 +67,13 @@ def _public_product(doc: Dict[str, Any], creator: Dict[str, Any]) -> Dict[str, A
     }
 
 
+def _created_at_key(doc: Dict[str, Any]) -> str:
+    value = doc.get("created_at")
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value or "")
+
+
 async def _public_creators(db, *, gallery_only: bool) -> List[Dict[str, Any]]:
     query: Dict[str, Any] = {"status": "active", "visibility": "public"}
     if gallery_only:
@@ -95,11 +102,7 @@ async def _public_creators(db, *, gallery_only: bool) -> List[Dict[str, Any]]:
             if creator_id:
                 merged[creator_id] = doc
 
-    return sorted(
-        merged.values(),
-        key=lambda creator: creator.get("created_at") or "",
-        reverse=True,
-    )
+    return sorted(merged.values(), key=_created_at_key, reverse=True)
 
 
 @public_homepage_router.get("/creators")
