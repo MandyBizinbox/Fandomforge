@@ -174,7 +174,7 @@ export function HowItWorksPage() {
   ];
 
   return (
-    <PageShell eyebrow="How it works" title="From creator account to fulfilled merchandise order." intro="The public journey stays simple. The platform handles the technical product, pricing, order and production records behind each step." primaryLabel="Start Creating" primaryTo="/register/creator" secondaryLabel="View Products and Pricing" secondaryTo="/products-and-pricing">
+    <PageShell eyebrow="How it works" title="From creator account to fulfilled merchandise order." intro="You choose the products, artwork and selling price. FandomForge keeps the product, pricing, order and production details connected behind the scenes as you move through each step." primaryLabel="Start Creating" primaryTo="/register/creator" secondaryLabel="View Products and Pricing" secondaryTo="/products-and-pricing">
       <Section eyebrow="Creator journey" title="Ten clear steps">
         <div className="grid md:grid-cols-2 gap-4">
           {steps.map(([title, text, Icon], index) => (
@@ -190,10 +190,6 @@ export function HowItWorksPage() {
             </article>
           ))}
         </div>
-      </Section>
-      <Section eyebrow="Next step" title="Use the onboarding checklist while setting up your first store" narrow>
-        <OperationalNote>The onboarding page shows the account, identity, commercial, terms, storefront, first-product and launch-checklist stages in one sequence.</OperationalNote>
-        <div className="mt-6"><Link to="/creator-onboarding" className="btn-primary">Open Creator Onboarding <ArrowRight size={17} /></Link></div>
       </Section>
     </PageShell>
   );
@@ -241,10 +237,6 @@ export function ProductsPricingPage() {
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {definitions.map(([title, text]) => <article key={title} className="card"><h3 className="font-display text-2xl uppercase mb-2">{title}</h3><p className="text-sm text-[var(--ff-muted-text)]">{text}</p></article>)}
         </div>
-      </Section>
-
-      <Section eyebrow="Creator Studio" title="Pricing must match the live calculation" narrow>
-        <OperationalNote>No fixed public product-cost table is hard-coded on this page. The Creator Studio and catalogue-pricing screen remain the authoritative source for current products, production costs, recommended prices and estimated creator earnings.</OperationalNote>
       </Section>
     </PageShell>
   );
@@ -313,7 +305,6 @@ export function CommunityStoresPage() {
           { icon: Truck, title: "Fulfilment support", text: "Order and production information is routed through the platform fulfilment workflow." },
           { icon: Users, title: "Direct customer ordering", text: "Members and supporters can place their own orders through the store link." },
         ]} />
-        <div className="mt-6"><OperationalNote>Minimum quantities, production turnaround times and delivery promises are not stated here unless they are confirmed for the selected product and fulfilment method.</OperationalNote></div>
       </Section>
     </PageShell>
   );
