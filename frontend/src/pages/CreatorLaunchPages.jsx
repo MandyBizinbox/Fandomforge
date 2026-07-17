@@ -420,7 +420,7 @@ export function CreatorFaqPage() {
     ["How is pricing calculated?", "The live Creator Studio combines the selected product and production information and shows the current pricing result before publication."],
     ["Can I choose my selling price?", "Creators can set a selling price subject to the platform pricing controls and minimum viable price checks."],
     ["How do I see estimated earnings?", "The pricing and review stages display the estimated creator amount calculated for the product."],
-    ["When are creators paid?", "Payout timing and thresholds must follow the published Creator Terms and Payout Policy. Do not rely on an unpublished schedule."],
+    ["When are creators paid?", "Creator payouts are processed weekly through Paystack into the creator's linked Paystack account."],
     ["How does production work?", "Approved order information includes the product, variation, artwork files, placement, manufacturing profile and costing snapshot required for fulfilment."],
     ["How is shipping charged?", "Available shipping methods and costs are presented through checkout based on the configured fulfilment options."],
     ["What happens if a product is defective?", "The customer should contact support with the order details and evidence so the issue can be assessed under the returns policy."],
