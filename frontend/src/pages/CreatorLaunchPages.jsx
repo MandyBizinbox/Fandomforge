@@ -381,28 +381,37 @@ export function CreatorEarningsPage() {
 
 export function ShippingReturnsPage() {
   const topics = [
-    ["Production lead times", "Lead times depend on the selected product, artwork and production method. Confirmed timing must be communicated through the applicable product and order workflow."],
-    ["Shipping options", "Available delivery methods and charges are presented through the current checkout configuration."],
-    ["Tracking", "Tracking information is recorded when the selected courier or fulfilment method provides it."],
-    ["Incorrect addresses", "Customers must provide complete delivery information. Address-correction and failed-delivery costs depend on the delivery provider."],
-    ["Product defects", "Defect reports must be submitted through support with the order information and clear evidence of the issue."],
-    ["Custom-product returns", "Made-to-order and customised products are handled under the published returns and refund policy."],
-    ["Refunds and creator earnings", "Refund and cancellation effects must follow the current order, payment and creator-payout rules."],
-    ["Support", "Use the public support contact details configured for this FandomForge instance."],
+    ["Production time", "Most paid orders are produced within 2 to 3 business days. Complex artwork, supplier delays or unusually large orders may take longer, and we will communicate material delays."],
+    ["Courier delivery", "Standard courier delivery usually takes 3 to 4 business days after production and dispatch. Remote areas, peak periods and courier disruptions can extend delivery time."],
+    ["Shipping costs", "Available delivery or collection methods and their charges are shown at checkout before payment."],
+    ["Tracking", "Where courier tracking is available, the tracking details are added to the order after dispatch."],
+    ["Group delivery and collection", "Some creator stores offer group delivery or collection. The available location, date and collection instructions are shown during checkout or in the order update."],
+    ["Address problems", "Customers must provide a complete delivery address. Contact support immediately after ordering if a correction is needed; redelivery charges may apply when incorrect details cause a failed delivery."],
+    ["Damaged, faulty or incorrect items", "Report the issue within 7 days after delivery or collection. Include the order number, a description and clear photographs so the item can be assessed."],
+    ["Made-to-order returns", "Personalised and made-to-order products are not automatically eligible for a change-of-mind return. Defective, damaged or incorrectly supplied items remain covered by the Returns Policy and applicable law."],
   ];
 
   return (
-    <PageShell eyebrow="Shipping, production and returns" title="Clear expectations from checkout to delivery and support." intro="Only operationally confirmed promises are published. Product-specific production and delivery information remains tied to the live catalogue, checkout and order workflow." primaryLabel="View Shipping Policy" primaryTo="/shipping-policy" secondaryLabel="View Returns Policy" secondaryTo="/returns">
-      <Section eyebrow="Customer information" title="What buyers and creators need to know">
+    <PageShell
+      eyebrow="Shipping, production and returns"
+      title="From checkout to delivery, you know what happens next."
+      intro="Most orders are produced within 2 to 3 business days, followed by approximately 3 to 4 business days for standard courier delivery after dispatch."
+      primaryLabel="View Shipping Policy"
+      primaryTo="/shipping-policy"
+      secondaryLabel="View Returns Policy"
+      secondaryTo="/returns"
+    >
+      <Section eyebrow="Order journey" title="Production, delivery and support in plain language">
         <div className="grid md:grid-cols-2 gap-4">
           {topics.map(([title, text]) => <article key={title} className="card"><h3 className="font-display text-2xl uppercase mb-2">{title}</h3><p className="text-sm text-[var(--ff-muted-text)]">{text}</p></article>)}
         </div>
       </Section>
-      <Section eyebrow="Policies" title="Use the current published policy set" narrow>
+
+      <Section eyebrow="Need help?" title="We are here when an order needs attention" narrow>
+        <p className="text-[var(--ff-muted-text)] mb-6">Email <a className="text-[var(--ff-primary)] font-bold hover:underline" href="mailto:help@fandomforge.co.za">help@fandomforge.co.za</a> with your order number and a clear description of the issue.</p>
         <div className="flex flex-wrap gap-3">
           <Link to="/shipping-policy" className="btn-secondary">Shipping Policy</Link>
           <Link to="/returns" className="btn-secondary">Returns Policy</Link>
-          <Link to="/privacy" className="btn-secondary">Privacy Policy</Link>
           <Link to="/contact" className="btn-secondary">Contact Support</Link>
         </div>
       </Section>
@@ -412,26 +421,34 @@ export function ShippingReturnsPage() {
 
 export function CreatorFaqPage() {
   const faqs = [
-    ["Who can create a FandomForge store?", "Creators, designers, clubs, schools, bands, events, organisations, associations, small brands and community leaders can use the creator workflow where registration is enabled."],
-    ["Do I need to buy stock before I start?", "The platform is designed around made-to-order product creation, so creators do not need to purchase a bulk size and colour mix before listing approved products."],
-    ["Can I create products myself?", "Yes. The Creator Studio lets you choose products, select variations, upload artwork, add text, position the design, review pricing and save a draft."],
-    ["Can I use custom text?", "Yes. Text layers can be created in the Builder and are stored as production artwork files when the product is saved."],
-    ["Who owns the artwork?", "Creators must have the legal right to use all uploaded artwork, names, logos and other intellectual property and must accept the current creator and prohibited-content rules."],
-    ["How is pricing calculated?", "The live Creator Studio combines the selected product and production information and shows the current pricing result before publication."],
-    ["Can I choose my selling price?", "Creators can set a selling price subject to the platform pricing controls and minimum viable price checks."],
-    ["How do I see estimated earnings?", "The pricing and review stages display the estimated creator amount calculated for the product."],
-    ["When are creators paid?", "Creator payouts are processed weekly through Paystack into the creator's linked Paystack account."],
-    ["How does production work?", "Approved order information includes the product, variation, artwork files, placement, manufacturing profile and costing snapshot required for fulfilment."],
-    ["How is shipping charged?", "Available shipping methods and costs are presented through checkout based on the configured fulfilment options."],
-    ["What happens if a product is defective?", "The customer should contact support with the order details and evidence so the issue can be assessed under the returns policy."],
-    ["Can clubs and schools use the platform?", "Yes. The platform supports community stores, team apparel, school spirit wear, fundraising and event merchandise."],
-    ["Does my account need approval?", "The answer depends on the live creator-signup configuration. The registration and onboarding flow will show the required next step."],
-    ["Where do I get support?", "Use the contact details configured in the platform footer and contact page."],
+    ["Who can create a FandomForge store?", "Creators, designers, clubs, schools, bands, teams, events, organisations, small brands and community leaders can create a store."],
+    ["Do I need to buy stock first?", "No. Products are made after customers order, so you do not need to pre-buy a full range of sizes and colours."],
+    ["What do I need to start?", "You need a store name, basic contact details and an artwork idea, logo, design or message for your first product. You can refine the rest as your store grows."],
+    ["Can I create products myself?", "Yes. The Creator Studio lets you choose products, select variations, upload artwork, add text, position the design, review pricing and save or publish the product."],
+    ["Can I use any artwork?", "You may use artwork, names, logos and other material that you created or have permission to use commercially. Content that infringes another person's rights may be removed."],
+    ["Can I choose my selling price?", "Yes. You set the customer-facing price within the minimum pricing controls shown in the Creator Studio."],
+    ["How do I see my estimated earnings?", "The Creator Studio shows the estimated creator amount before you publish the product, based on the current product, production and selling-price calculation."],
+    ["When are creators paid?", "Eligible creator payouts are processed every Friday through Paystack into the creator's linked and verified Paystack account."],
+    ["How long does production take?", "Most paid orders are produced within 2 to 3 business days. We will communicate material delays caused by complex work, supplier issues or unusually large orders."],
+    ["How long does courier delivery take?", "Standard courier delivery usually takes 3 to 4 business days after production and dispatch. Remote areas and courier disruptions may take longer."],
+    ["What happens if an item is damaged or incorrect?", "The customer should report the issue within 7 days after delivery or collection and include the order number, a description and clear photographs."],
+    ["Can I control who sees my store?", "Yes. Public stores can be discovered on FandomForge, unlisted stores are shared by direct link, and private stores are limited according to the selected access settings."],
+    ["Can clubs and schools use FandomForge?", "Yes. Clubs, schools and community organisations can use a central store for team apparel, spirit wear, events, fundraising and supporter merchandise."],
+    ["Does my store need approval?", "Some creator accounts or products may be reviewed before they can publish or accept orders. The platform will show you the next required step."],
+    ["Where do I get support?", "Use the Contact page or email help@fandomforge.co.za. Include your store name or order number when relevant so we can assist faster."],
   ];
 
   return (
-    <PageShell eyebrow="Frequently asked questions" title="Answers to the questions that block creator signup and product launch." intro="These answers describe the current platform workflow without promising unconfirmed turnaround times, earnings or delivery coverage." primaryLabel="Create an Account" primaryTo="/register/creator" secondaryLabel="Contact Support" secondaryTo="/contact">
-      <Section eyebrow="Creator FAQ" title="Registration, products, pricing, fulfilment and support" narrow>
+    <PageShell
+      eyebrow="Frequently asked questions"
+      title="Everything you need to start and run your FandomForge store."
+      intro="Clear answers about store setup, products, pricing, payouts, production, delivery and customer support."
+      primaryLabel="Start Your Store"
+      primaryTo="/register/creator"
+      secondaryLabel="Contact Support"
+      secondaryTo="/contact"
+    >
+      <Section eyebrow="Creator FAQ" title="Your questions, answered" narrow>
         <div className="space-y-3">
           {faqs.map(([question, answer]) => (
             <details key={question} className="card">
