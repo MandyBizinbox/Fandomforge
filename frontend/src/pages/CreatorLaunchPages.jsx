@@ -7,7 +7,6 @@ import {
   Calculator,
   CheckCircle2,
   CircleDollarSign,
-  ClipboardCheck,
   FileCheck2,
   Image,
   Layers3,
@@ -22,7 +21,6 @@ import {
   Upload,
   UserPlus,
   Users,
-  WalletCards,
 } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { http } from "../lib/api";
@@ -243,41 +241,115 @@ export function ProductsPricingPage() {
 }
 
 export function CreatorOnboardingPage() {
-  const stages = [
-    { title: "Account", icon: UserPlus, text: "Name, email, password and account verification." },
-    { title: "Creator identity", icon: Users, text: "Creator or community type, display name, public handle, description, profile image and social links." },
-    { title: "Commercial information", icon: WalletCards, text: "Legal or registration information where required, payout details, tax or VAT status and payout acceptance." },
-    { title: "Terms and rights", icon: ShieldCheck, text: "Creator agreement, artwork ownership, intellectual-property confirmation, prohibited-content acknowledgement and privacy consent." },
-    { title: "Store setup", icon: Store, text: "Storefront name, banner, logo, description, social links and contact preference." },
-    { title: "First product", icon: Paintbrush, text: "Choose a product, select variations, upload artwork or add text, position the design, set pricing, save and preview." },
-    { title: "Launch checklist", icon: ClipboardCheck, text: "Complete profile, payout information, terms, first product, storefront link and first promotional post." },
+  const { platform } = usePlatformConfig();
+  const creatorSignupEnabled = platform?.signup?.creator_signup_enabled !== false;
+  const signupLabel = creatorSignupEnabled ? "Start Your Store" : "Creator Signup Temporarily Closed";
+  const signupTarget = creatorSignupEnabled ? "/register/creator" : "/contact";
+
+  const launchBenefits = [
+    { icon: Store, title: "Your own storefront", text: "Launch a dedicated store that reflects your creator identity, brand, club or community." },
+    { icon: Shirt, title: "Your merchandise range", text: "Turn your artwork, logo, message or community identity into products your audience can order." },
+    { icon: Users, title: "A shareable store link", text: "Use one link across social media, WhatsApp, websites, newsletters and community channels." },
+    { icon: PackageCheck, title: "Customer ordering", text: "Give customers a structured checkout and order journey instead of managing messages and spreadsheets." },
+    { icon: Truck, title: "Managed fulfilment", text: "FandomForge keeps the order and production workflow connected after a customer buys." },
   ];
 
-  const checklist = [
-    "Store profile complete", "Payout information complete", "Creator terms accepted", "Artwork rights confirmed",
-    "First product draft saved", "First product published", "Storefront link tested", "Mobile signup and onboarding tested",
+  const gettingStarted = [
+    { icon: Store, title: "A store name", text: "Use your creator name, brand, club, school, team, event or community identity." },
+    { icon: Image, title: "A simple identity", text: "A logo, profile image or basic visual direction is enough to begin setting up your storefront." },
+    { icon: Paintbrush, title: "An idea to sell", text: "Bring finished artwork, a design concept, a logo or custom text for your first product." },
+    { icon: UserPlus, title: "Your contact details", text: "You need an email address and the basic information required to create your account." },
+  ];
+
+  const launchSteps = [
+    { title: "Create your account", text: "Tell us who you are and what kind of creator, brand, organisation or community you represent." },
+    { title: "Build your storefront", text: "Add your store name, identity, description and the public details you want customers to see." },
+    { title: "Create your first product", text: "Choose a product, add artwork or text, select the variations you want to offer and set your selling price." },
+    { title: "Publish and share", text: "Launch your product and share your storefront link with the audience you already have." },
+  ];
+
+  const platformHandles = [
+    { icon: Layers3, title: "Product setup", text: "Approved products, variations and printable areas are organised inside the Creator Studio." },
+    { icon: Calculator, title: "Live pricing", text: "Current product and production costs stay connected to the selling-price calculation." },
+    { icon: PackageCheck, title: "Customer checkout", text: "Customers place structured orders through the storefront instead of sending manual requests." },
+    { icon: FileCheck2, title: "Order records", text: "Product, variation, artwork and order details stay attached to the transaction." },
+    { icon: Truck, title: "Production workflow", text: "Approved order information moves into production and fulfilment through the platform." },
+    { icon: BadgeCheck, title: "Order visibility", text: "Customers and the operational team can follow the order through the available status and tracking flow." },
+  ];
+
+  const creatorControls = [
+    { icon: Palette, title: "Your identity", text: "You choose your store name, description, images and the way your brand or community is presented." },
+    { icon: Paintbrush, title: "Your artwork", text: "You decide which original artwork, logos, messages and text become part of your products." },
+    { icon: Shirt, title: "Your product range", text: "You choose which available products and variations you want to offer your audience." },
+    { icon: CircleDollarSign, title: "Your selling price", text: "You set the customer-facing price within the live pricing controls shown in the Creator Studio." },
+    { icon: ShieldCheck, title: "Your store visibility", text: "Choose whether your storefront is public, unlisted or private before you launch." },
+    { icon: Users, title: "Your promotion", text: "You decide where, when and how you share your store with your audience or community." },
   ];
 
   return (
-    <PageShell eyebrow="Creator onboarding" title="One guided path from registration to a launch-ready storefront." intro="Complete each stage in order. The next required action should always be visible, and no creator should reach a dead end between registration, first draft and storefront launch." primaryLabel="Begin Registration" primaryTo="/register/creator" secondaryLabel="Read Creator Terms" secondaryTo="/creator-terms">
-      <Section eyebrow="Onboarding stages" title="Seven stages to complete">
-        <div className="grid md:grid-cols-2 gap-4">
-          {stages.map((stage, index) => {
-            const Icon = stage.icon;
-            return <article key={stage.title} className="card flex gap-4"><div className="font-display text-4xl text-[var(--ff-primary)]">{index + 1}</div><div><Icon size={22} className="text-[var(--ff-primary)] mb-3"/><h3 className="font-display text-2xl uppercase mb-2">{stage.title}</h3><p className="text-sm text-[var(--ff-muted-text)]">{stage.text}</p></div></article>;
-          })}
+    <PageShell
+      eyebrow="Launch your creator store"
+      title="Your merchandise store starts with one idea."
+      intro="Create your account, build your storefront and publish your first product without buying stock or managing production yourself."
+      primaryLabel={signupLabel}
+      primaryTo={signupTarget}
+      secondaryLabel="See Products and Pricing"
+      secondaryTo="/products-and-pricing"
+    >
+      <Section
+        eyebrow="What you can launch"
+        title="A complete merchandise store built around your audience"
+        intro="Start with one product or build a growing range. FandomForge gives you the storefront and operational structure needed to sell professionally."
+      >
+        <Cards items={launchBenefits} columns="sm:grid-cols-2 lg:grid-cols-3" />
+      </Section>
+
+      <Section
+        eyebrow="What you need"
+        title="You can start before everything is perfect"
+        intro="You do not need a finished catalogue, bulk stock or production experience before joining."
+      >
+        <Cards items={gettingStarted} columns="sm:grid-cols-2 lg:grid-cols-4" />
+        <div className="mt-6">
+          <OperationalNote>Start with the identity and product idea you already have. You can refine your storefront and expand your merchandise range as you grow.</OperationalNote>
         </div>
       </Section>
 
-      <Section eyebrow="Launch gate" title="Creator launch checklist" narrow>
-        <div className="grid sm:grid-cols-2 gap-3">
-          {checklist.map((item) => <div key={item} className="card flex gap-3 items-center"><CheckCircle2 size={18} className="text-[var(--ff-primary)] shrink-0"/><span className="text-sm font-bold uppercase tracking-wide">{item}</span></div>)}
-        </div>
-        <div className="mt-6 flex flex-col sm:flex-row gap-3">
-          <Link to="/register/creator" className="btn-primary">Create Account <ArrowRight size={17}/></Link>
-          <Link to="/how-it-works" className="btn-secondary">Review the Full Journey</Link>
-        </div>
+      <Section
+        eyebrow="Your launch journey"
+        title="Four steps from signup to a shareable store"
+        intro="The setup journey is designed to move you directly toward your first published product."
+      >
+        <NumberedSteps steps={launchSteps} />
       </Section>
+
+      <Section
+        eyebrow="Built into FandomForge"
+        title="You build the brand. We handle the operational workflow."
+        intro="The platform keeps the technical product, pricing, order and production information connected behind the scenes."
+      >
+        <Cards items={platformHandles} />
+      </Section>
+
+      <Section
+        eyebrow="Creator control"
+        title="Your store still belongs to your vision"
+        intro="FandomForge supports the workflow without taking control of how you present, price and promote your merchandise."
+      >
+        <Cards items={creatorControls} />
+      </Section>
+
+      <section className="py-16 md:py-20 border-b border-[var(--ff-card-border)]">
+        <div className="max-w-5xl mx-auto px-6 md:px-10 text-center">
+          <p className="overline mb-3">Ready to launch?</p>
+          <h2 className="font-display text-4xl md:text-6xl uppercase leading-none">Turn your community into a merchandise store.</h2>
+          <p className="mt-5 mx-auto max-w-2xl text-[var(--ff-muted-text)]">Create your account and start building the first product your audience can call their own.</p>
+          <div className="mt-8 flex flex-col sm:flex-row justify-center gap-3">
+            <Link to={signupTarget} className="btn-primary">{creatorSignupEnabled ? "Create Your Creator Account" : "Contact FandomForge"} <ArrowRight size={17} /></Link>
+            <Link to="/how-it-works" className="btn-secondary">See How It Works</Link>
+          </div>
+        </div>
+      </section>
     </PageShell>
   );
 }
