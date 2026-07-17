@@ -119,10 +119,15 @@ from routes_main import (
 )
 from routes_public_platform import public_platform_router
 from public_homepage_privacy import public_homepage_router
+import payout_launch_routes as payout_launch_routes_module
 from payout_launch_routes import payout_launch_router
+from payout_retry_guard import install_payout_retry_guard
 from builder_draft_routes import builder_drafts_router
 from routes_production_operations import production_operations_router
 from routes_production_rules import production_rules_router
+
+# Install the final reservation check before exposing any payout transfer route.
+install_payout_retry_guard(payout_launch_routes_module)
 
 api_router.include_router(auth_router)
 # Register payout launch routes before legacy payout/payment routes so hardened
