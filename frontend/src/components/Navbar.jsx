@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
-import { ShoppingBag, User, LogOut, Menu, X } from "lucide-react";
+import { ShoppingBag, User, LogOut, Menu, X, WalletCards } from "lucide-react";
 import { usePlatformConfig } from "../lib/platform";
 import PlatformBrand from "./branding/PlatformBrand";
 
@@ -93,6 +93,17 @@ export default function Navbar() {
 
           {user ? (
             <>
+              {user.role === "creator" && (
+                <Link
+                  to="/creator/payouts"
+                  onClick={closeMobile}
+                  className="hidden xl:inline-flex p-2 hover:text-[var(--ff-primary)]"
+                  title="Friday payout account"
+                  aria-label="Friday payout account"
+                >
+                  <WalletCards size={18} />
+                </Link>
+              )}
               <button type="button" onClick={goToDashboard} className="hidden md:inline-flex btn-secondary text-xs py-2 px-2 sm:px-3">
                 <User size={14} /> <span>{accountLabel}</span>
               </button>
@@ -131,6 +142,9 @@ export default function Navbar() {
             <NavLink to="/shipping-production-returns" onClick={closeMobile} className={mobileLinkClass}>Shipping & Returns</NavLink>
             <NavLink to="/faq" onClick={closeMobile} className={mobileLinkClass}>FAQ</NavLink>
             <NavLink to="/contact" onClick={closeMobile} className={mobileLinkClass}>Contact</NavLink>
+            {user?.role === "creator" && (
+              <NavLink to="/creator/payouts" onClick={closeMobile} className={mobileLinkClass}>Friday Payout Account</NavLink>
+            )}
             {!user && <NavLink to="/login" onClick={closeMobile} className={mobileLinkClass}>Login</NavLink>}
 
             {user && (
