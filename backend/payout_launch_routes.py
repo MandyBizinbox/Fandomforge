@@ -249,6 +249,18 @@ def _profile_ready(profile: Optional[dict]) -> bool:
     )
 
 
+async def _require_payout_provider_enabled(db) -> None:
+    platform = await db.settings.find_one(
+        {"id": "platform"},
+        {"_id": 0, "paystack_enabled": 1},
+    ) or {}
+    if not platform.get("paystack_enabled"):
+        raise HTTPException(status_code=400, detail="Paystack creator payouts are not enabled")
+    secret = await core._payout_paystack_secret_key(db)
+    if not secret:
+        raise HTTPException(status_code=400, detail="Paystack payout secret key is not configured")
+
+
 async def _recalculate_batch(db, batch: dict, *, now: Optional[str] = None) -> dict:
     items = batch.get("items") or []
     statuses = [item.get("status") or "pending" for item in items]
@@ -618,6 +630,7 @@ async def _send_or_retry_batch(
     retry_failed_only: bool = False,
     allow_off_cycle_retry: bool = False,
 ) -> dict:
+    await _require_payout_provider_enabled(db)
     if batch.get("status") not in {"approved", "processing", "partial", "failed"}:
         raise HTTPException(status_code=400, detail="Approve the payout batch before sending it")
 
@@ -830,6 +843,18 @@ async def update_payout_paystack_settings(
     return await payout_paystack_settings(request, user)
 
 
+@payout_launch_router.get("/creator-payouts/banks")
+async def creator_paystack_banks(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    await _creator_for_user(db, user)
+    await _require_payout_provider_enabled(db)
+    response = await core._paystack_request(db, "GET", "/bank?currency=ZAR")
+    return response
+
+
 @payout_launch_router.get("/creator-payouts/profile")
 async def creator_payout_profile(
     request: Request,
@@ -838,9 +863,14 @@ async def creator_payout_profile(
     db = request.app.state.db
     creator = await _creator_for_user(db, user)
     profile = await _default_paystack_profile(db, "creator", creator["id"])
+    platform = await db.settings.find_one(
+        {"id": "platform"},
+        {"_id": 0, "paystack_enabled": 1},
+    ) or {}
     return {
         "profile": profile,
         "ready_for_payouts": _profile_ready(profile),
+        "payouts_enabled": bool(platform.get("paystack_enabled")),
         "payout_day": "Friday",
         "provider": "paystack",
     }
@@ -933,6 +963,7 @@ async def verify_creator_paystack_profile(
     user: User = Depends(get_current_user),
 ):
     db = request.app.state.db
+    await _require_payout_provider_enabled(db)
     creator = await _creator_for_user(db, user)
     profile = await _default_paystack_profile(db, "creator", creator["id"])
     if not profile:
