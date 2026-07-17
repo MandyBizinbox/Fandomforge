@@ -26,7 +26,6 @@ from models import (
     User,
     WalletTransaction,
     uid,
-    utcnow,
 )
 import routes_main as core
 
@@ -67,10 +66,6 @@ class WalletAdjustmentInput(BaseModel):
     order_id: Optional[str] = None
     order_item_id: Optional[str] = None
     idempotency_key: str
-
-
-def _iso(value: Any) -> Any:
-    return value.isoformat() if isinstance(value, datetime) else value
 
 
 def _now_iso() -> str:
@@ -190,7 +185,7 @@ async def _queue_payout_notice(
         message=message,
         type="payment",
         event_kind=f"payout_{status}",
-        link_url="/creator/earnings" if owner_type == "creator" else "/admin/billing",
+        link_url="/creator/payouts" if owner_type == "creator" else "/admin/billing",
         band_id=owner_id if owner_type == "creator" else None,
         metadata=metadata,
     )
@@ -210,16 +205,26 @@ async def _queue_payout_notice(
     if notify_admin:
         admin_event = f"{event_key}:admin"
         if not await db.notifications.find_one({"metadata.payout_event_key": admin_event}, {"_id": 1}):
-            admin_notice = Notification(
-                recipient_role="admin",
-                title=title,
-                message=message,
-                type="payment",
-                event_kind=f"payout_{status}",
-                link_url="/admin/billing",
-                metadata={**metadata, "payout_event_key": admin_event},
-            )
-            await db.notifications.insert_one(core.notification_doc(admin_notice))
+            admins = await db.users.find(
+                {"role": {"$in": ["admin", "super_admin"]}, "status": {"$ne": "archived"}},
+                {"_id": 0, "id": 1, "email": 1, "role": 1},
+            ).to_list(100)
+            for admin in admins:
+                admin_notice = Notification(
+                    recipient_user_id=admin.get("id"),
+                    recipient_role=admin.get("role") or "admin",
+                    recipient_email=admin.get("email"),
+                    title=title,
+                    message=message,
+                    type="payment",
+                    event_kind=f"payout_{status}",
+                    link_url="/admin/billing",
+                    metadata={
+                        **metadata,
+                        "payout_event_key": f"{admin_event}:{admin.get('id')}",
+                    },
+                )
+                await db.notifications.insert_one(core.notification_doc(admin_notice))
 
 
 async def _default_paystack_profile(db, owner_type: str, owner_id: str) -> Optional[dict]:
@@ -314,9 +319,6 @@ async def _set_item_status(
     item["metadata"] = {
         **(item.get("metadata") or {}),
         "provider_outcome": original_status,
-    }
-    item["metadata"] = {
-        **(item.get("metadata") or {}),
         **({"paystack_response": provider_data} if provider_data is not None else {}),
     }
 
@@ -841,6 +843,18 @@ async def update_payout_paystack_settings(
         upsert=True,
     )
     return await payout_paystack_settings(request, user)
+
+
+@payout_launch_router.get("/admin/paystack/banks")
+async def admin_paystack_banks_safe(
+    request: Request,
+    currency: str = "ZAR",
+    user: User = Depends(get_current_user),
+):
+    _require_payout_admin(user)
+    db = request.app.state.db
+    await _require_payout_provider_enabled(db)
+    return await core._paystack_request(db, "GET", f"/bank?currency={currency}")
 
 
 @payout_launch_router.get("/creator-payouts/banks")
