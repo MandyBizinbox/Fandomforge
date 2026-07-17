@@ -31,13 +31,15 @@ async def lifespan(app: FastAPI):
         from seed import seed_if_empty
         from seed_production_operations import seed_production_operations
         from seed_production_rules import seed_production_rules
+        from payout_launch_routes import ensure_payout_launch_indexes
 
         await seed_if_empty(app.state.db)
         await seed_production_operations(app.state.db)
         await seed_production_rules(app.state.db)
-        logger.info("Seed check complete")
+        await ensure_payout_launch_indexes(app.state.db)
+        logger.info("Seed and safe index checks complete")
     except Exception as e:
-        logger.exception(f"Seed failed: {e}")
+        logger.exception(f"Seed or index check failed: {e}")
     yield
     client.close()
 
@@ -88,11 +90,15 @@ from routes_main import (
 )
 from routes_public_platform import public_platform_router
 from public_homepage_privacy import public_homepage_router
+from payout_launch_routes import payout_launch_router
 from builder_draft_routes import builder_drafts_router
 from routes_production_operations import production_operations_router
 from routes_production_rules import production_rules_router
 
 api_router.include_router(auth_router)
+# Register payout launch routes before legacy payout/payment routes so hardened
+# creator batching and transfer webhook handling are authoritative.
+api_router.include_router(payout_launch_router)
 api_router.include_router(bands_router)
 api_router.include_router(printers_router)
 api_router.include_router(product_templates_router)
