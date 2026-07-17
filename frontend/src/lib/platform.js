@@ -41,7 +41,8 @@ export const DEFAULT_PLATFORM = {
   button_alternate_border_color: "",
   button_secondary_border_color: "",
 
-  support_email: "",
+  support_email: "help@fandomforge.co.za",
+  public_contact_email: "help@fandomforge.co.za",
   support_phone: "",
   support_whatsapp: "",
 
@@ -120,11 +121,22 @@ function replaceAnchorText(anchor, matcher, replacement) {
   });
 }
 
-function applyPlatformContactDetails(platform = {}) {
-  if (typeof document === "undefined") return;
+const EMAIL_SELECTOR = 'a[href="mailto:info@theforgeza.co.za"], a[data-platform-contact="email"]';
+const WHATSAPP_SELECTOR = 'a[href="https://wa.me/27712116050"], a[data-platform-contact="whatsapp"]';
+
+function matchingAnchors(root, selector) {
+  if (!root || typeof root.querySelectorAll !== "function") return [];
+  const matches = [];
+  if (root.matches?.(selector)) matches.push(root);
+  root.querySelectorAll(selector).forEach((node) => matches.push(node));
+  return matches;
+}
+
+function applyPlatformContactDetails(platform = {}, root = document) {
+  if (typeof document === "undefined" || !root) return;
 
   const supportEmail = String(
-    platform.public_contact_email || platform.support_email || ""
+    platform.public_contact_email || platform.support_email || DEFAULT_PLATFORM.support_email
   ).trim();
   const supportPhone = String(
     platform.support_whatsapp || platform.public_contact_phone || platform.support_phone || ""
@@ -132,23 +144,19 @@ function applyPlatformContactDetails(platform = {}) {
   const supportWhatsappHref = whatsappHref(supportPhone);
 
   if (supportEmail) {
-    document
-      .querySelectorAll('a[href="mailto:info@theforgeza.co.za"], a[data-platform-contact="email"]')
-      .forEach((anchor) => {
-        anchor.setAttribute("href", `mailto:${supportEmail}`);
-        replaceAnchorText(anchor, /info@theforgeza\.co\.za/gi, supportEmail);
-      });
+    matchingAnchors(root, EMAIL_SELECTOR).forEach((anchor) => {
+      anchor.setAttribute("href", `mailto:${supportEmail}`);
+      replaceAnchorText(anchor, /info@theforgeza\.co\.za/gi, supportEmail);
+    });
   }
 
   if (supportWhatsappHref) {
-    document
-      .querySelectorAll('a[href="https://wa.me/27712116050"], a[data-platform-contact="whatsapp"]')
-      .forEach((anchor) => {
-        anchor.setAttribute("href", supportWhatsappHref);
-        if (supportPhone) {
-          replaceAnchorText(anchor, /WhatsApp\s+071\s+211\s+6050/gi, `WhatsApp ${supportPhone}`);
-        }
-      });
+    matchingAnchors(root, WHATSAPP_SELECTOR).forEach((anchor) => {
+      anchor.setAttribute("href", supportWhatsappHref);
+      if (supportPhone) {
+        replaceAnchorText(anchor, /WhatsApp\s+071\s+211\s+6050/gi, `WhatsApp ${supportPhone}`);
+      }
+    });
   }
 }
 
@@ -160,7 +168,15 @@ function ensurePlatformContactBridge(platform = {}) {
 
   const start = () => {
     if (!document.body || contactObserver) return;
-    contactObserver = new MutationObserver(() => applyPlatformContactDetails(currentContactPlatform));
+    contactObserver = new MutationObserver((records) => {
+      records.forEach((record) => {
+        record.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            applyPlatformContactDetails(currentContactPlatform, node);
+          }
+        });
+      });
+    });
     contactObserver.observe(document.body, { childList: true, subtree: true });
   };
 
@@ -184,6 +200,8 @@ export function mergePlatformConfig(value = {}) {
     logo_light_url: source.logo_light_url || primaryLogo,
     logo_dark_url: source.logo_dark_url || primaryLogo,
     document_title: source.document_title || platformName,
+    support_email: source.support_email || DEFAULT_PLATFORM.support_email,
+    public_contact_email: source.public_contact_email || source.support_email || DEFAULT_PLATFORM.public_contact_email,
     modules: { ...DEFAULT_PLATFORM.modules, ...(source.modules || {}) },
     homepage: { ...DEFAULT_PLATFORM.homepage, ...(source.homepage || {}) },
     signup: { ...DEFAULT_PLATFORM.signup, ...(source.signup || {}) },
