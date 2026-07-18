@@ -186,6 +186,7 @@ jobs:
           set -o pipefail
           python e2e/seed_e2e.py | tee artifacts/e2e/seed.log
           python e2e/seed_printer_upgrade.py | tee -a artifacts/e2e/seed.log
+          python e2e/seed_mock_gateway.py | tee -a artifacts/e2e/seed.log
       - name: Start isolated API and frontend
         run: |
           python -m uvicorn server:app --host 127.0.0.1 --port 8000 > artifacts/e2e/backend.log 2>&1 &
