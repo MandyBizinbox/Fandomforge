@@ -109,6 +109,7 @@ from launch_integrity.routes import integrity_router
 from launch_integrity.printer_ops import printer_ops_router
 from launch_integrity.review_routes import review_router
 from launch_integrity.safety_routes import safety_router
+from launch_integrity.financial_gate_routes import financial_gate_router
 install_payout_retry_guard(payout_launch_routes_module)
 
 api_router.include_router(auth_router)
@@ -116,6 +117,7 @@ api_router.include_router(integrity_router)
 api_router.include_router(printer_ops_router)
 api_router.include_router(review_router)
 api_router.include_router(safety_router)
+api_router.include_router(financial_gate_router)
 if os.environ.get("E2E_TEST_MODE") == "1" and os.environ.get("ENVIRONMENT", "development").lower() != "production" and db_name.startswith("fandomforge_e2e_"):
     from e2e_support import e2e_router
     api_router.include_router(e2e_router)
