@@ -118,6 +118,7 @@ from builder_draft_routes import builder_drafts_router
 from routes_production_operations import production_operations_router
 from routes_production_rules import production_rules_router
 from launch_integrity.routes import integrity_router
+from launch_integrity.printer_gate_routes import printer_gate_router
 from launch_integrity.printer_ops import printer_ops_router
 from launch_integrity.review_routes import review_router
 from launch_integrity.safety_routes import safety_router
@@ -126,6 +127,7 @@ install_payout_retry_guard(payout_launch_routes_module)
 
 api_router.include_router(auth_router)
 api_router.include_router(integrity_router)
+api_router.include_router(printer_gate_router)
 api_router.include_router(printer_ops_router)
 api_router.include_router(review_router)
 api_router.include_router(safety_router)
