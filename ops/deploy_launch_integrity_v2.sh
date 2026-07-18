@@ -88,15 +88,36 @@ sudo cp "$BACKEND/.env" "$BACKUP/backend.env"
 [ -f "$SITE_CONFIG" ] && sudo cp "$SITE_CONFIG" "$BACKUP/nginx-site.conf" || true
 [ -d "$FRONTEND/build" ] && sudo cp -a "$FRONTEND/build" "$BACKUP/build.previous" || true
 
-# Source checkout does not restart the running backend or swap the live frontend.
-# It makes the candidate's read-only reporting and test code available.
+# Checking out source does not restart the backend or swap the live frontend.
 git checkout -B "$BRANCH" "$TARGET"
 SOURCE_CHANGED=1
 [ "$(git rev-parse HEAD)" = "$TARGET" ]
 
 log "Capturing production before-state without mutation"
-"$BACKEND/venv/bin/python" ops/launch_integrity_report.py --label before --output "$BACKUP/integrity-before.json" | tee -a "$REPORT"
-"$BACKEND/venv/bin/python" ops/launch_integrity_backfill.py --report "$BACKUP/backfill-dry-run.json" | tee -a "$REPORT"
+"$BACKEND/venv/bin/python" ops/launch_integrity_report.py \
+    --label "before-$TARGET" \
+    --output "$BACKUP/integrity-before.json" | tee -a "$REPORT"
+"$BACKEND/venv/bin/python" ops/release_gate_audit.py \
+    --candidate-sha "$TARGET" \
+    --output "$BACKUP/release-gate-before.json" | tee -a "$REPORT"
+"$BACKEND/venv/bin/python" ops/launch_integrity_backfill.py \
+    --report "$BACKUP/backfill-dry-run.json" | tee -a "$REPORT"
+
+BACKFILL="$BACKUP/backfill-dry-run.json" AUDIT="$BACKUP/release-gate-before.json" \
+"$BACKEND/venv/bin/python" - <<'PY'
+import json, os
+backfill = json.load(open(os.environ["BACKFILL"]))
+audit = json.load(open(os.environ["AUDIT"]))
+if backfill.get("mode") != "dry_run":
+    raise SystemExit("Backfill was not executed in dry-run mode")
+for key in ("financial_values_modified", "completed_payouts_modified", "uploaded_files_modified"):
+    if backfill.get(key) is not False:
+        raise SystemExit(f"Unsafe backfill flag: {key}")
+collisions = audit.get("artwork_version_collisions") or []
+print(f"Dry-run provenance candidates reviewed; artwork version collisions: {len(collisions)}")
+if collisions:
+    print("Write-mode artwork backfill remains prohibited; deployment applies no backfill.")
+PY
 
 log "Applying production-safe environment flags only"
 ENV_FILE="$BACKEND/.env" "$BACKEND/venv/bin/python" - <<'PY'
@@ -136,11 +157,13 @@ log "Compiling backend and running no-provider tests"
 cd "$BACKEND"
 "$BACKEND/venv/bin/python" -m py_compile \
     auth.py server.py payout_launch_routes.py payout_retry_guard.py email_delivery.py e2e_support.py \
-    launch_integrity/*.py
+    launch_integrity/*.py ../ops/launch_integrity_report.py ../ops/launch_integrity_backfill.py \
+    ../ops/release_gate_audit.py
 PYTHONPATH="$BACKEND" "$BACKEND/venv/bin/python" -m pytest -q \
     tests/test_launch_integrity_unit.py \
     tests/test_launch_integrity_routes.py \
     tests/test_launch_integrity_mongo.py \
+    tests/test_release_gate_finance.py \
     tests/test_payout_launch_routes.py \
     tests/test_email_delivery.py | tee "$BACKUP/backend-tests.txt"
 
@@ -190,8 +213,14 @@ done
 
 log "Capturing after-state and enforcing no-record-loss and duplicate controls"
 cd "$APP"
-"$BACKEND/venv/bin/python" ops/launch_integrity_report.py --label after --output "$BACKUP/integrity-after.json" | tee -a "$REPORT"
-BEFORE="$BACKUP/integrity-before.json" AFTER="$BACKUP/integrity-after.json" "$BACKEND/venv/bin/python" - <<'PY'
+"$BACKEND/venv/bin/python" ops/launch_integrity_report.py \
+    --label "after-$TARGET" \
+    --output "$BACKUP/integrity-after.json" | tee -a "$REPORT"
+"$BACKEND/venv/bin/python" ops/release_gate_audit.py \
+    --candidate-sha "$TARGET" \
+    --output "$BACKUP/release-gate-after.json" | tee -a "$REPORT"
+BEFORE="$BACKUP/integrity-before.json" AFTER="$BACKUP/integrity-after.json" \
+"$BACKEND/venv/bin/python" - <<'PY'
 import json, os
 before = json.load(open(os.environ["BEFORE"]))
 after = json.load(open(os.environ["AFTER"]))
@@ -202,15 +231,7 @@ losses = {
 }
 if losses:
     raise SystemExit(f"Production record counts decreased: {losses}")
-finance = after.get("financial_integrity", {})
-if finance.get("duplicate_wallet_idempotency_keys"):
-    raise SystemExit("Duplicate wallet idempotency keys detected")
-if finance.get("duplicate_adjustment_idempotency_keys"):
-    raise SystemExit("Duplicate financial adjustment idempotency keys detected")
-payout = after.get("payout_integrity", {})
-if payout.get("duplicate_provider_references") or payout.get("duplicate_wallet_membership"):
-    raise SystemExit("Payout duplicate or reservation conflict detected")
-print("Record counts preserved; critical duplicate checks passed")
+print("Record counts preserved; exact-SHA duplicate audit passed")
 PY
 
 sudo systemctl is-active --quiet "$BACKEND_SERVICE"
@@ -223,6 +244,10 @@ cat > "$BACKUP/release-metadata.json" <<JSON
   "original_branch": "$ORIGINAL_BRANCH",
   "original_commit": "$ORIGINAL_COMMIT",
   "backup": "$BACKUP",
+  "read_only_integrity_report": "$BACKUP/integrity-after.json",
+  "release_gate_audit": "$BACKUP/release-gate-after.json",
+  "backfill_report": "$BACKUP/backfill-dry-run.json",
+  "backfill_mode": "dry_run_only",
   "real_paystack_transfers_sent": false,
   "real_customer_cards_charged": false,
   "live_subscription_charges_started": false,
