@@ -6,6 +6,12 @@ BACKEND="$APP/backend"
 FRONTEND="$APP/frontend"
 BACKEND_SERVICE="${BACKEND_SERVICE:-fandomforge-backend.service}"
 BACKUP="${EXPECTED_BACKUP:?Set EXPECTED_BACKUP to the launch-integrity backup directory}"
+DEPLOY_USER="$(id -un)"
+SERVICE_GROUP="$(systemctl show -p Group --value "$BACKEND_SERVICE")"
+if [ -z "$SERVICE_GROUP" ]; then
+    SERVICE_GROUP="$(systemctl show -p User --value "$BACKEND_SERVICE")"
+fi
+SERVICE_GROUP="${SERVICE_GROUP:-www-data}"
 
 [ -d "$BACKUP" ]
 [ -f "$BACKUP/original-commit.txt" ]
@@ -35,7 +41,8 @@ fi
 
 if [ -f "$BACKUP/backend.env" ]; then
     sudo cp "$BACKUP/backend.env" "$BACKEND/.env"
-    sudo chmod 600 "$BACKEND/.env"
+    sudo chown "$DEPLOY_USER:$SERVICE_GROUP" "$BACKEND/.env"
+    sudo chmod 640 "$BACKEND/.env"
 fi
 
 if git show-ref --verify --quiet "refs/heads/$ORIGINAL_BRANCH"; then
