@@ -1,0 +1,80 @@
+name: FandomForge launch integrity
+
+on:
+  push:
+    branches:
+      - agent/fandomforge-launch-integrity-overnight-20260718
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      MONGO_URL: mongodb://localhost:27017
+      DB_NAME: fandomforge_ci
+      JWT_SECRET: ci-only-secret-ci-only-secret-ci-only-secret-ci-only-secret
+      ENVIRONMENT: test
+      E2E_TEST_MODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - name: Compile backend
+        run: |
+          python -m py_compile \
+            auth.py server.py payout_launch_routes.py email_delivery.py \
+            launch_integrity/*.py
+      - name: Launch integrity tests
+        run: |
+          mkdir -p ../artifacts/backend
+          pytest -q \
+            tests/test_launch_integrity_unit.py \
+            tests/test_launch_integrity_routes.py \
+            tests/test_payout_launch_routes.py \
+            tests/test_email_delivery.py \
+            --junitxml=../artifacts/backend/junit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-launch-integrity-results
+          path: artifacts/backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      CI: "true"
+      REACT_APP_BACKEND_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Production build
+        run: npm run build
+      - name: Record bundle inventory
+        run: |
+          mkdir -p ../artifacts/frontend
+          find build/static -type f -printf '%s\t%p\n' | sort -nr > ../artifacts/frontend/bundle-files.tsv
+          du -sh build > ../artifacts/frontend/build-size.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-launch-integrity-build
+          path: artifacts/frontend
