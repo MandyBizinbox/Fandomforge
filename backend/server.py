@@ -13,14 +13,11 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
-
 UPLOAD_DIR = ROOT / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
-
 mongo_url = os.environ["MONGO_URL"]
 db_name = os.environ["DB_NAME"]
 client = AsyncIOMotorClient(mongo_url)
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("fandomforge")
 
@@ -36,23 +33,19 @@ async def lifespan(app: FastAPI):
         from payout_launch_routes import ensure_payout_launch_indexes
         from email_delivery import email_delivery_loop, ensure_email_delivery_indexes
         from launch_integrity.install import ensure_launch_integrity_indexes
-
         await seed_if_empty(app.state.db)
         await seed_production_operations(app.state.db)
         await seed_production_rules(app.state.db)
         await ensure_payout_launch_indexes(app.state.db)
         await ensure_email_delivery_indexes(app.state.db)
         await ensure_launch_integrity_indexes(app.state.db)
-
         worker_id = f"api-{os.getpid()}"
         email_task = asyncio.create_task(email_delivery_loop(app.state.db, worker_id), name=f"fandomforge-email-{worker_id}")
         app.state.email_delivery_task = email_task
         logger.info("Seed, launch-integrity indexes and email-delivery startup checks complete")
     except Exception as exc:
         logger.exception("Startup checks failed: %s", exc)
-
     yield
-
     if email_task:
         email_task.cancel()
         with suppress(asyncio.CancelledError):
@@ -80,7 +73,6 @@ async def health():
 
 from production_model_compat import install_production_model_compat
 install_production_model_compat()
-
 from auth import auth_router
 import routes_main as routes_main_module
 from production_operation_pricing import install_production_operation_pricing
@@ -89,14 +81,12 @@ from builder_artwork_costing_patch import install_builder_artwork_costing_patch
 from builder_production_rules_patch import install_builder_production_rules_patch
 from builder_text_artwork_patch import install_builder_text_artwork_patch
 from platform_launch_policy_patch import install_platform_launch_policy_patch
-
 install_production_operation_pricing(routes_main_module)
 install_order_finance_patches(routes_main_module)
 install_builder_artwork_costing_patch(routes_main_module)
 install_builder_production_rules_patch(routes_main_module)
 install_builder_text_artwork_patch(routes_main_module)
 install_platform_launch_policy_patch(routes_main_module)
-
 from launch_integrity.compat import ensure_core_compat
 ensure_core_compat(routes_main_module)
 from launch_integrity.install import install_launch_integrity
@@ -117,12 +107,13 @@ from routes_production_operations import production_operations_router
 from routes_production_rules import production_rules_router
 from launch_integrity.routes import integrity_router
 from launch_integrity.printer_ops import printer_ops_router
-
+from launch_integrity.review_routes import review_router
 install_payout_retry_guard(payout_launch_routes_module)
 
 api_router.include_router(auth_router)
 api_router.include_router(integrity_router)
 api_router.include_router(printer_ops_router)
+api_router.include_router(review_router)
 api_router.include_router(payout_launch_router)
 api_router.include_router(bands_router)
 api_router.include_router(printers_router)
@@ -145,13 +136,5 @@ api_router.include_router(attributes_router)
 api_router.include_router(print_options_router)
 api_router.include_router(production_operations_router)
 api_router.include_router(production_rules_router)
-
 app.include_router(api_router)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","), allow_methods=["*"], allow_headers=["*"])
