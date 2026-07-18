@@ -9,6 +9,7 @@ import { CartProvider } from "./context/CartContext";
 import { usePlatformConfig } from "./lib/platform";
 import Footer from "./components/Footer";
 import ImagePerformanceHints from "./components/ImagePerformanceHints";
+import EntitlementNotice from "./components/EntitlementNotice";
 
 const lazyNamed = (importer, exportName) => lazy(
   () => importer().then((module) => ({ default: module[exportName] })),
@@ -38,47 +39,24 @@ const AdminDashboard = lazy(() => import("./routes/AdminDashboardRoute"));
 const AdminManufacturingRules = lazy(() => import("./routes/AdminManufacturingRulesRoute"));
 const ManagerDashboard = lazy(() => import("./pages/ManagerDashboard"));
 const Account = lazy(() => import("./pages/Account"));
+const AccountPlans = lazy(() => import("./pages/AccountPlans"));
 const Sell = lazy(() => import("./pages/Sell"));
 const Print = lazy(() => import("./pages/Print"));
 const Marketplace = lazy(() => import("./pages/Marketplace"));
 const CreatorDirectory = lazyNamed(() => import("./pages/Marketplace"), "CreatorDirectory");
 const StaticContentPage = lazy(() => import("./pages/StaticContentPage"));
 
-const BecomeCreatorPage = lazyNamed(
-  () => import("./pages/CreatorLaunchPages"),
-  "BecomeCreatorPage",
-);
-const HowItWorksPage = lazyNamed(
-  () => import("./pages/CreatorLaunchPages"),
-  "HowItWorksPage",
-);
-const ProductsPricingPage = lazyNamed(
-  () => import("./pages/CreatorLaunchPages"),
-  "ProductsPricingPage",
-);
-const CreatorOnboardingPage = lazyNamed(
-  () => import("./pages/CreatorLaunchPages"),
-  "CreatorOnboardingPage",
-);
-const CommunityStoresPage = lazyNamed(
-  () => import("./pages/CreatorLaunchPages"),
-  "CommunityStoresPage",
-);
-const CreatorEarningsPage = lazyNamed(
-  () => import("./pages/CreatorLaunchPages"),
-  "CreatorEarningsPage",
-);
-const ShippingReturnsPage = lazyNamed(
-  () => import("./pages/CreatorLaunchPages"),
-  "ShippingReturnsPage",
-);
-const CreatorFaqPage = lazyNamed(
-  () => import("./pages/CreatorLaunchPages"),
-  "CreatorFaqPage",
-);
+const BecomeCreatorPage = lazyNamed(() => import("./pages/CreatorLaunchPages"), "BecomeCreatorPage");
+const HowItWorksPage = lazyNamed(() => import("./pages/CreatorLaunchPages"), "HowItWorksPage");
+const ProductsPricingPage = lazyNamed(() => import("./pages/CreatorLaunchPages"), "ProductsPricingPage");
+const CreatorOnboardingPage = lazyNamed(() => import("./pages/CreatorLaunchPages"), "CreatorOnboardingPage");
+const CommunityStoresPage = lazyNamed(() => import("./pages/CreatorLaunchPages"), "CommunityStoresPage");
+const CreatorEarningsPage = lazyNamed(() => import("./pages/CreatorLaunchPages"), "CreatorEarningsPage");
+const ShippingReturnsPage = lazyNamed(() => import("./pages/CreatorLaunchPages"), "ShippingReturnsPage");
+const CreatorFaqPage = lazyNamed(() => import("./pages/CreatorLaunchPages"), "CreatorFaqPage");
 
 function getRoleHome(role) {
-  if (["super_admin", "admin"].includes(role)) return "/admin";
+  if (["owner", "super_admin", "admin"].includes(role)) return "/admin";
   if (role === "manager") return "/manager";
   if (role === "creator") return "/creator";
   if (role === "printer") return "/printer";
@@ -96,38 +74,22 @@ function RouteLoading() {
 function Protected({ roles, children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
-
-  if (loading) {
-    return <RouteLoading />;
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
-  }
-
+  if (loading) return <RouteLoading />;
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (roles && !roles.includes(user.role)) {
     const fallbackPath = getRoleHome(user.role);
-
-    if (location.pathname !== fallbackPath) {
-      return <Navigate to={fallbackPath} replace />;
-    }
-
+    if (location.pathname !== fallbackPath) return <Navigate to={fallbackPath} replace />;
     return (
       <div className="min-h-screen page-shell flex items-center justify-center px-6">
         <div className="card max-w-md">
           <p className="overline mb-2">Access issue</p>
           <h1 className="font-display text-3xl uppercase mb-3">Account role mismatch</h1>
-          <p className="text-[var(--ff-muted-text)] text-sm mb-4">
-            Your account role is not allowed for this page.
-          </p>
-          <p className="text-[var(--ff-muted-text)] text-xs">
-            Current role: {user.role || "unknown"}
-          </p>
+          <p className="text-[var(--ff-muted-text)] text-sm mb-4">Your account role is not allowed for this page.</p>
+          <p className="text-[var(--ff-muted-text)] text-xs">Current role: {user.role || "unknown"}</p>
         </div>
       </div>
     );
   }
-
   return children;
 }
 
@@ -150,12 +112,13 @@ function PlatformToaster() {
 }
 
 function AppRoutes() {
+  const accountRoles = ["buyer", "customer", "creator", "printer", "manager", "admin", "super_admin", "owner"];
+  const platformRoles = ["owner", "super_admin", "admin"];
   return (
     <>
       <Suspense fallback={<RouteLoading />}>
         <Routes>
           <Route path="/" element={<Home />} />
-
           <Route path="/become-a-creator" element={<BecomeCreatorPage />} />
           <Route path="/how-it-works" element={<HowItWorksPage />} />
           <Route path="/products-and-pricing" element={<ProductsPricingPage />} />
@@ -180,7 +143,6 @@ function AppRoutes() {
           <Route path="/sell" element={<Sell />} />
           <Route path="/sell-online" element={<Navigate to="/become-a-creator" replace />} />
           <Route path="/print" element={<Print />} />
-
           <Route path="/product/:id" element={<ProductDetail />} />
           <Route path="/cart" element={<Cart />} />
           <Route path="/checkout" element={<Checkout />} />
@@ -208,92 +170,21 @@ function AppRoutes() {
           <Route path="/apply-printer" element={<ApplyPrinter />} />
           <Route path="/printer/apply" element={<Navigate to="/apply-printer" replace />} />
 
-          <Route
-            path="/account"
-            element={
-              <Protected roles={["buyer", "customer", "creator", "printer", "manager", "admin", "super_admin"]}>
-                <Account />
-              </Protected>
-            }
-          />
-
-          <Route
-            path="/creator/profile-setup"
-            element={
-              <Protected roles={["buyer", "creator", "admin", "super_admin"]}>
-                <BandProfileSetup />
-              </Protected>
-            }
-          />
-
-          <Route
-            path="/creator/payouts"
-            element={
-              <Protected roles={["creator", "admin", "super_admin"]}>
-                <CreatorPayoutAccount />
-              </Protected>
-            }
-          />
-
-          <Route
-            path="/creator/catalogue-pricing"
-            element={
-              <Protected roles={["creator", "admin", "super_admin"]}>
-                <CreatorCataloguePricing />
-              </Protected>
-            }
-          />
-
-          <Route
-            path="/creator/*"
-            element={
-              <Protected roles={["creator", "admin", "super_admin"]}>
-                <BandDashboard />
-              </Protected>
-            }
-          />
-
-          <Route
-            path="/printer/*"
-            element={
-              <Protected roles={["printer", "admin", "super_admin"]}>
-                <PrinterDashboard />
-              </Protected>
-            }
-          />
-
-          <Route
-            path="/manager/*"
-            element={
-              <Protected roles={["manager", "admin", "super_admin"]}>
-                <ManagerDashboard />
-              </Protected>
-            }
-          />
-
-          <Route
-            path="/admin/manufacturing-rules"
-            element={
-              <Protected roles={["admin", "super_admin"]}>
-                <AdminManufacturingRules />
-              </Protected>
-            }
-          />
-
-          <Route
-            path="/admin/*"
-            element={
-              <Protected roles={["admin", "super_admin"]}>
-                <AdminDashboard />
-              </Protected>
-            }
-          />
+          <Route path="/account" element={<Protected roles={accountRoles}><Account /></Protected>} />
+          <Route path="/account/plans" element={<Protected roles={["creator", "printer"]}><AccountPlans /></Protected>} />
+          <Route path="/creator/profile-setup" element={<Protected roles={["buyer", "creator", ...platformRoles]}><BandProfileSetup /></Protected>} />
+          <Route path="/creator/payouts" element={<Protected roles={["creator", ...platformRoles]}><CreatorPayoutAccount /></Protected>} />
+          <Route path="/creator/catalogue-pricing" element={<Protected roles={["creator", ...platformRoles]}><CreatorCataloguePricing /></Protected>} />
+          <Route path="/creator/*" element={<Protected roles={["creator", ...platformRoles]}><BandDashboard /></Protected>} />
+          <Route path="/printer/*" element={<Protected roles={["printer", ...platformRoles]}><PrinterDashboard /></Protected>} />
+          <Route path="/manager/*" element={<Protected roles={["manager", ...platformRoles]}><ManagerDashboard /></Protected>} />
+          <Route path="/admin/manufacturing-rules" element={<Protected roles={platformRoles}><AdminManufacturingRules /></Protected>} />
+          <Route path="/admin/*" element={<Protected roles={platformRoles}><AdminDashboard /></Protected>} />
 
           <Route path="/about" element={<StaticContentPage pageKey="about" />} />
           <Route path="/contact" element={<StaticContentPage pageKey="contact" />} />
           <Route path="/help/orders" element={<StaticContentPage pageKey="help-orders" />} />
           <Route path="/help/creators" element={<StaticContentPage pageKey="help-creators" />} />
-
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
@@ -309,6 +200,7 @@ export default function App() {
         <CartProvider>
           <BrowserRouter>
             <ImagePerformanceHints />
+            <EntitlementNotice />
             <AppRoutes />
             <PlatformToaster />
           </BrowserRouter>
