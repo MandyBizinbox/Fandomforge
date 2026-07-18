@@ -63,7 +63,9 @@ jobs:
           bash -n ../ops/deploy_launch_integrity_v2.sh
           bash -n ../ops/rollback_launch_integrity.sh
       - name: Launch integrity tests
+        shell: bash
         run: |
+          set -o pipefail
           pytest -q \
             tests/test_launch_integrity_unit.py \
             tests/test_launch_integrity_routes.py \
@@ -166,7 +168,9 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: pip install -r backend/requirements.txt
       - name: Build production frontend
+        shell: bash
         run: |
+          set -o pipefail
           cd frontend
           npm install --legacy-peer-deps --no-audit --no-fund
           npm run build 2>&1 | tee ../artifacts/e2e/frontend-build.log
@@ -177,7 +181,9 @@ jobs:
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
       - name: Seed disposable marketplace
+        shell: bash
         run: |
+          set -o pipefail
           python e2e/seed_e2e.py | tee artifacts/e2e/seed.log
           python e2e/seed_printer_upgrade.py | tee -a artifacts/e2e/seed.log
       - name: Start isolated API and frontend
@@ -197,12 +203,16 @@ jobs:
           cat artifacts/e2e/frontend.log
           exit 1
       - name: Full launch-integrity Playwright suite
+        shell: bash
         run: |
+          set -o pipefail
           cd e2e
           npm test 2>&1 | tee ../artifacts/e2e/playwright.log
       - name: Read-only integrity report, duplicate audit and dry-run backfill
         if: always()
+        shell: bash
         run: |
+          set -o pipefail
           python ops/launch_integrity_report.py \
             --label "candidate-$CANDIDATE_SHA" \
             --output artifacts/e2e/integrity-report.json \
