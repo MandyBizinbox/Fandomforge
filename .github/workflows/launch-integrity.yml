@@ -71,10 +71,14 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm install --legacy-peer-deps --no-audit --no-fund
       - name: Production build
-        run: npm run build
-      - name: Record bundle inventory
+        shell: bash
         run: |
+          set -o pipefail
           mkdir -p ../artifacts/frontend
+          npm run build 2>&1 | tee ../artifacts/frontend/build.log
+      - name: Record bundle inventory
+        if: success()
+        run: |
           find build/static -type f -printf '%s\t%p\n' | sort -nr > ../artifacts/frontend/bundle-files.tsv
           du -sh build > ../artifacts/frontend/build-size.txt
       - uses: actions/upload-artifact@v4
