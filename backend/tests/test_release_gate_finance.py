@@ -12,6 +12,7 @@ from launch_integrity.financial_gate_routes import (
     block_historical_wallet_rebuild,
     block_legacy_payout_mark_paid,
 )
+from launch_integrity.install import _provider_fee_amount
 
 MONGO_URL = "mongodb://localhost:27017"
 
@@ -115,6 +116,11 @@ async def _run_release_gate_scenario():
         }
         await db.orders.insert_one(deepcopy(immutable_order))
         await db.payments.insert_one(deepcopy(payment))
+
+        # Paystack payload fees are supplied in the smallest currency unit.
+        assert _provider_fee_amount({"data": {"fees": 625}}, payment) == 6.25
+        assert _provider_fee_amount({"data": {"transaction": {"fees": 625}}}, payment) == 6.25
+        assert _provider_fee_amount({"data": {}}, payment) is None
 
         first = await record_provider_fee_actual(db, payment, 6.25)
         second = await record_provider_fee_actual(db, payment, 6.25)
