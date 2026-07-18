@@ -116,6 +116,9 @@ api_router.include_router(integrity_router)
 api_router.include_router(printer_ops_router)
 api_router.include_router(review_router)
 api_router.include_router(safety_router)
+if os.environ.get("E2E_TEST_MODE") == "1" and os.environ.get("ENVIRONMENT", "development").lower() != "production" and db_name.startswith("fandomforge_e2e_"):
+    from e2e_support import e2e_router
+    api_router.include_router(e2e_router)
 api_router.include_router(payout_launch_router)
 api_router.include_router(bands_router)
 api_router.include_router(printers_router)
