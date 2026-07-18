@@ -22,6 +22,7 @@ from launch_integrity.permissions import require_owner
 
 E2E_EMAIL_ALIAS_FROM = "@e2e.fandomforge.test"
 E2E_EMAIL_ALIAS_TO = "@e2e.fandomforge.site"
+E2E_EMAIL_ALIAS_PATTERN = r"@e2e\.fandomforge\.test$"
 e2e_router = APIRouter(prefix="/e2e", tags=["e2e-test-only"])
 
 
@@ -49,7 +50,7 @@ async def normalize_e2e_fixture_emails(db) -> Dict[str, int]:
     ):
         collection = db[collection_name]
         rows = await collection.find(
-            {field: {"$regex": f"{E2E_EMAIL_ALIAS_FROM.replace('.', r'\.')}$"}},
+            {field: {"$regex": E2E_EMAIL_ALIAS_PATTERN}},
             {"_id": 0, "id": 1, field: 1},
         ).to_list(1000)
         count = 0
