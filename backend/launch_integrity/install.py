@@ -4,7 +4,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
 
@@ -14,7 +14,7 @@ from .audit import ensure_audit_indexes
 from .design import install_design_integrity
 from .entitlements import ensure_entitlement_indexes, require_entitlement
 from . import finance as finance_module
-from .finance import ensure_finance_indexes, install_finance_integrity
+from .finance import ensure_finance_indexes, install_finance_integrity, record_provider_fee_actual
 from .finance_reversals import apply_financial_reversal as corrected_financial_reversal
 from .middleware import launch_audit_middleware
 from .permissions import require_manager_permission, require_owner, role_of
@@ -32,6 +32,34 @@ def _payment_amount(data: Dict[str, Any], order: Dict[str, Any]) -> float:
         value = float(raw or 0)
         return round(value / 100, 2) if value > float(order.get("total") or 0) * 10 else round(value, 2)
     return round(float(order.get("total") or 0), 2)
+
+
+def _provider_fee_amount(provider_payload: Optional[Dict[str, Any]], payment: Dict[str, Any]) -> Optional[float]:
+    """Return an actual provider fee in major currency units when supplied.
+
+    Paystack reports ``fees`` in the currency's smallest unit. Other adapters may
+    explicitly mark smallest-unit values; otherwise their numeric fee is treated as
+    a major-unit amount. Missing fees remain ``None`` and do not manufacture a value.
+    """
+    payload = provider_payload or {}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    transaction = data.get("transaction") if isinstance(data.get("transaction"), dict) else {}
+    raw = data.get("fees")
+    if raw is None:
+        raw = data.get("fee")
+    if raw is None:
+        raw = transaction.get("fees")
+    if raw is None:
+        raw = transaction.get("fee")
+    if raw in (None, ""):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    provider = str(payment.get("provider") or data.get("provider") or "").lower()
+    smallest_unit = provider == "paystack" or bool(data.get("fee_in_smallest_unit") or data.get("fees_in_smallest_unit"))
+    return round(value / 100, 2) if smallest_unit else round(value, 2)
 
 
 def install_launch_integrity(app: Any, core: Any) -> None:
@@ -143,6 +171,14 @@ def install_launch_integrity(app: Any, core: Any) -> None:
         order = await marked_paid(db, payment, provider_payload)
         if not order:
             return order
+
+        # Provider fee variance is a platform-only event. It never recalculates or
+        # mutates the immutable customer total, Creator earnings or Printer liability.
+        actual_fee = _provider_fee_amount(provider_payload, payment or {})
+        if actual_fee is not None:
+            stored_payment = await db.payments.find_one({"id": (payment or {}).get("id")}, {"_id": 0})
+            await record_provider_fee_actual(db, stored_payment or payment or {}, actual_fee)
+
         for item in order.get("items") or []:
             printer_id = item.get("printer_id")
             if not printer_id:
