@@ -45,10 +45,7 @@ async def lifespan(app: FastAPI):
         await ensure_launch_integrity_indexes(app.state.db)
 
         worker_id = f"api-{os.getpid()}"
-        email_task = asyncio.create_task(
-            email_delivery_loop(app.state.db, worker_id),
-            name=f"fandomforge-email-{worker_id}",
-        )
+        email_task = asyncio.create_task(email_delivery_loop(app.state.db, worker_id), name=f"fandomforge-email-{worker_id}")
         app.state.email_delivery_task = email_task
         logger.info("Seed, launch-integrity indexes and email-delivery startup checks complete")
     except Exception as exc:
@@ -64,7 +61,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FandomForge API", lifespan=lifespan)
-
 app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 api_router = APIRouter(prefix="/api")
 
@@ -78,13 +74,8 @@ async def root():
 async def health():
     from email_delivery import load_email_delivery_settings
     from launch_integrity import LAUNCH_INTEGRITY_VERSION
-
     email = load_email_delivery_settings()
-    return {
-        "status": "ok",
-        "launch_integrity_version": LAUNCH_INTEGRITY_VERSION,
-        "email_delivery": {"configured": email.configured, "provider": email.provider},
-    }
+    return {"status": "ok", "launch_integrity_version": LAUNCH_INTEGRITY_VERSION, "email_delivery": {"configured": email.configured, "provider": email.provider}}
 
 
 from production_model_compat import install_production_model_compat
@@ -106,7 +97,8 @@ install_builder_production_rules_patch(routes_main_module)
 install_builder_text_artwork_patch(routes_main_module)
 install_platform_launch_policy_patch(routes_main_module)
 
-# Launch-integrity wrappers are deliberately outermost.
+from launch_integrity.compat import ensure_core_compat
+ensure_core_compat(routes_main_module)
 from launch_integrity.install import install_launch_integrity
 install_launch_integrity(app, routes_main_module)
 
@@ -129,11 +121,8 @@ from launch_integrity.printer_ops import printer_ops_router
 install_payout_retry_guard(payout_launch_routes_module)
 
 api_router.include_router(auth_router)
-# Integrated checkout, settings, entitlements, adjustments and production routes
-# must win over duplicate legacy paths.
 api_router.include_router(integrity_router)
 api_router.include_router(printer_ops_router)
-# Checkpoint 2 payout routes stay ahead of legacy payment routes.
 api_router.include_router(payout_launch_router)
 api_router.include_router(bands_router)
 api_router.include_router(printers_router)
