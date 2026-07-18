@@ -87,6 +87,9 @@ from production_model_compat import install_production_model_compat
 install_production_model_compat()
 from auth import auth_router
 import routes_main as routes_main_module
+if E2E_MODE:
+    from e2e_gateway_patch import install_e2e_mock_gateway
+    install_e2e_mock_gateway(routes_main_module)
 from production_operation_pricing import install_production_operation_pricing
 from order_finance_patches import install_order_finance_patches
 from builder_artwork_costing_patch import install_builder_artwork_costing_patch
