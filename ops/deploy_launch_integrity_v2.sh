@@ -97,6 +97,9 @@ git merge-base --is-ancestor "$ORIGINAL_COMMIT" "$TARGET" || {
 }
 
 sudo cp "$BACKEND/.env" "$BACKUP/backend.env"
+sudo chown "$DEPLOY_USER:$SERVICE_GROUP" "$BACKEND/.env"
+sudo chmod 640 "$BACKEND/.env"
+ENV_CHANGED=1
 [ -f "$SITE_CONFIG" ] && sudo cp "$SITE_CONFIG" "$BACKUP/nginx-site.conf" || true
 [ -d "$FRONTEND/build" ] && sudo cp -a "$FRONTEND/build" "$BACKUP/build.previous" || true
 
@@ -164,7 +167,6 @@ path.write_text("\n".join(out).rstrip() + "\n")
 PY
 sudo chown "$DEPLOY_USER:$SERVICE_GROUP" "$BACKEND/.env"
 sudo chmod 640 "$BACKEND/.env"
-ENV_CHANGED=1
 
 log "Compiling backend and running no-provider tests"
 cd "$BACKEND"
