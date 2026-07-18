@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/fandomforge-launch-integrity-overnight-20260718
+  pull_request:
+    branches:
+      - agent/public-launch-readiness-integrated-20260716-155921
   workflow_dispatch:
 
 permissions:
