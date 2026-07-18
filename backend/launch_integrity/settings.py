@@ -14,6 +14,7 @@ import json
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+from platform_modules.registry import normalize_modules
 
 from . import LAUNCH_INTEGRITY_VERSION
 
@@ -61,13 +62,13 @@ DEFAULT_ENTITLEMENT_MODULES = {
     "storefront_visible": "creators_enabled",
     "checkout_enabled": "public_shop_enabled",
     "creator_reporting": "creators_enabled",
-    "creator_payout_visibility": "payouts_enabled",
+    "creator_payout_visibility": "wallet_enabled",
     "printer_jobs": "printers_enabled",
     "printer_job_limit": "printers_enabled",
     "printer_template_access": "product_templates_enabled",
     "printer_pricing": "printers_enabled",
     "printer_reporting": "printers_enabled",
-    "printer_payout_visibility": "payouts_enabled",
+    "printer_payout_visibility": "wallet_enabled",
 }
 
 DEFAULT_LAUNCH_INTEGRITY = {
@@ -114,8 +115,7 @@ class ResolvedPlatformSettings:
 
     @property
     def modules(self) -> Dict[str, bool]:
-        modules = self.raw.get("modules") or {}
-        return {str(k): bool(v) for k, v in modules.items()}
+        return normalize_modules(self.raw.get("modules"))
 
     @property
     def currency(self) -> str:
@@ -131,7 +131,12 @@ async def resolve_platform_settings(db) -> ResolvedPlatformSettings:
     if raw.get("currency") and not (existing.get("financial_rules") or {}).get("currency"):
         merged["financial_rules"]["currency"] = raw.get("currency")
     launch = LaunchIntegritySettings(**merged)
-    effective = {**raw, "launch_integrity": launch.model_dump(), "integrity_schema_version": LAUNCH_INTEGRITY_VERSION}
+    effective = {
+        **raw,
+        "modules": normalize_modules(raw.get("modules")),
+        "launch_integrity": launch.model_dump(),
+        "integrity_schema_version": LAUNCH_INTEGRITY_VERSION,
+    }
     return ResolvedPlatformSettings(raw=effective, launch=launch, version_id=settings_version(effective))
 
 
@@ -175,7 +180,11 @@ def gateway_fee_snapshot(settings: ResolvedPlatformSettings, gateway: str) -> Di
 def estimate_gateway_fee(amount: float, rule: Dict[str, Any]) -> float:
     if not rule.get("enabled"):
         return 0.0
-    return round(max(float(rule.get("fixed_fee") or 0), 0) + max(float(amount or 0), 0) * max(float(rule.get("percentage_fee") or 0), 0) / 100, 2)
+    return round(
+        max(float(rule.get("fixed_fee") or 0), 0)
+        + max(float(amount or 0), 0) * max(float(rule.get("percentage_fee") or 0), 0) / 100,
+        2,
+    )
 
 
 async def ensure_settings_integrity_indexes(db) -> None:
