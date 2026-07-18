@@ -20,9 +20,8 @@ BUILD_CHANGED=0
 ENV_CHANGED=0
 COMPLETE=0
 
-sudo mkdir -p "$BACKUP"
-sudo touch "$REPORT"
-sudo chown "$(id -u):$(id -g)" "$REPORT"
+sudo install -d -m 750 -o "$(id -u)" -g "$(id -g)" "$BACKUP"
+touch "$REPORT"
 log() { printf '%s\n' "$*" | tee -a "$REPORT"; }
 
 restore_source() {
