@@ -7,7 +7,7 @@ import hashlib
 import json
 import mimetypes
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from storage import UPLOAD_ROOT
 
@@ -142,8 +142,16 @@ def _flatten_artworks(product: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+def _hashable_asset(asset: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: deepcopy(value) for key, value in asset.items() if key not in {"created_at"}}
+
+
 def canonical_design_spec(product: Dict[str, Any], product_version: int) -> Dict[str, Any]:
-    assets = [artwork_asset_version(row, product_version) for row in _flatten_artworks(product) if row.get("original_url") or row.get("text_content")]
+    assets = [
+        artwork_asset_version(row, product_version)
+        for row in _flatten_artworks(product)
+        if row.get("original_url") or row.get("text_content")
+    ]
     spec = {
         "contract_version": DESIGN_CONTRACT_VERSION,
         "product_id": product.get("id"),
@@ -159,7 +167,11 @@ def canonical_design_spec(product: Dict[str, Any], product_version: int) -> Dict
         "production_operations": deepcopy(product.get("production_operation_lines") or []),
         "generated_at": utc_iso(),
     }
-    spec["design_sha256"] = _hash_json({k: v for k, v in spec.items() if k != "generated_at"})
+    hash_contract = {
+        **{key: value for key, value in spec.items() if key not in {"generated_at", "assets"}},
+        "assets": [_hashable_asset(asset) for asset in assets],
+    }
+    spec["design_sha256"] = _hash_json(hash_contract)
     return spec
 
 
@@ -213,7 +225,7 @@ def enrich_production_snapshot(snapshot: Dict[str, Any], product: Dict[str, Any]
         "snapshot_created_at": utc_iso(),
         "immutable": True,
     })
-    out["snapshot_sha256"] = _hash_json({k: v for k, v in out.items() if k not in {"snapshot_created_at", "snapshot_sha256"}})
+    out["snapshot_sha256"] = _hash_json({key: value for key, value in out.items() if key not in {"snapshot_created_at", "snapshot_sha256"}})
     return out
 
 
@@ -229,14 +241,20 @@ def install_design_integrity(routes_main_module: Any) -> None:
             from fastapi import HTTPException
             raise HTTPException(status_code=409, detail="Product ownership cannot be changed through an ordinary edit")
         normalized = await original_normalize(
-            db=db, data=data, creator=creator, user=user, allow_admin_publish=allow_admin_publish
+            db=db,
+            data=data,
+            creator=creator,
+            user=user,
+            allow_admin_publish=allow_admin_publish,
         )
         normalized.update(product_integrity_fields(normalized, creator, user))
         return normalized
 
     def wrapped_snapshot(product, template, product_variation, quantity):
         return enrich_production_snapshot(
-            original_snapshot(product, template, product_variation, quantity), product, quantity
+            original_snapshot(product, template, product_variation, quantity),
+            product,
+            quantity,
         )
 
     routes_main_module.normalize_template_product_payload = wrapped_normalize
