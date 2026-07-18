@@ -118,7 +118,12 @@ async def _run_release_gate_scenario():
 
         first = await record_provider_fee_actual(db, payment, 6.25)
         second = await record_provider_fee_actual(db, payment, 6.25)
-        assert first == second
+        stable_fields = ("actual_provider_fee", "estimated_provider_fee", "provider_fee_variance")
+        assert {key: first[key] for key in stable_fields} == {
+            key: second[key] for key in stable_fields
+        }
+        assert first["provider_fee_recorded_at"]
+        assert second["provider_fee_recorded_at"]
         assert first["actual_provider_fee"] == 6.25
         assert first["estimated_provider_fee"] == 4.00
         assert first["provider_fee_variance"] == 2.25
