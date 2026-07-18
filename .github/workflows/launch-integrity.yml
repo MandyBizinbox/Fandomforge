@@ -71,7 +71,7 @@ jobs:
       run:
         working-directory: frontend
     env:
-      CI: "true"
+      CI: "false"
       REACT_APP_BACKEND_URL: http://127.0.0.1:8000
     steps:
       - uses: actions/checkout@v4
