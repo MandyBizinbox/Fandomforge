@@ -130,12 +130,21 @@ async def order_evidence(order_id: str, request: Request, user: User = Depends(g
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    product_ids = sorted({str(item.get("product_id")) for item in order.get("items") or [] if item.get("product_id")})
+    audit_query = {"related_order_id": order_id}
+    if product_ids:
+        audit_query = {
+            "$or": [
+                {"related_order_id": order_id},
+                {"related_product_id": {"$in": product_ids}},
+            ]
+        }
     return {
         "order": order,
         "wallet_transactions": await db.wallet_transactions.find({"order_id": order_id}, {"_id": 0}).sort("created_at", 1).to_list(1000),
         "financial_adjustments": await db.financial_adjustments.find({"order_id": order_id}, {"_id": 0}).sort("created_at", 1).to_list(1000),
         "production_jobs": await db.production_jobs.find({"order_id": order_id}, {"_id": 0}).sort("created_at", 1).to_list(1000),
-        "audit_events": await db.audit_events.find({"related_order_id": order_id}, {"_id": 0}).sort("created_at", 1).to_list(1000),
+        "audit_events": await db.audit_events.find(audit_query, {"_id": 0}).sort("created_at", 1).to_list(1000),
         "notifications": await db.notifications.find({"related_order_id": order_id}, {"_id": 0}).sort("created_at", 1).to_list(1000),
         "reconciliation": await reconciliation_report(db, order_id),
     }
