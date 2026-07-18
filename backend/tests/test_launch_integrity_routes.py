@@ -33,7 +33,11 @@ def test_server_import_and_authoritative_route_precedence(monkeypatch):
 
 
 def test_literal_owner_is_in_frontend_route_source():
-    source = open(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "src", "App.js"), encoding="utf-8").read()
+    source = open(
+        os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "src", "App.js"),
+        encoding="utf-8",
+    ).read()
     assert '["owner", "super_admin", "admin"]' in source
-    assert 'role === "owner"' in source
+    assert 'includes(role)' in source
+    assert 'path="/admin/*"' in source
     assert 'path="/account/plans"' in source
