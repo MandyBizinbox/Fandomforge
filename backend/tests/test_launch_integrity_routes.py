@@ -25,6 +25,8 @@ def test_server_import_and_authoritative_route_precedence(monkeypatch):
     assert first[("/api/products/{product_id}", "DELETE")].endpoint.__module__ == "launch_integrity.safety_routes"
     assert first[("/api/admin/products/{product_id}", "DELETE")].endpoint.__module__ == "launch_integrity.safety_routes"
     assert first[("/api/artworks/upload", "POST")].endpoint.__module__ == "launch_integrity.safety_routes"
+    assert first[("/api/admin/wallet-ledger/rebuild", "POST")].endpoint.__module__ == "launch_integrity.financial_gate_routes"
+    assert first[("/api/admin/payouts/{payout_id}/paid", "PATCH")].endpoint.__module__ == "launch_integrity.financial_gate_routes"
 
 
 def test_literal_owner_is_in_frontend_route_source():
@@ -33,7 +35,7 @@ def test_literal_owner_is_in_frontend_route_source():
         encoding="utf-8",
     ).read()
     assert '["owner", "super_admin", "admin"]' in source
-    assert 'includes(role)' in source
+    assert "includes(role)" in source
     assert 'path="/admin/*"' in source
     assert 'path="/account/plans"' in source
     assert 'path="/admin/review/:ownerType/:ownerId"' in source
