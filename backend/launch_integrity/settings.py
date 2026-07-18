@@ -33,15 +33,15 @@ class GatewayFeeRule(BaseModel):
     enabled: bool = False
     fixed_fee: float = 0.0
     percentage_fee: float = 0.0
-    absorbed_by: str = "platform"  # platform | customer
+    absorbed_by: str = "platform"
     refundable: bool = False
 
 
 class FinancialRules(BaseModel):
     model_config = ConfigDict(extra="allow")
     currency: str = "ZAR"
-    shipping_refund_treatment: str = "manual"  # none | proportional | full | manual
-    gateway_fee_refund_treatment: str = "non_refundable"  # refundable | non_refundable | provider_actual
+    shipping_refund_treatment: str = "manual"
+    gateway_fee_refund_treatment: str = "non_refundable"
     rounding_mode: str = "half_up"
     calculation_version: str = "launch_integrity_v1"
 
@@ -59,10 +59,12 @@ class LaunchIntegritySettings(BaseModel):
 DEFAULT_ENTITLEMENT_MODULES = {
     "product_publish": "creators_enabled",
     "storefront_visible": "creators_enabled",
-    "checkout_enabled": "checkout_enabled",
+    "checkout_enabled": "public_shop_enabled",
     "creator_reporting": "creators_enabled",
     "creator_payout_visibility": "payouts_enabled",
     "printer_jobs": "printers_enabled",
+    "printer_job_limit": "printers_enabled",
+    "printer_template_access": "product_templates_enabled",
     "printer_pricing": "printers_enabled",
     "printer_reporting": "printers_enabled",
     "printer_payout_visibility": "payouts_enabled",
