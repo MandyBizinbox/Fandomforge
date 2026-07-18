@@ -34,16 +34,15 @@ async def lifespan(app: FastAPI):
         from seed_production_operations import seed_production_operations
         from seed_production_rules import seed_production_rules
         from payout_launch_routes import ensure_payout_launch_indexes
-        from email_delivery import (
-            email_delivery_loop,
-            ensure_email_delivery_indexes,
-        )
+        from email_delivery import email_delivery_loop, ensure_email_delivery_indexes
+        from launch_integrity.install import ensure_launch_integrity_indexes
 
         await seed_if_empty(app.state.db)
         await seed_production_operations(app.state.db)
         await seed_production_rules(app.state.db)
         await ensure_payout_launch_indexes(app.state.db)
         await ensure_email_delivery_indexes(app.state.db)
+        await ensure_launch_integrity_indexes(app.state.db)
 
         worker_id = f"api-{os.getpid()}"
         email_task = asyncio.create_task(
@@ -51,7 +50,7 @@ async def lifespan(app: FastAPI):
             name=f"fandomforge-email-{worker_id}",
         )
         app.state.email_delivery_task = email_task
-        logger.info("Seed, safe index and email-delivery startup checks complete")
+        logger.info("Seed, launch-integrity indexes and email-delivery startup checks complete")
     except Exception as exc:
         logger.exception("Startup checks failed: %s", exc)
 
@@ -66,9 +65,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="FandomForge API", lifespan=lifespan)
 
-# Serve uploads via /api/uploads (behind ingress /api rule)
 app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
-
 api_router = APIRouter(prefix="/api")
 
 
@@ -80,20 +77,17 @@ async def root():
 @api_router.get("/health")
 async def health():
     from email_delivery import load_email_delivery_settings
+    from launch_integrity import LAUNCH_INTEGRITY_VERSION
 
     email = load_email_delivery_settings()
     return {
         "status": "ok",
-        "email_delivery": {
-            "configured": email.configured,
-            "provider": email.provider,
-        },
+        "launch_integrity_version": LAUNCH_INTEGRITY_VERSION,
+        "email_delivery": {"configured": email.configured, "provider": email.provider},
     }
 
 
-# Mount sub-routers on /api
 from production_model_compat import install_production_model_compat
-
 install_production_model_compat()
 
 from auth import auth_router
@@ -112,6 +106,10 @@ install_builder_production_rules_patch(routes_main_module)
 install_builder_text_artwork_patch(routes_main_module)
 install_platform_launch_policy_patch(routes_main_module)
 
+# Launch-integrity wrappers are deliberately outermost.
+from launch_integrity.install import install_launch_integrity
+install_launch_integrity(app, routes_main_module)
+
 from routes_main import (
     bands_router, printers_router, product_templates_router, products_router, artworks_router,
     orders_router, admin_router, payments_router, platform_billing_router, files_router, public_router,
@@ -125,13 +123,17 @@ from payout_retry_guard import install_payout_retry_guard
 from builder_draft_routes import builder_drafts_router
 from routes_production_operations import production_operations_router
 from routes_production_rules import production_rules_router
+from launch_integrity.routes import integrity_router
+from launch_integrity.printer_ops import printer_ops_router
 
-# Install the final reservation check before exposing any payout transfer route.
 install_payout_retry_guard(payout_launch_routes_module)
 
 api_router.include_router(auth_router)
-# Register payout launch routes before legacy payout/payment routes so hardened
-# creator batching and transfer webhook handling are authoritative.
+# Integrated checkout, settings, entitlements, adjustments and production routes
+# must win over duplicate legacy paths.
+api_router.include_router(integrity_router)
+api_router.include_router(printer_ops_router)
+# Checkpoint 2 payout routes stay ahead of legacy payment routes.
 api_router.include_router(payout_launch_router)
 api_router.include_router(bands_router)
 api_router.include_router(printers_router)
@@ -143,8 +145,6 @@ api_router.include_router(orders_router)
 api_router.include_router(payments_router)
 api_router.include_router(platform_billing_router)
 api_router.include_router(admin_router)
-# Platform-aware routes must be registered before legacy public routes with the
-# same path so configured contact details and branding remain authoritative.
 api_router.include_router(public_platform_router)
 api_router.include_router(public_homepage_router)
 api_router.include_router(public_router)
@@ -164,5 +164,5 @@ app.add_middleware(
     allow_credentials=True,
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
