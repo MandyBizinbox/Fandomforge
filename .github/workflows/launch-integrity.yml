@@ -24,6 +24,7 @@ jobs:
       JWT_SECRET: ci-only-secret-ci-only-secret-ci-only-secret-ci-only-secret
       ENVIRONMENT: test
       E2E_TEST_MODE: "1"
+      PYTHONPATH: ${{ github.workspace }}/backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
