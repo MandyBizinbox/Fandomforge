@@ -21,6 +21,8 @@ def test_server_import_and_authoritative_route_precedence(monkeypatch):
     assert first[("/api/creator-payouts/profile", "GET")].endpoint.__module__ == "payout_launch_routes"
     assert first[("/api/integrity/health", "GET")].endpoint.__module__ == "launch_integrity.routes"
     assert first[("/api/production-jobs", "GET")].endpoint.__module__ == "launch_integrity.printer_ops"
+    assert first[("/api/production-jobs/assign", "POST")].endpoint.__module__ == "launch_integrity.printer_gate_routes"
+    assert first[("/api/products", "POST")].endpoint.__module__ == "launch_integrity.safety_routes"
     assert first[("/api/admin/quick-products", "POST")].endpoint.__module__ == "launch_integrity.safety_routes"
     assert first[("/api/products/{product_id}", "DELETE")].endpoint.__module__ == "launch_integrity.safety_routes"
     assert first[("/api/admin/products/{product_id}", "DELETE")].endpoint.__module__ == "launch_integrity.safety_routes"
