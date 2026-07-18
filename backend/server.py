@@ -17,6 +17,11 @@ UPLOAD_DIR = ROOT / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 mongo_url = os.environ["MONGO_URL"]
 db_name = os.environ["DB_NAME"]
+E2E_MODE = (
+    os.environ.get("E2E_TEST_MODE") == "1"
+    and os.environ.get("ENVIRONMENT", "development").lower() != "production"
+    and db_name.startswith("fandomforge_e2e_")
+)
 client = AsyncIOMotorClient(mongo_url)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("fandomforge")
@@ -39,6 +44,10 @@ async def lifespan(app: FastAPI):
         await ensure_payout_launch_indexes(app.state.db)
         await ensure_email_delivery_indexes(app.state.db)
         await ensure_launch_integrity_indexes(app.state.db)
+        if E2E_MODE:
+            from e2e_support import normalize_e2e_fixture_emails
+            changed = await normalize_e2e_fixture_emails(app.state.db)
+            logger.info("Normalized isolated E2E fixture email aliases: %s", changed)
         worker_id = f"api-{os.getpid()}"
         email_task = asyncio.create_task(email_delivery_loop(app.state.db, worker_id), name=f"fandomforge-email-{worker_id}")
         app.state.email_delivery_task = email_task
@@ -54,6 +63,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FandomForge API", lifespan=lifespan)
+if E2E_MODE:
+    from e2e_support import E2EEmailAliasMiddleware
+    app.add_middleware(E2EEmailAliasMiddleware)
 app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 api_router = APIRouter(prefix="/api")
 
@@ -118,7 +130,7 @@ api_router.include_router(printer_ops_router)
 api_router.include_router(review_router)
 api_router.include_router(safety_router)
 api_router.include_router(financial_gate_router)
-if os.environ.get("E2E_TEST_MODE") == "1" and os.environ.get("ENVIRONMENT", "development").lower() != "production" and db_name.startswith("fandomforge_e2e_"):
+if E2E_MODE:
     from e2e_support import e2e_router
     api_router.include_router(e2e_router)
 api_router.include_router(payout_launch_router)
