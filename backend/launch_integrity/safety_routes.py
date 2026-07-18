@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from auth import get_current_user
-from models import User
+from models import Product, ProductCreate, ProductVariation, User
 import routes_main as core
 
 from .audit import write_audit_event
@@ -18,6 +18,78 @@ safety_router = APIRouter(tags=["launch-integrity-safety"])
 
 def utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+@safety_router.post("/products")
+async def create_creator_product(
+    payload: ProductCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Authoritative Creator product creation with one ownership assignment."""
+    db = request.app.state.db
+    creator = await core.get_creator_account_for_user(db, user, permission="manage_products")
+    normalized = await core.normalize_template_product_payload(
+        db=db,
+        data=payload.model_dump(),
+        creator=creator,
+        user=user,
+        allow_admin_publish=False,
+    )
+
+    if not normalized.get("variations"):
+        if normalized.get("template_id"):
+            template = await db.product_templates.find_one(
+                {"id": normalized.get("template_id")}, {"_id": 0}
+            ) or {}
+            normalized["variations"] = [core._standard_template_product_variation(template, [])]
+        else:
+            normalized["variations"] = [
+                ProductVariation(size="M", color="Black").model_dump(),
+                ProductVariation(size="L", color="Black").model_dump(),
+                ProductVariation(size="XL", color="Black").model_dump(),
+            ]
+
+    default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})
+    now = core.utcnow()
+    product_input = {
+        **normalized,
+        "band_id": creator["id"],
+        "slug": core.slugify(normalized["title"]) + "-" + core.uid()[:4],
+        "assigned_printer_id": normalized.get("assigned_printer_id")
+        or ((default_printer or {}).get("id")),
+        "created_by_user_id": user.id,
+        "created_by_role": user.role,
+        "created_at": now,
+        "updated_at": now,
+    }
+    validated = Product(**product_input)
+    # Product is a compatibility response model and ignores additive integrity fields.
+    # Merge its validated core fields back over the normalized document so canonical
+    # ownership/design/version fields remain stored without passing duplicate kwargs.
+    document = core.iso_dates({**normalized, **validated.model_dump()})
+    await db.products.insert_one(document.copy())
+    stored = await db.products.find_one({"id": validated.id}, {"_id": 0})
+    await write_audit_event(
+        db,
+        action="product.create",
+        entity_type="product",
+        entity_id=validated.id,
+        actor=user,
+        before=None,
+        after={
+            "creator_id": creator.get("id"),
+            "title": stored.get("title"),
+            "published": stored.get("published"),
+            "product_version": stored.get("product_version"),
+            "design_sha256": stored.get("design_sha256"),
+        },
+        reason="Creator product created",
+        request=request,
+        related_creator_id=creator.get("id"),
+        related_product_id=validated.id,
+    )
+    return stored
 
 
 @safety_router.post("/admin/quick-products")
