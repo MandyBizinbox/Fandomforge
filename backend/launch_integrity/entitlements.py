@@ -122,9 +122,20 @@ async def _usage_value(db, owner_type: str, owner_id: str, feature_key: str, reg
     if usage_key == "printer_jobs":
         period, _ = _month_period()
         row = await db.entitlement_usage.find_one({
-            "owner_type": owner_type, "owner_id": owner_id, "feature_key": feature_key, "period": period
+            "owner_type": owner_type,
+            "owner_id": owner_id,
+            "feature_key": feature_key,
+            "period": period,
         }, {"_id": 0}) or {}
-        return int(row.get("usage") or 0)
+        recorded_usage = int(row.get("usage") or 0)
+        # Operational records are authoritative when counters are missing or drifted.
+        # Count currently active jobs, including legacy jobs created before usage
+        # counters were introduced, without double-counting counters and jobs.
+        active_jobs = await db.production_jobs.count_documents({
+            "printer_id": owner_id,
+            "status": {"$nin": ["completed", "cancelled", "archived"]},
+        })
+        return max(recorded_usage, int(active_jobs or 0))
     if usage_key == "artwork_storage_mb":
         pipeline = [
             {"$match": {"band_id": owner_id}},
