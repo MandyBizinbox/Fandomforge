@@ -16,20 +16,15 @@ def test_server_import_and_authoritative_route_precedence(monkeypatch):
         for method in getattr(route, "methods", set()):
             first.setdefault((route.path, method), route)
 
-    checkout = first[("/api/orders/checkout", "POST")]
-    assert checkout.endpoint.__module__ == "launch_integrity.routes"
-
-    payout = first[("/api/admin/payout-batches/{batch_id}/send-paystack", "POST")]
-    assert payout.endpoint.__module__ == "payout_launch_routes"
-
-    creator_profile = first[("/api/creator-payouts/profile", "GET")]
-    assert creator_profile.endpoint.__module__ == "payout_launch_routes"
-
-    integrity_health = first[("/api/integrity/health", "GET")]
-    assert integrity_health.endpoint.__module__ == "launch_integrity.routes"
-
-    production_jobs = first[("/api/production-jobs", "GET")]
-    assert production_jobs.endpoint.__module__ == "launch_integrity.printer_ops"
+    assert first[("/api/orders/checkout", "POST")].endpoint.__module__ == "launch_integrity.routes"
+    assert first[("/api/admin/payout-batches/{batch_id}/send-paystack", "POST")].endpoint.__module__ == "payout_launch_routes"
+    assert first[("/api/creator-payouts/profile", "GET")].endpoint.__module__ == "payout_launch_routes"
+    assert first[("/api/integrity/health", "GET")].endpoint.__module__ == "launch_integrity.routes"
+    assert first[("/api/production-jobs", "GET")].endpoint.__module__ == "launch_integrity.printer_ops"
+    assert first[("/api/admin/quick-products", "POST")].endpoint.__module__ == "launch_integrity.safety_routes"
+    assert first[("/api/products/{product_id}", "DELETE")].endpoint.__module__ == "launch_integrity.safety_routes"
+    assert first[("/api/admin/products/{product_id}", "DELETE")].endpoint.__module__ == "launch_integrity.safety_routes"
+    assert first[("/api/artworks/upload", "POST")].endpoint.__module__ == "launch_integrity.safety_routes"
 
 
 def test_literal_owner_is_in_frontend_route_source():
@@ -41,3 +36,4 @@ def test_literal_owner_is_in_frontend_route_source():
     assert 'includes(role)' in source
     assert 'path="/admin/*"' in source
     assert 'path="/account/plans"' in source
+    assert 'path="/admin/review/:ownerType/:ownerId"' in source
