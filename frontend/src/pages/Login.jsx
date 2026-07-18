@@ -6,7 +6,7 @@ import { clearAuthToken } from "../lib/authToken";
 import Navbar from "../components/Navbar";
 
 function accountHome(role) {
-  if (["super_admin", "admin"].includes(role)) return "/admin";
+  if (["owner", "super_admin", "admin"].includes(role)) return "/admin";
   if (role === "manager") return "/manager";
   if (role === "creator") return "/creator";
   if (role === "printer") return "/printer";
@@ -33,7 +33,6 @@ export default function Login() {
     event.preventDefault();
     setError("");
     setLoading(true);
-
     try {
       clearAuthToken();
       const signedInUser = await login(email.trim(), password);
@@ -53,7 +52,6 @@ export default function Login() {
           <div className="overline mb-2">Welcome back</div>
           <h1 className="font-display text-5xl uppercase mb-3">Sign in</h1>
           <p className="text-[var(--ff-muted-text)] mb-8">Access your FandomForge account, store or production dashboard.</p>
-
           {user && (
             <div className="card mb-6 text-sm" data-testid="login-already-signed-in">
               <div className="overline mb-1">Currently signed in</div>
@@ -65,35 +63,20 @@ export default function Login() {
               </div>
             </div>
           )}
-
           <form onSubmit={submit} className="card space-y-4" data-testid="login-form">
-            <div>
-              <label className="label">Email</label>
-              <input className="input-base" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" data-testid="login-email" />
-            </div>
+            <div><label className="label">Email</label><input className="input-base" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" data-testid="login-email" /></div>
             <div>
               <label className="label">Password</label>
               <div className="relative">
                 <input className="input-base pr-14" type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" data-testid="login-password" />
-                <button type="button" onClick={() => setShowPassword((current) => !current)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)]" aria-label={showPassword ? "Hide password" : "Show password"}>
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
+                <button type="button" onClick={() => setShowPassword((current) => !current)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)]" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>
               </div>
             </div>
             {error && <div className="text-[var(--ff-primary)] text-sm" role="alert" data-testid="login-error">{error}</div>}
-            <button type="submit" className="btn-primary w-full justify-center" disabled={loading} data-testid="login-submit">
-              {loading ? "Signing in…" : "Sign in"}
-            </button>
+            <button type="submit" className="btn-primary w-full justify-center" disabled={loading} data-testid="login-submit">{loading ? "Signing in…" : "Sign in"}</button>
           </form>
-
-          <div className="mt-8 text-sm text-[var(--ff-muted-text)]">
-            New customer?{" "}
-            <Link to="/register" className="text-[var(--ff-page-text)] underline" data-testid="login-register-link">Create an account</Link>
-          </div>
-          <div className="mt-3 text-sm text-[var(--ff-muted-text)]">
-            Want to sell merchandise?{" "}
-            <Link to="/register/creator" className="text-[var(--ff-page-text)] underline">Create a creator store</Link>
-          </div>
+          <div className="mt-8 text-sm text-[var(--ff-muted-text)]">New customer? <Link to="/register" className="text-[var(--ff-page-text)] underline" data-testid="login-register-link">Create an account</Link></div>
+          <div className="mt-3 text-sm text-[var(--ff-muted-text)]">Want to sell merchandise? <Link to="/register/creator" className="text-[var(--ff-page-text)] underline">Create a creator store</Link></div>
         </div>
       </main>
     </div>
