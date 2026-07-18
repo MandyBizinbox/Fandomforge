@@ -10,19 +10,16 @@ from fastapi import HTTPException
 
 from platform_modules.registry import normalize_modules
 
-from .audit import ensure_audit_indexes, write_audit_event
+from .audit import ensure_audit_indexes
 from .design import install_design_integrity
 from .entitlements import ensure_entitlement_indexes, require_entitlement
+from . import finance as finance_module
 from .finance import ensure_finance_indexes, install_finance_integrity
+from .finance_reversals import apply_financial_reversal as corrected_financial_reversal
 from .middleware import launch_audit_middleware
-from .permissions import (
-    is_admin,
-    require_manager_permission,
-    require_owner,
-    role_of,
-)
+from .permissions import require_manager_permission, require_owner, role_of
 from .printer_ops import ensure_job_for_item, ensure_printer_ops_indexes
-from .provider_events import apply_provider_amount_reversal
+from .provider_reversals import apply_provider_amount_reversal
 from .settings import ensure_settings_integrity_indexes, resolve_platform_settings
 from . import pricing
 
@@ -30,14 +27,9 @@ logger = logging.getLogger("fandomforge.launch_integrity")
 
 
 def _payment_amount(data: Dict[str, Any], order: Dict[str, Any]) -> float:
-    raw = (
-        data.get("amount")
-        or (data.get("transaction") or {}).get("amount")
-        or (data.get("refund") or {}).get("amount")
-    )
+    raw = data.get("amount") or (data.get("transaction") or {}).get("amount") or (data.get("refund") or {}).get("amount")
     if raw not in (None, ""):
         value = float(raw or 0)
-        # Paystack event amounts are normally in the smallest currency unit.
         return round(value / 100, 2) if value > float(order.get("total") or 0) * 10 else round(value, 2)
     return round(float(order.get("total") or 0), 2)
 
@@ -49,8 +41,10 @@ def install_launch_integrity(app: Any, core: Any) -> None:
     if not hasattr(pricing, "CHECKOUT_GATEWAY"):
         pricing.CHECKOUT_GATEWAY = ContextVar("fandomforge_checkout_gateway", default="paystack")
 
-    # Canonical backend role enforcement for all legacy functions that resolve
-    # their helper names at request time.
+    # Routes import this symbol after installation, so the corrected additive
+    # implementation supersedes the early compatibility helper without deletion.
+    finance_module.apply_financial_reversal = corrected_financial_reversal
+
     core._require_owner_user = require_owner
     core._require_manager_permission = require_manager_permission
 
@@ -72,22 +66,16 @@ def install_launch_integrity(app: Any, core: Any) -> None:
 
     core.user_can_access_band = admin_aware_band_access
 
-    original_settings = core._get_platform_settings_doc
-
     async def canonical_settings(db):
         resolved = await resolve_platform_settings(db)
         return {**resolved.raw, "modules": normalize_modules(resolved.raw.get("modules"))}
 
     core._get_platform_settings_doc = canonical_settings
 
-    # Existing Builder/runtime compatibility patches execute first. These wrappers
-    # are outermost and therefore authoritative for product and order persistence.
     install_design_integrity(core)
     pricing.install_authoritative_pricing(core)
     install_finance_integrity(core)
 
-    # Enforce Creator account plan limits for both self-created and admin-created
-    # Creator products. An audited entitlement override is the only bypass.
     normalized_product = core.normalize_template_product_payload
 
     async def entitlement_product_normalize(*, db, data, creator, user, allow_admin_publish=False):
@@ -106,18 +94,16 @@ def install_launch_integrity(app: Any, core: Any) -> None:
 
     core.normalize_template_product_payload = entitlement_product_normalize
 
-    # Reapply gateway-specific fee rules after the compatibility builder has built
-    # the item, and honour the centrally configured default Printer when assignment
-    # could not select one.
     built_items = core._build_order_items
 
     async def gateway_aware_build_items(db, cart_items, shipping_address=None):
         items, _ = await built_items(db, cart_items, shipping_address)
         gateway = pricing.CHECKOUT_GATEWAY.get()
-        items = await pricing.enrich_order_items(db, items, gateway=gateway)
         settings = await resolve_platform_settings(db)
         default_printer_id = settings.launch.default_printer_id
-        subtotal = 0.0
+
+        # Resolve assignment first so the authoritative pricing pass can choose a
+        # Printer-specific liability instead of the platform fallback.
         for item in items:
             if not getattr(item, "printer_id", None) and default_printer_id:
                 item.printer_id = default_printer_id
@@ -126,13 +112,31 @@ def install_launch_integrity(app: Any, core: Any) -> None:
                     data = snapshot.model_dump() if hasattr(snapshot, "model_dump") else dict(snapshot)
                     data["assigned_printer"] = {"id": default_printer_id, "source": "platform_default"}
                     item.production_snapshot = data
-            subtotal += float(getattr(item, "unit_price", 0) or 0) * max(int(getattr(item, "quantity", 1) or 1), 1)
+
+        items = await pricing.enrich_order_items(db, items, gateway=gateway)
+        subtotal = 0.0
+        for item in items:
+            snapshot = getattr(item, "production_snapshot", None)
+            data = snapshot.model_dump() if hasattr(snapshot, "model_dump") else dict(snapshot or {})
+            commercial = dict(data.get("commercial_snapshot") or {})
+            payment_fee = dict(commercial.get("payment_fee") or {})
+            payment_fee["refund_treatment"] = settings.launch.financial_rules.gateway_fee_refund_treatment
+            commercial["payment_fee"] = payment_fee
+            shipping = dict(commercial.get("shipping") or {})
+            shipping["treatment"] = settings.launch.financial_rules.shipping_refund_treatment
+            commercial["shipping"] = shipping
+            data["commercial_snapshot"] = commercial
+            item.production_snapshot = data
+
+            # Customer unit total includes exclusive tax and any fee explicitly
+            # allocated to the customer; liabilities remain based on the selling
+            # price and immutable commercial snapshot.
+            item.unit_price = float(commercial.get("customer_unit_total") or item.unit_price or 0)
+            subtotal += float(item.unit_price or 0) * max(int(getattr(item, "quantity", 1) or 1), 1)
         return items, round(subtotal, 2)
 
     core._build_order_items = gateway_aware_build_items
 
-    # Once payment is confirmed, create operational Printer jobs from the immutable
-    # order snapshot. Operational failures are surfaced but never roll payment back.
     marked_paid = core._mark_order_paid_from_payment
 
     async def marked_paid_with_jobs(db, payment, provider_payload=None):
@@ -184,8 +188,6 @@ def install_launch_integrity(app: Any, core: Any) -> None:
 
     core._mark_order_paid_from_payment = marked_paid_with_jobs
 
-    # Preserve the core signature verification and normal payment/subscription
-    # behavior, then apply provider financial events exactly once.
     payment_webhook = core.gateway_payment_webhook
 
     async def financial_payment_webhook(gateway_key: str, request):
@@ -196,7 +198,7 @@ def install_launch_integrity(app: Any, core: Any) -> None:
             payload = {}
         result = await payment_webhook(gateway_key, request)
         event = str(payload.get("event") or "").lower()
-        mapping = {
+        event_type = {
             "refund.processed": "refund",
             "refund.success": "refund",
             "charge.dispute.create": "chargeback",
@@ -204,8 +206,7 @@ def install_launch_integrity(app: Any, core: Any) -> None:
             "chargeback": "chargeback",
             "charge.reversal": "provider_reversal",
             "transaction.reversed": "provider_reversal",
-        }
-        event_type = mapping.get(event)
+        }.get(event)
         if not event_type:
             return result
         db = request.app.state.db
@@ -240,7 +241,6 @@ def install_launch_integrity(app: Any, core: Any) -> None:
         return {**(result or {}), "financial_event_processed": True, "financial_event_type": event_type}
 
     core.gateway_payment_webhook = financial_payment_webhook
-
     app.middleware("http")(launch_audit_middleware)
     core._launch_integrity_installed = True
 
