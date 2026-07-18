@@ -9,6 +9,12 @@ TARGET="${EXPECTED_TARGET:?Set EXPECTED_TARGET to the pinned launch-integrity ca
 DOMAIN="${DOMAIN:-https://fandomforge.co.za}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-fandomforge-backend.service}"
 SITE_CONFIG="${SITE_CONFIG:-/etc/nginx/sites-available/fandomforge.co.za}"
+DEPLOY_USER="$(id -un)"
+SERVICE_GROUP="$(systemctl show -p Group --value "$BACKEND_SERVICE")"
+if [ -z "$SERVICE_GROUP" ]; then
+    SERVICE_GROUP="$(systemctl show -p User --value "$BACKEND_SERVICE")"
+fi
+SERVICE_GROUP="${SERVICE_GROUP:-www-data}"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 BACKUP="/var/backups/fandomforge/launch-integrity-$STAMP"
 NEXT_BUILD="$FRONTEND/build.next-$STAMP"
@@ -34,6 +40,13 @@ restore_source() {
     git reset --hard "$ORIGINAL_COMMIT" || true
 }
 
+restore_backend_env() {
+    [ -f "$BACKUP/backend.env" ] || return 0
+    sudo cp "$BACKUP/backend.env" "$BACKEND/.env" || return 0
+    sudo chown "$DEPLOY_USER:$SERVICE_GROUP" "$BACKEND/.env" || true
+    sudo chmod 640 "$BACKEND/.env" || true
+}
+
 rollback() {
     local code=$?
     trap - ERR
@@ -43,8 +56,8 @@ rollback() {
         [ -d "$FRONTEND/build" ] && sudo mv "$FRONTEND/build" "$BACKUP/build.rejected" || true
         sudo mv "$BACKUP/build.replaced" "$FRONTEND/build" || true
     fi
-    if [ "$ENV_CHANGED" = "1" ] && [ -f "$BACKUP/backend.env" ]; then
-        sudo cp "$BACKUP/backend.env" "$BACKEND/.env" || true
+    if [ "$ENV_CHANGED" = "1" ]; then
+        restore_backend_env
     fi
     if [ "$SOURCE_CHANGED" = "1" ] && [ -n "$ORIGINAL_COMMIT" ]; then
         restore_source
@@ -119,7 +132,7 @@ if collisions:
 PY
 
 log "Applying production-safe environment flags only"
-ENV_FILE="$BACKEND/.env" "$BACKEND/venv/bin/python" - <<'PY'
+sudo env ENV_FILE="$BACKEND/.env" "$BACKEND/venv/bin/python" - <<'PY'
 import os
 from pathlib import Path
 path = Path(os.environ["ENV_FILE"])
@@ -149,7 +162,8 @@ for key, value in updates.items():
         out.append(f"{key}={value}")
 path.write_text("\n".join(out).rstrip() + "\n")
 PY
-sudo chmod 600 "$BACKEND/.env"
+sudo chown "$DEPLOY_USER:$SERVICE_GROUP" "$BACKEND/.env"
+sudo chmod 640 "$BACKEND/.env"
 ENV_CHANGED=1
 
 log "Compiling backend and running no-provider tests"
