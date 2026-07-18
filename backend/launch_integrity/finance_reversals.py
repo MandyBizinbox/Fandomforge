@@ -241,7 +241,9 @@ async def apply_financial_reversal(
         "created_by_user_id": getattr(actor, "id", None),
         "created_by_role": getattr(actor, "role", None),
     }
-    await db.financial_adjustments.insert_one(adjustment)
+    # PyMongo mutates inserted dictionaries by adding an ObjectId. Insert a copy so
+    # the API result remains JSON/BSON-safe and contains only the stable public ID.
+    await db.financial_adjustments.insert_one(dict(adjustment))
     refunded_total = money(D(order.get("refunded_total")) + total_customer_refund)
     original_total = money(order.get("total"))
     payment_status = "refunded" if refunded_total >= original_total - CENT else ("partially_refunded" if event_type == "refund" else event_type)
@@ -271,4 +273,4 @@ async def apply_financial_reversal(
         metadata={"lines": affected, "whole_order": whole_order},
     )
     await db.financial_adjustments.update_one({"id": adjustment["id"]}, {"$set": {"audit_reference": audit.get("id")}})
-    return adjustment
+    return {**adjustment, "audit_reference": audit.get("id")}
