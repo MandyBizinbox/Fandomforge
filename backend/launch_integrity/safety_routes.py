@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
@@ -19,6 +18,58 @@ safety_router = APIRouter(tags=["launch-integrity-safety"])
 
 def utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+@safety_router.post("/admin/quick-products")
+async def create_quick_product_for_creator(
+    payload: core.QuickProductCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    if role_of(user) not in {"owner", "super_admin", "admin"}:
+        raise HTTPException(status_code=403, detail="Platform Owner or Admin access required")
+    db = request.app.state.db
+    creator = await db.creators.find_one({"id": payload.creator_id}, {"_id": 0})
+    if not creator:
+        raise HTTPException(status_code=404, detail="Creator/store not found")
+
+    # The legacy implementation contains a literal super_admin check. Call it with
+    # a transient policy adapter, then restore the real actor role on the product
+    # and in the audit event. No user or token record is changed.
+    policy_user = user.model_copy(update={"role": "super_admin"})
+    created = await core._admin_create_quick_product_impl(payload, request, policy_user)
+    product_id = created.id if hasattr(created, "id") else created.get("id")
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    integrity = product_integrity_fields(product or {}, creator, user)
+    patch = {
+        **integrity,
+        "created_by_user_id": user.id,
+        "created_by_role": user.role,
+        "last_edited_by_user_id": user.id,
+        "last_edited_by_role": user.role,
+        "updated_at": utc_iso(),
+    }
+    await db.products.update_one({"id": product_id}, {"$set": patch})
+    updated = await db.products.find_one({"id": product_id}, {"_id": 0})
+    await write_audit_event(
+        db,
+        action="product.create_for_creator",
+        entity_type="product",
+        entity_id=product_id,
+        actor=user,
+        before=None,
+        after={
+            "creator_id": creator.get("id"),
+            "title": updated.get("title"),
+            "published": updated.get("published"),
+            "product_version": updated.get("product_version"),
+        },
+        reason="Platform-created Creator product",
+        request=request,
+        related_creator_id=creator.get("id"),
+        related_product_id=product_id,
+    )
+    return updated
 
 
 async def _archive_product(db, product: dict, user: User, request: Request, reason: str):
@@ -177,4 +228,9 @@ async def immutable_artwork_upload(
         related_creator_id=product.get("band_id"),
         related_product_id=product_id,
     )
-    return {**uploaded, **asset_patch, "product_version": after.get("product_version"), "design_sha256": after.get("design_sha256")}
+    return {
+        **uploaded,
+        **asset_patch,
+        "product_version": after.get("product_version"),
+        "design_sha256": after.get("design_sha256"),
+    }
