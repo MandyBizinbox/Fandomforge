@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { http } from "../lib/api";
+import {
+  AUTH_EXPIRED_EVENT,
+  clearStoredAuthToken,
+  getStoredAuthToken,
+  http,
+  storeAuthToken,
+} from "../lib/api";
 
 const AuthCtx = createContext(null);
 
@@ -8,31 +14,49 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("mf_token");
+    const token = getStoredAuthToken();
 
-    if (!token) { setLoading(false); return; }
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
     http.get("/auth/me")
       .then((r) => setUser(r.data))
-      .catch(() => { localStorage.removeItem("mf_token"); })
+      .catch(() => {
+        clearStoredAuthToken();
+        setUser(null);
+      })
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const handleExpiredSession = () => {
+      clearStoredAuthToken();
+      setUser(null);
+      setLoading(false);
+    };
+
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleExpiredSession);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpiredSession);
   }, []);
 
   const login = async (email, password) => {
     const r = await http.post("/auth/login", { email, password });
-    localStorage.setItem("mf_token", r.data.access_token);
+    storeAuthToken(r.data.access_token);
     setUser(r.data.user);
     return r.data.user;
   };
 
   const register = async (email, password, name, role = "buyer") => {
     const r = await http.post("/auth/register", { email, password, name, role });
-    localStorage.setItem("mf_token", r.data.access_token);
+    storeAuthToken(r.data.access_token);
     setUser(r.data.user);
     return r.data.user;
   };
 
   const logout = () => {
-    localStorage.removeItem("mf_token");
+    clearStoredAuthToken();
     setUser(null);
   };
 
@@ -40,7 +64,7 @@ export function AuthProvider({ children }) {
     const r = await http.post("/auth/google/session", null, {
       headers: { "X-Session-ID": sessionId },
     });
-    localStorage.setItem("mf_token", r.data.access_token);
+    storeAuthToken(r.data.access_token);
     setUser(r.data.user);
     return r.data.user;
   };
