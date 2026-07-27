@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ExternalLink, Store } from "lucide-react";
 import { http, assetUrl } from "../lib/api";
 import Navbar from "../components/Navbar";
@@ -39,6 +39,7 @@ async function loadCreatorByIdentifier(identifier) {
 
 export default function BandStorefront() {
   const { slug } = useParams();
+  const navigate = useNavigate();
   const [creator, setCreator] = useState(null);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +55,12 @@ export default function BandStorefront() {
       try {
         const loadedCreator = await loadCreatorByIdentifier(slug);
         if (!mounted) return;
+
+        if (loadedCreator?.slug && loadedCreator.slug !== slug) {
+          navigate(`/creators/${loadedCreator.slug}`, { replace: true });
+          return;
+        }
+
         setCreator(loadedCreator);
 
         const productResponse = await http.get(`/creators/${loadedCreator.id}/products`);
@@ -76,7 +83,7 @@ export default function BandStorefront() {
     return () => {
       mounted = false;
     };
-  }, [slug]);
+  }, [navigate, slug]);
 
   useEffect(() => {
     if (creator?.slug) {
