@@ -204,7 +204,6 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     setProduct(null);
     setSubmittedProduct(null);
     setSelectedProductTypeId("");
-    setCreatorAccount(null);
     setPricingControl(null);
     setPricingOverrideReason("");
     setForm({
