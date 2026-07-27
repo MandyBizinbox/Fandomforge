@@ -196,6 +196,40 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     primary_mockup_image_url: "",
   });
 
+  useEffect(() => {
+    // React Router can reuse this component when moving between an existing
+    // product and /new. Always start each route with a clean wizard so the
+    // previous product's step, selections and draft data cannot leak through.
+    setActiveStep("product_type");
+    setProduct(null);
+    setSubmittedProduct(null);
+    setSelectedProductTypeId("");
+    setCreatorAccount(null);
+    setPricingControl(null);
+    setPricingOverrideReason("");
+    setForm({
+      band_id: "",
+      template_id: "",
+      title: "",
+      description: "",
+      specs: "",
+      selected_template_variation_ids: [],
+      selected_print_area_id: "",
+      selected_print_option_id: "",
+      selling_price: 0,
+      variation_price_overrides: {},
+      published: false,
+      publish_on_approval: false,
+      artwork: { ...emptyArtwork },
+      placement: { ...emptyPlacement },
+      artworks: [],
+      artwork_groups: [],
+      mockup_images: [],
+      mockup_image_url: "",
+      primary_mockup_image_url: "",
+    });
+  }, [isAdmin, isNew, routeId]);
+
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === form.template_id) || null,
     [templates, form.template_id]
