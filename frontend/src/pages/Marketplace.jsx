@@ -165,9 +165,12 @@ export function CreatorDirectory() {
   }, []);
 
   const filtered = useMemo(() => {
+    const publicCreators = creators.filter(
+      (creator) => creatorVisibility(creator) === "public" && creator.slug
+    );
     const needle = normalise(query);
-    if (!needle) return creators;
-    return creators.filter((creator) => normalise([
+    if (!needle) return publicCreators;
+    return publicCreators.filter((creator) => normalise([
       creator.display_name,
       creator.name,
       creator.category,
@@ -183,7 +186,7 @@ export function CreatorDirectory() {
           <div>
             <p className="overline mb-2">{platform.platform_name || "Fandom Forge"}</p>
             <h1 className="font-display text-5xl md:text-6xl uppercase">Creator Stores</h1>
-            <p className="text-[var(--ff-muted-text)] mt-3 max-w-3xl">Browse creator and community stores. Some stores are private and can only be accessed using a link shared by the store owner.</p>
+            <p className="text-[var(--ff-muted-text)] mt-3 max-w-3xl">Browse public creator and community stores. Private and unlisted stores remain available only through their direct links.</p>
           </div>
           <Link to="/shop" className="btn-secondary">Shop All Products</Link>
         </div>
