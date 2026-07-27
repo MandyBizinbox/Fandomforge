@@ -128,10 +128,39 @@ export function CreatorDirectory() {
 
   useEffect(() => {
     let mounted = true;
-    http.get("/public/creators/gallery")
-      .then((response) => mounted && setCreators(Array.isArray(response.data) ? response.data : []))
-      .catch(() => mounted && setCreators([]))
-      .finally(() => mounted && setLoading(false));
+
+    Promise.allSettled([
+      http.get("/public/creators/gallery"),
+      http.get("/creators"),
+    ])
+      .then(([galleryResult, publicResult]) => {
+        if (!mounted) return;
+
+        const gallery = galleryResult.status === "fulfilled" && Array.isArray(galleryResult.value.data)
+          ? galleryResult.value.data
+          : [];
+        const publicCreators = publicResult.status === "fulfilled" && Array.isArray(publicResult.value.data)
+          ? publicResult.value.data
+          : [];
+        const publicById = new Map(publicCreators.map((creator) => [creator.id, creator]));
+
+        setCreators(gallery.map((galleryCreator) => {
+          const publicCreator = publicById.get(galleryCreator.id);
+          if (!publicCreator) return galleryCreator;
+
+          return {
+            ...publicCreator,
+            ...galleryCreator,
+            slug: publicCreator.slug || galleryCreator.slug,
+            visibility: publicCreator.visibility || galleryCreator.visibility || "public",
+            show_on_platform_gallery: publicCreator.show_on_platform_gallery ?? galleryCreator.show_on_platform_gallery,
+          };
+        }));
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
     return () => { mounted = false; };
   }, []);
 
@@ -171,9 +200,9 @@ export function CreatorDirectory() {
             {filtered.map((creator) => {
               const isPublic = creatorVisibility(creator) === "public";
               const cardClass = "card card-interactive block w-full text-left";
-              if (isPublic) {
+              if (isPublic && creator.slug) {
                 return (
-                  <Link key={creator.id || creator.slug} to={`/creators/${creator.slug || creator.id}`} className={cardClass}>
+                  <Link key={creator.id || creator.slug} to={`/creators/${creator.slug}`} className={cardClass}>
                     <CreatorCardContent creator={creator} />
                   </Link>
                 );
