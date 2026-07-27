@@ -21,6 +21,36 @@ function socialUrl(name, value) {
   return "";
 }
 
+function visibilityOf(creator) {
+  return String(
+    creator?.visibility
+    || creator?.store_visibility
+    || creator?.storefront_visibility
+    || (creator?.is_public === true ? "public" : "")
+    || "unlisted"
+  ).trim().toLowerCase();
+}
+
+async function loadCreatorByIdentifier(identifier) {
+  try {
+    const response = await http.get(`/creators/slug/${identifier}`);
+    return response.data;
+  } catch (requestError) {
+    if (requestError.response?.status !== 404) throw requestError;
+
+    const galleryResponse = await http.get("/public/creators/gallery");
+    const gallery = Array.isArray(galleryResponse.data) ? galleryResponse.data : [];
+    const match = gallery.find((entry) => entry?.id === identifier || entry?.slug === identifier);
+
+    if (!match || visibilityOf(match) !== "public") throw requestError;
+
+    return {
+      ...match,
+      name: match.name || match.display_name || "Creator Store",
+    };
+  }
+}
+
 export default function BandStorefront() {
   const { slug } = useParams();
   const [creator, setCreator] = useState(null);
@@ -36,10 +66,8 @@ export default function BandStorefront() {
       setError("");
 
       try {
-        const creatorResponse = await http.get(`/creators/slug/${slug}`);
+        const loadedCreator = await loadCreatorByIdentifier(slug);
         if (!mounted) return;
-
-        const loadedCreator = creatorResponse.data;
         setCreator(loadedCreator);
 
         const productResponse = await http.get(`/creators/${loadedCreator.id}/products`);
@@ -163,7 +191,7 @@ export default function BandStorefront() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-              {products.map((product) => <ProductCard key={product.id} product={product} bandSlug={creator.slug} />)}
+              {products.map((product) => <ProductCard key={product.id} product={product} bandSlug={creator.slug || creator.id} />)}
             </div>
           )}
         </div>
