@@ -21,16 +21,6 @@ function socialUrl(name, value) {
   return "";
 }
 
-function visibilityOf(creator) {
-  return String(
-    creator?.visibility
-    || creator?.store_visibility
-    || creator?.storefront_visibility
-    || (creator?.is_public === true ? "public" : "")
-    || "unlisted"
-  ).trim().toLowerCase();
-}
-
 async function loadCreatorByIdentifier(identifier) {
   try {
     const response = await http.get(`/creators/slug/${identifier}`);
@@ -38,16 +28,12 @@ async function loadCreatorByIdentifier(identifier) {
   } catch (requestError) {
     if (requestError.response?.status !== 404) throw requestError;
 
-    const galleryResponse = await http.get("/public/creators/gallery");
-    const gallery = Array.isArray(galleryResponse.data) ? galleryResponse.data : [];
-    const match = gallery.find((entry) => entry?.id === identifier || entry?.slug === identifier);
+    const publicResponse = await http.get("/creators");
+    const publicCreators = Array.isArray(publicResponse.data) ? publicResponse.data : [];
+    const match = publicCreators.find((entry) => entry?.id === identifier || entry?.slug === identifier);
 
-    if (!match || visibilityOf(match) !== "public") throw requestError;
-
-    return {
-      ...match,
-      name: match.name || match.display_name || "Creator Store",
-    };
+    if (!match) throw requestError;
+    return match;
   }
 }
 
