@@ -10,6 +10,35 @@ function normalise(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function creatorVisibility(creator) {
+  return normalise(
+    creator?.visibility
+    || creator?.store_visibility
+    || creator?.storefront_visibility
+    || (creator?.is_public === true ? "public" : "")
+    || "unlisted"
+  );
+}
+
+function CreatorCardContent({ creator }) {
+  return (
+    <>
+      <div className="h-36 bg-[var(--ff-surface-bg)] border border-[var(--ff-card-border)] mb-4 flex items-center justify-center overflow-hidden">
+        {creator.banner_url ? (
+          <img src={assetUrl(creator.banner_url)} alt="" className="w-full h-full object-cover" />
+        ) : creator.logo_url ? (
+          <img src={assetUrl(creator.logo_url)} alt="" className="max-w-full max-h-full object-contain p-4" />
+        ) : (
+          <Store size={44} className="text-[var(--ff-primary)]" />
+        )}
+      </div>
+      <h2 className="font-display text-3xl uppercase leading-none">{creator.display_name || creator.name || "Creator Store"}</h2>
+      {creator.category && <p className="overline mt-3">{creator.category}</p>}
+      {creator.bio && <p className="text-sm text-[var(--ff-muted-text)] mt-3 line-clamp-3">{creator.bio}</p>}
+    </>
+  );
+}
+
 export default function Marketplace() {
   const { platform } = usePlatformConfig();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -95,6 +124,7 @@ export function CreatorDirectory() {
   const [creators, setCreators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [privateCreator, setPrivateCreator] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -124,7 +154,7 @@ export function CreatorDirectory() {
           <div>
             <p className="overline mb-2">{platform.platform_name || "Fandom Forge"}</p>
             <h1 className="font-display text-5xl md:text-6xl uppercase">Creator Stores</h1>
-            <p className="text-[var(--ff-muted-text)] mt-3">Browse active stores from creators, clubs, schools and communities.</p>
+            <p className="text-[var(--ff-muted-text)] mt-3 max-w-3xl">Browse creator and community stores. Some stores are private and can only be accessed using a link shared by the store owner.</p>
           </div>
           <Link to="/shop" className="btn-secondary">Shop All Products</Link>
         </div>
@@ -138,31 +168,57 @@ export function CreatorDirectory() {
           <div className="card overline">Loading creator stores…</div>
         ) : filtered.length ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filtered.map((creator) => (
-              <Link key={creator.id || creator.slug} to={`/creators/${creator.slug || creator.id}`} className="card card-interactive block">
-                <div className="h-36 bg-[var(--ff-surface-bg)] border border-[var(--ff-card-border)] mb-4 flex items-center justify-center overflow-hidden">
-                  {creator.banner_url ? (
-                    <img src={assetUrl(creator.banner_url)} alt="" className="w-full h-full object-cover" />
-                  ) : creator.logo_url ? (
-                    <img src={assetUrl(creator.logo_url)} alt="" className="max-w-full max-h-full object-contain p-4" />
-                  ) : (
-                    <Store size={44} className="text-[var(--ff-primary)]" />
-                  )}
-                </div>
-                <h2 className="font-display text-3xl uppercase leading-none">{creator.display_name || creator.name || "Creator Store"}</h2>
-                {creator.category && <p className="overline mt-3">{creator.category}</p>}
-                {creator.bio && <p className="text-sm text-[var(--ff-muted-text)] mt-3 line-clamp-3">{creator.bio}</p>}
-              </Link>
-            ))}
+            {filtered.map((creator) => {
+              const isPublic = creatorVisibility(creator) === "public";
+              const cardClass = "card card-interactive block w-full text-left";
+              if (isPublic) {
+                return (
+                  <Link key={creator.id || creator.slug} to={`/creators/${creator.slug || creator.id}`} className={cardClass}>
+                    <CreatorCardContent creator={creator} />
+                  </Link>
+                );
+              }
+              return (
+                <button
+                  key={creator.id || creator.slug}
+                  type="button"
+                  className={cardClass}
+                  onClick={() => setPrivateCreator(creator)}
+                  aria-haspopup="dialog"
+                >
+                  <CreatorCardContent creator={creator} />
+                </button>
+              );
+            })}
           </div>
         ) : (
           <div className="card text-center py-12">
             <Store size={42} className="mx-auto text-[var(--ff-primary)] mb-4" />
             <h2 className="font-display text-3xl uppercase">No matching stores</h2>
-            <p className="text-[var(--ff-muted-text)] mt-2">Active creator stores will appear here as onboarding is completed.</p>
+            <p className="text-[var(--ff-muted-text)] mt-2">Creator stores will appear here as onboarding is completed.</p>
           </div>
         )}
       </main>
+
+      {privateCreator && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/70 px-4 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="private-store-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPrivateCreator(null);
+          }}
+        >
+          <div className="card max-w-lg w-full text-center py-10 px-6">
+            <Store size={42} className="mx-auto text-[var(--ff-primary)] mb-4" />
+            <p className="overline mb-2">{privateCreator.display_name || privateCreator.name || "Creator store"}</p>
+            <h2 id="private-store-title" className="font-display text-4xl uppercase mb-4">This is a private store</h2>
+            <p className="text-[var(--ff-muted-text)] mb-7">This store is not open to the general public. Please use the private link shared by the store owner to access it.</p>
+            <button type="button" className="btn-primary" onClick={() => setPrivateCreator(null)}>Close</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
