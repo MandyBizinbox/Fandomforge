@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { toast } from "sonner";
 import { ArrowLeft, Bold, Check, Heading2, List, ListOrdered, Package, Save } from "lucide-react";
@@ -150,6 +150,7 @@ function templateMatchesProductType(template, productType) {
 
 export default function ProductBuilder({ mode = "creator", backTo = "/creator/products" }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id: routeId } = useParams();
   const { user } = useAuth();
   const isNew = !routeId || routeId === "new";
@@ -227,7 +228,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
       mockup_image_url: "",
       primary_mockup_image_url: "",
     });
-  }, [isAdmin, isNew, routeId]);
+  }, [isAdmin, isNew, location.key, routeId]);
 
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === form.template_id) || null,
