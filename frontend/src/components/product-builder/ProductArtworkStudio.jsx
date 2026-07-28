@@ -67,12 +67,14 @@ function defaultPlacement(area) {
 
 function sanitizePlacement(placement, area) {
   const base = { ...defaultPlacement(area), ...(placement || {}) };
+  const width = round(clamp(base.width, 2, 100));
+  const height = round(clamp(base.height, 2, 100));
   return {
     ...base,
-    x: round(clamp(base.x, -100, 200)),
-    y: round(clamp(base.y, -100, 200)),
-    width: round(clamp(base.width, 2, 250)),
-    height: round(clamp(base.height, 2, 250)),
+    x: round(clamp(base.x, 0, Math.max(0, 100 - width))),
+    y: round(clamp(base.y, 0, Math.max(0, 100 - height))),
+    width,
+    height,
     rotation: round(base.rotation || 0),
   };
 }
@@ -308,7 +310,20 @@ function collectIdentityValues(record = {}) {
 }
 
 function profileIdentityValues(profile = {}) {
-  return new Set([profile.id, profile.profile_id, profile.manufacturing_profile_id, profile.print_option_id, profile.legacy_print_option_id, profile.legacy_source_identifier, profile.source_identifier, ...asArray(profile.identity_values)].map((value) => compact(value)).filter(Boolean));
+  return new Set([
+    profile.id,
+    profile.profile_id,
+    profile.manufacturing_profile_id,
+    profile.print_option_id,
+    profile.legacy_print_option_id,
+    profile.legacy_source_identifier,
+    profile.source_identifier,
+    profile.method_key,
+    profile.production_method_key,
+    profile.method_name,
+    profile.print_method,
+    ...asArray(profile.identity_values),
+  ].map((value) => compact(value)).filter(Boolean));
 }
 
 function normaliseManufacturingProfile(raw = {}) {
@@ -522,9 +537,9 @@ function TextLayerPreview({ slot }) {
   );
 }
 
-function ResizeHandle({ position, onMouseDown }) {
+function ResizeHandle({ position, onPointerDown }) {
   const positionClasses = { nw: "-left-2 -top-2 cursor-nwse-resize", ne: "-right-2 -top-2 cursor-nesw-resize", sw: "-left-2 -bottom-2 cursor-nesw-resize", se: "-right-2 -bottom-2 cursor-nwse-resize" };
-  return <button type="button" aria-label={`Resize ${position}`} className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`} onMouseDown={onMouseDown} />;
+  return <button type="button" aria-label={`Resize ${position}`} className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`} onPointerDown={onPointerDown} />;
 }
 
 function NumericControl({ label, value, onChange }) {
@@ -647,18 +662,47 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
 
   const legacyProfileFallbacks = useMemo(() => asArray(printOptions).map(profileFromLegacyPrintOption).filter((profile) => profile.id), [printOptions]);
   const profileCatalog = useMemo(() => {
+    const merged = [];
     const primary = asArray(manufacturingProfiles).filter((profile) => profile?.id && profile.active !== false);
-    return primary.length ? primary : legacyProfileFallbacks;
+    [...primary, ...legacyProfileFallbacks].forEach((profile) => {
+      if (!profile?.id || profile.active === false) return;
+      const identities = profileIdentityValues(profile);
+      const methodKey = normalizeProductionMethodKey(profile.method_key || profile.method_name || profile.print_method);
+      const nameKey = compact(profile.profile_name || profile.rule_name || profile.display_label).toLowerCase();
+      const existingIndex = merged.findIndex((existing) => {
+        const existingIdentities = profileIdentityValues(existing);
+        const identityMatch = [...identities].some((value) => existingIdentities.has(value));
+        const existingMethodKey = normalizeProductionMethodKey(existing.method_key || existing.method_name || existing.print_method);
+        const existingNameKey = compact(existing.profile_name || existing.rule_name || existing.display_label).toLowerCase();
+        return identityMatch || Boolean(methodKey && nameKey && methodKey === existingMethodKey && nameKey === existingNameKey);
+      });
+      if (existingIndex === -1) {
+        merged.push(profile);
+        return;
+      }
+      const existing = merged[existingIndex];
+      merged[existingIndex] = {
+        ...profile,
+        ...existing,
+        identity_values: [...new Set([...profileIdentityValues(profile), ...profileIdentityValues(existing)])],
+      };
+    });
+    return merged;
   }, [manufacturingProfiles, legacyProfileFallbacks]);
 
   const allowedProfilesForArea = (area) => {
     if (!area) return [];
     const templateOptionIds = asArray(template?.print_option_ids);
-    const areaOptionIds = asArray(area?.allowed_print_option_ids);
-    const allowedIds = areaOptionIds.length ? areaOptionIds : templateOptionIds;
+    const areaOptionIds = [
+      ...asArray(area?.allowed_print_option_ids),
+      ...asArray(area?.print_option_ids),
+      ...asArray(area?.compatible_method_ids),
+      ...asArray(area?.compatible_methods),
+    ];
+    const allowedIds = [...new Set(areaOptionIds.length ? areaOptionIds : templateOptionIds)];
     const activeProfiles = profileCatalog.filter((profile) => profile.active !== false);
-    const matched = activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds));
-    return matched.length || !allowedIds.length ? matched : activeProfiles;
+    if (!allowedIds.length) return activeProfiles;
+    return activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds));
   };
 
   const allowedProfiles = useMemo(() => allowedProfilesForArea(activeArea), [activeArea, profileCatalog, template]);
@@ -760,7 +804,16 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     const rect = areaRefs.current[areaId]?.getBoundingClientRect?.();
     return rect?.height ? rect.width / rect.height : 1;
   };
-  const fitHeightForAspect = (areaId, widthPercent, aspectRatio) => round(clamp((Number(widthPercent || 50) * areaRatioFor(areaId)) / Number(aspectRatio || 1), 2, 120));
+  const fitHeightForAspect = (areaId, widthPercent, aspectRatio) => round(clamp((Number(widthPercent || 50) * areaRatioFor(areaId)) / Number(aspectRatio || 1), 2, 100));
+
+  const centeredPlacement = (area, width, height, rotation = 0) => sanitizePlacement({
+    ...defaultPlacement(area),
+    x: (100 - Number(width || 0)) / 2,
+    y: (100 - Number(height || 0)) / 2,
+    width,
+    height,
+    rotation,
+  }, area);
 
   const patchPlacement = (slotId, patch) => {
     const slot = slots.find((item) => item.id === slotId);
@@ -832,7 +885,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     const asset = buildTextLayerAsset({ text_content: "Custom Text" });
     const width = 45;
     const height = fitHeightForAspect(area?.id, width, asset.artwork_aspect_ratio);
-    createLayer(area, { ...asset, placement: { ...defaultPlacement(area), x: 12, y: 12, width, height } });
+    createLayer(area, { ...asset, placement: centeredPlacement(area, width, height) });
   };
 
   const uploadFileToNewImageLayer = async (file) => {
@@ -848,7 +901,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       const response = await http.post("/files/image", data);
       const width = 70;
       const height = dimensions.aspectRatio ? fitHeightForAspect(area.id, width, dimensions.aspectRatio) : 70;
-      const patch = { original_url: response.data.url, file_name: file.name, mime_type: file.type || "", original_width_px: dimensions.width, original_height_px: dimensions.height, artwork_aspect_ratio: dimensions.aspectRatio || 1, lock_aspect_ratio: true, placement: { ...defaultPlacement(area), x: 10, y: 10, width, height } };
+      const patch = { original_url: response.data.url, file_name: file.name, mime_type: file.type || "", original_width_px: dimensions.width, original_height_px: dimensions.height, artwork_aspect_ratio: dimensions.aspectRatio || 1, lock_aspect_ratio: true, placement: centeredPlacement(area, width, height) };
       createLayer(area, patch);
       toast.success("Image layer uploaded");
     } catch (error) {
@@ -885,7 +938,13 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     event.stopPropagation();
     setActiveSlotId(slot.id);
     setActivePrintAreaId(area.id);
-    dragRef.current = { slotId: slot.id, type, handle, startX: event.clientX, startY: event.clientY, startPlacement: sanitizePlacement(slot.placement, area), areaId: area.id };
+    const layerElement = event.currentTarget?.closest?.("[data-artwork-layer-id]") || null;
+    try {
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+    } catch (error) {
+      // Window-level pointer listeners keep the drag active when pointer capture is unavailable.
+    }
+    dragRef.current = { slotId: slot.id, type, handle, startX: event.clientX, startY: event.clientY, startPlacement: sanitizePlacement(slot.placement, area), areaId: area.id, layerElement };
   };
 
   useEffect(() => {
@@ -925,7 +984,14 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       if (!dragRafRef.current) {
         dragRafRef.current = window.requestAnimationFrame(() => {
           dragRafRef.current = null;
-          setPreviewPlacements((prev) => ({ ...prev, [drag.slotId]: dragLatestRef.current }));
+          const placement = dragLatestRef.current;
+          const element = dragRef.current?.layerElement;
+          if (!element || !placement) return;
+          element.style.left = `${placement.x}%`;
+          element.style.top = `${placement.y}%`;
+          element.style.width = `${placement.width}%`;
+          element.style.height = `${placement.height}%`;
+          element.style.transform = `rotate(${placement.rotation}deg)`;
         });
       }
     };
@@ -936,11 +1002,13 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       dragLatestRef.current = null;
       setPreviewPlacements({});
     };
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("pointermove", handleMove, { passive: false });
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
     return () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
       if (dragRafRef.current) window.cancelAnimationFrame(dragRafRef.current);
     };
   }, [slots, printAreas, profileCatalog]);
@@ -1116,9 +1184,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                       const placement = sanitizePlacement(previewPlacements[slot.id] || slot.placement, area);
                       const active = activeSlot?.id === slot.id;
                       return (
-                        <div key={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center" }} onMouseDown={(event) => startDrag(event, slot, "move")}>
+                        <div key={slot.id} data-artwork-layer-id={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center", touchAction: "none", willChange: "left, top, width, height, transform" }} onPointerDown={(event) => startDrag(event, slot, "move")}>
                           {slot.text_layer ? <TextLayerPreview slot={slot} /> : <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-contain pointer-events-none" draggable="false" />}
-                          {active && <><ResizeHandle position="nw" onMouseDown={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onMouseDown={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onMouseDown={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onMouseDown={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onMouseDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
+                          {active && <><ResizeHandle position="nw" onPointerDown={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onPointerDown={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onPointerDown={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onPointerDown={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onPointerDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
                         </div>
                       );
                     })}
