@@ -20,6 +20,7 @@ builder_drafts_router = APIRouter(prefix="/builder-drafts")
 
 
 class BuilderDraftProductPayload(BaseModel):
+    band_id: Optional[str] = None
     template_id: Optional[str] = None
     product_option_choice: Optional[str] = None
     product_type_choice: Optional[str] = None
@@ -91,7 +92,15 @@ async def create_or_update_builder_draft_product(
     user: User = Depends(get_current_user),
 ):
     db = request.app.state.db
-    creator = await get_creator_account_for_user(db, user, permission="manage_products")
+    if user.role in ("owner", "super_admin", "admin"):
+        if not payload.band_id:
+            raise HTTPException(status_code=400, detail="Select a creator before creating the draft")
+        creator = await db.creators.find_one({"id": payload.band_id}, {"_id": 0})
+        if not creator:
+            raise HTTPException(status_code=404, detail="Creator account not found")
+    else:
+        creator = await get_creator_account_for_user(db, user, permission="manage_products")
+
     template = await _resolve_builder_template(db, payload)
 
     title = (payload.title or "").strip() or f"Draft - {template.get('name') or 'Product'}"
