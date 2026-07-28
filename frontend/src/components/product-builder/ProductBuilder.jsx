@@ -599,27 +599,31 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     try {
       if (isNew) {
         const response = await http.post(isAdmin ? "/admin/products" : "/products", payload);
-        toast.success("Product created");
-        if (!isAdmin) {
-          setSubmittedProduct(response.data);
-          emitCreatorProductsReadyRefresh();
-        } else {
-          navigate(`/admin/products/${response.data.id}`, { replace: true });
-        }
-      } else {
-        const response = await http.patch(isAdmin ? `/admin/products/${routeId}` : `/products/${routeId}`, payload);
-        setProduct(response.data);
-        setForm((current) => ({
-          ...current,
-          artworks: asArray(response.data.artworks),
-          artwork_groups: asArray(response.data.artwork_groups),
-          mockup_images: asArray(response.data.mockup_images),
-          mockup_image_url: response.data.mockup_image_url || "",
-          primary_mockup_image_url: response.data.primary_mockup_image_url || response.data.mockup_image_url || "",
-        }));
+        const savedProduct = response.data;
+        const destination = isAdmin ? `/admin/products/${savedProduct.id}` : `/creator/products/${savedProduct.id}`;
+        setProduct(savedProduct);
+        setSubmittedProduct(null);
         if (!isAdmin) emitCreatorProductsReadyRefresh();
-        toast.success("Product saved");
+        toast.success("Product created");
+        navigate(destination, { replace: true });
+        return;
       }
+
+      const response = await http.patch(isAdmin ? `/admin/products/${routeId}` : `/products/${routeId}`, payload);
+      const savedProduct = response.data;
+      setProduct(savedProduct);
+      setForm((current) => ({
+        ...current,
+        artworks: asArray(savedProduct.artworks),
+        artwork_groups: asArray(savedProduct.artwork_groups),
+        mockup_images: asArray(savedProduct.mockup_images),
+        mockup_image_url: savedProduct.mockup_image_url || "",
+        primary_mockup_image_url: savedProduct.primary_mockup_image_url || savedProduct.mockup_image_url || "",
+      }));
+      if (!isAdmin) emitCreatorProductsReadyRefresh();
+      setActiveStep("review");
+      navigate(isAdmin ? `/admin/products/${savedProduct.id}` : `/creator/products/${savedProduct.id}`, { replace: true });
+      toast.success("Product saved");
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not save product");
     } finally {
