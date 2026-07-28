@@ -20,7 +20,9 @@ function apiUrl(path) {
 }
 
 function authHeaders() {
-  const token = window.localStorage.getItem("mf_token");
+  const token = window.localStorage.getItem("ff_token")
+    || window.localStorage.getItem("mf_token")
+    || window.localStorage.getItem("token");
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -104,8 +106,10 @@ function buildInitialDraftPayload() {
   const description = document.querySelector('[data-format-field="description"]');
   const specs = document.querySelector('[data-format-field="specs"]');
   const selectedPanelChoice = selectedOptionFromDetailsPanel();
+  const creatorInput = inputForLabelText("Creator");
   return {
     draft_product_id: path.draftProductId || null,
+    band_id: creatorInput?.value || null,
     product_type_choice: path.productTypeChoice || "",
     product_option_choice: path.productOptionChoice || selectedPanelChoice || "",
     title: titleInput?.value || path.detailFields?.title || "",
@@ -138,9 +142,12 @@ async function saveInitialServerDraft() {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.detail || "Draft save failed");
   if (!data?.id) throw new Error("Draft saved without product id");
-  writePathDraft({ draftProductId: data.id, activeStep: "variations" });
+  writePathDraft({ draftProductId: data.id, activeStep: "details" });
   showNotice("Draft saved. Opening draft…");
-  window.location.assign(`/creator/products/${data.id}`);
+  const productBase = window.location.pathname.startsWith("/admin/")
+    ? "/admin/products"
+    : "/creator/products";
+  window.location.assign(`${productBase}/${data.id}?builderStep=details`);
 }
 
 function stepFromButton(button) {
