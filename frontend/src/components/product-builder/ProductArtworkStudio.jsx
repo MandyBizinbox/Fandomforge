@@ -395,8 +395,13 @@ function supportsStockedColours(profile = {}) {
 function profileMatchesAllowedIds(profile, allowedIds) {
   const allowed = asArray(allowedIds).map((value) => compact(value)).filter(Boolean);
   if (!allowed.length) return true;
-  const values = profileIdentityValues(profile);
-  return allowed.some((id) => values.has(id));
+  const identities = [...profileIdentityValues(profile)];
+  const exactValues = new Set(identities.map((value) => compact(value).toLowerCase()).filter(Boolean));
+  const methodValues = new Set(identities.map((value) => normalizeProductionMethodKey(value)).filter(Boolean));
+  return allowed.some((id) => (
+    exactValues.has(id.toLowerCase())
+    || methodValues.has(normalizeProductionMethodKey(id))
+  ));
 }
 
 function resolveProfileForSlot(slot = {}, profiles = [], legacyPrintOptions = []) {
