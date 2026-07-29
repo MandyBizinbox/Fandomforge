@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Image as ImageIcon, Move, RefreshCw, RotateCcw, Trash2, Type } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
@@ -16,6 +16,7 @@ import {
 
 const TEXT_RENDER_MIN = 24;
 const TEXT_RENDER_MAX = 1200;
+const ALPHA_TRIM_THRESHOLD = 24;
 const METHOD_ORDER = ["dtf", "htv", "sublimation", "uv_dtf", "adhesive_vinyl"];
 const METHOD_LABELS = {
   dtf: "DTF",
@@ -161,7 +162,7 @@ function trimTransparentImageFile(file) {
       const dimensions = await readImageFileDimensions(file);
       resolve({ file, ...dimensions, trimmed: false });
     };
-    if (!file || !["image/png", "image/webp"].includes(String(file.type || "").toLowerCase())) {
+    if (!file || !["image/png", "image/webp", "image/svg+xml"].includes(String(file.type || "").toLowerCase())) {
       fallback();
       return;
     }
@@ -191,7 +192,7 @@ function trimTransparentImageFile(file) {
 
         for (let y = 0; y < height; y += 1) {
           for (let x = 0; x < width; x += 1) {
-            if (pixels[(y * width + x) * 4 + 3] <= 8) continue;
+            if (pixels[(y * width + x) * 4 + 3] <= ALPHA_TRIM_THRESHOLD) continue;
             if (x < left) left = x;
             if (x > right) right = x;
             if (y < top) top = y;
@@ -287,12 +288,9 @@ function buildTextLayerAsset(settings = {}) {
 }
 
 function drawImageContain(ctx, image, x, y, w, h) {
-  const sourceW = image.naturalWidth || image.width || 1;
-  const sourceH = image.naturalHeight || image.height || 1;
-  const scale = Math.min(w / sourceW, h / sourceH);
-  const drawW = sourceW * scale;
-  const drawH = sourceH * scale;
-  ctx.drawImage(image, x + (w - drawW) / 2, y + (h - drawH) / 2, drawW, drawH);
+  // The saved placement box is the artwork geometry. Drawing the stored,
+  // already-trimmed asset directly into it keeps editor and mockup identical.
+  ctx.drawImage(image, x, y, w, h);
 }
 
 async function drawTextLayer(ctx, slot, x, y, w, h) {
@@ -713,6 +711,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const [previewPlacements, setPreviewPlacements] = useState({});
   const fileInputRef = useRef(null);
   const pendingUploadAreaRef = useRef(null);
+  const pendingReplaceSlotIdRef = useRef("");
   const areaRefs = useRef({});
   const dragRef = useRef(null);
   const dragRafRef = useRef(null);
@@ -938,14 +937,28 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   };
   const fitHeightForAspect = (areaId, widthPercent, aspectRatio) => round(clamp((Number(widthPercent || 50) * areaRatioFor(areaId)) / Number(aspectRatio || 1), 2, 100));
 
-  const centeredPlacement = (area, width, height, rotation = 0) => sanitizePlacement({
+  const centeredPlacement = (area, width, height, rotation = 0, centerX = 50, centerY = 50) => sanitizePlacement({
     ...defaultPlacement(area),
-    x: (100 - Number(width || 0)) / 2,
-    y: (100 - Number(height || 0)) / 2,
+    x: Number(centerX || 50) - Number(width || 0) / 2,
+    y: Number(centerY || 50) - Number(height || 0) / 2,
     width,
     height,
     rotation,
   }, area);
+
+  const fittedPlacementForAspect = (area, aspectRatio, preferredWidth = 70, previousPlacement = null) => {
+    const safeAspect = Math.max(0.0001, Number(aspectRatio || 1));
+    let width = clamp(preferredWidth, 2, 100);
+    let height = (width * areaRatioFor(area?.id)) / safeAspect;
+    if (height > 100) {
+      width *= 100 / height;
+      height = 100;
+    }
+    const previous = previousPlacement ? sanitizePlacement(previousPlacement, area) : null;
+    const centerX = previous ? previous.x + previous.width / 2 : 50;
+    const centerY = previous ? previous.y + previous.height / 2 : 50;
+    return centeredPlacement(area, round(width), round(height), previous?.rotation || 0, centerX, centerY);
+  };
 
   const patchPlacement = (slotId, patch) => {
     const slot = slots.find((item) => item.id === slotId);
@@ -1015,13 +1028,16 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const addTextLayer = () => {
     const area = activeArea || normalPrintAreas[0] || areasForScreen[0];
     const asset = buildTextLayerAsset({ text_content: "Custom Text" });
-    const width = 45;
-    const height = fitHeightForAspect(area?.id, width, asset.artwork_aspect_ratio);
-    createLayer(area, { ...asset, placement: centeredPlacement(area, width, height) });
+    const placement = fittedPlacementForAspect(area, asset.artwork_aspect_ratio, 45);
+    createLayer(area, { ...asset, placement });
   };
 
-  const uploadFileToNewImageLayer = async (file) => {
-    const area = pendingUploadAreaRef.current || activeArea || normalPrintAreas[0] || areasForScreen[0];
+  const uploadFileToImageLayer = async (file) => {
+    const replaceSlotId = pendingReplaceSlotIdRef.current;
+    const replaceSlot = slots.find((slot) => slot.id === replaceSlotId) || null;
+    const replaceArea = printAreas.find((area) => area.id === replaceSlot?.print_area_id) || null;
+    const area = replaceArea || pendingUploadAreaRef.current || activeArea || normalPrintAreas[0] || areasForScreen[0];
+    pendingReplaceSlotIdRef.current = "";
     pendingUploadAreaRef.current = null;
     if (!file || !area) return;
     setUploading(true);
@@ -1031,11 +1047,36 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       data.append("file", prepared.file);
       data.append("subdir", "product-artwork");
       const response = await http.post("/files/image", data);
-      const width = 70;
-      const height = prepared.aspectRatio ? fitHeightForAspect(area.id, width, prepared.aspectRatio) : 70;
-      const patch = { original_url: response.data.url, file_name: file.name, mime_type: prepared.file.type || file.type || "", original_width_px: prepared.width, original_height_px: prepared.height, artwork_aspect_ratio: prepared.aspectRatio || 1, transparent_bounds_trimmed: prepared.trimmed, lock_aspect_ratio: true, placement: centeredPlacement(area, width, height) };
-      createLayer(area, patch);
-      toast.success("Image layer uploaded");
+      const placement = fittedPlacementForAspect(
+        area,
+        prepared.aspectRatio || 1,
+        replaceSlot?.placement?.width || 70,
+        replaceSlot?.placement || null
+      );
+      const patch = {
+        original_url: response.data.url,
+        file_name: file.name,
+        mime_type: prepared.file.type || file.type || "",
+        original_width_px: prepared.width,
+        original_height_px: prepared.height,
+        artwork_aspect_ratio: prepared.aspectRatio || 1,
+        transparent_bounds_trimmed: prepared.trimmed,
+        lock_aspect_ratio: true,
+        text_layer: false,
+        text_content: "",
+        mockup_image_url: "",
+        placement,
+      };
+      if (replaceSlot) {
+        patchSlot(replaceSlot.id, patch);
+        setActiveSlotId(replaceSlot.id);
+        setActivePrintAreaId(area.id);
+        setActiveScreenId(area.screen_id || currentScreenId);
+        toast.success("Image layer replaced");
+      } else {
+        createLayer(area, patch);
+        toast.success("Image layer uploaded");
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || "Image upload failed");
     } finally {
@@ -1043,6 +1084,8 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
+
+  const updateTextLayer =
 
   const updateTextLayer = (patch) => {
     if (!activeSlot?.text_layer || !activeArea) return;
@@ -1054,13 +1097,29 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     window.requestAnimationFrame(() => patchPlacement(activeSlot.id, nextPlacement));
   };
 
-  const removeSlot = (slotId) => {
+  const removeSlot = useCallback((slotId) => {
     if (!activeGroup) return;
     const next = slots.filter((slot) => slot.id !== slotId);
     setGroupSlots(activeGroup.id, next);
     const nextSlot = next.find((slot) => slot.screen_id === currentScreenId) || next[0];
     setActiveSlotId(nextSlot?.id || "");
-  };
+    toast.success("Layer deleted");
+  }, [activeGroup, slots, currentScreenId, setGroupSlots]);
+
+  useEffect(() => {
+    const handleDeleteKey = (event) => {
+      if (!["Delete", "Backspace"].includes(event.key) || !activeSlot?.id) return;
+      const target = event.target;
+      const tagName = String(target?.tagName || "").toLowerCase();
+      if (target?.isContentEditable || ["input", "textarea", "select"].includes(tagName)) return;
+      event.preventDefault();
+      removeSlot(activeSlot.id);
+    };
+    window.addEventListener("keydown", handleDeleteKey);
+    return () => window.removeEventListener("keydown", handleDeleteKey);
+  }, [activeSlot?.id, removeSlot]);
+
+  const startDrag =
 
   const startDrag = (event, slot, type, handle = "") => {
     const area = printAreas.find((item) => item.id === slot?.print_area_id);
@@ -1209,7 +1268,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
 
   return (
     <div className="space-y-4 studio-v21" data-testid="product-artwork-studio">
-      <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(event) => uploadFileToNewImageLayer(event.target.files?.[0] || null)} />
+      <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(event) => uploadFileToImageLayer(event.target.files?.[0] || null)} />
 
       <section className="grid xl:grid-cols-[minmax(260px,1fr)_minmax(360px,1.8fr)_140px_250px] gap-3">
         <div className="border border-[#34C759]/40 bg-black/40 p-3">
@@ -1252,8 +1311,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
         </div>
 
         <div className="grid gap-2">
-          <button type="button" className="btn-secondary justify-start text-lg" disabled={!activeGroup || !areasForScreen.length || uploading} onClick={() => { pendingUploadAreaRef.current = activeArea || normalPrintAreas[0] || areasForScreen[0]; fileInputRef.current?.click(); }}><ImageIcon size={22} /> {uploading ? "Uploading" : "Add Image"}</button>
+          <button type="button" className="btn-secondary justify-start text-lg" disabled={!activeGroup || !areasForScreen.length || uploading} onClick={() => { pendingReplaceSlotIdRef.current = ""; pendingUploadAreaRef.current = activeArea || normalPrintAreas[0] || areasForScreen[0]; fileInputRef.current?.click(); }}><ImageIcon size={22} /> {uploading ? "Uploading" : "Add Image"}</button>
           <button type="button" className="btn-secondary justify-start text-lg" disabled={!activeGroup || !areasForScreen.length} onClick={addTextLayer}><Type size={22} /> Add Text</button>
+          <button type="button" className="btn-secondary justify-start text-lg border-[#FF3B30] text-[#FF8A84]" disabled={!activeSlot} onClick={() => activeSlot && removeSlot(activeSlot.id)}><Trash2 size={22} /> Delete Layer</button>
         </div>
 
         <div className="border border-[#34C759]/40 bg-[#0A1B10] p-3 grid grid-cols-2 gap-3">
@@ -1317,7 +1377,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                       const active = activeSlot?.id === slot.id;
                       return (
                         <div key={slot.id} data-artwork-layer-id={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center", touchAction: "none", willChange: "left, top, width, height, transform" }} onPointerDown={(event) => startDrag(event, slot, "move")}>
-                          {slot.text_layer ? <TextLayerPreview slot={slot} /> : <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-contain pointer-events-none" draggable="false" />}
+                          {slot.text_layer ? <TextLayerPreview slot={slot} /> : <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-fill pointer-events-none" draggable="false" />}
                           {active && <><ResizeHandle position="nw" onPointerDown={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onPointerDown={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onPointerDown={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onPointerDown={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onPointerDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
                         </div>
                       );
@@ -1332,9 +1392,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
         <aside className="border border-white/10 bg-black/20 p-3 rounded-xl min-h-[680px] overflow-auto">
           {activeSlot && activeArea ? (
             <div className="space-y-4">
-              <div className="flex items-start justify-between gap-3"><div><div className="overline mb-1">Inspector</div><h3 className="font-display text-2xl uppercase">{activeSlot.text_layer ? "Text" : "Image"} Layer</h3><p className="text-xs text-zinc-500 mt-1">{activeArea.name} · {activeArea.width_mm || 0}×{activeArea.height_mm || 0}mm</p></div><button type="button" className="text-zinc-500 hover:text-[#FF3B30]" onClick={() => removeSlot(activeSlot.id)}><Trash2 size={16} /></button></div>
+              <div className="flex items-start justify-between gap-3"><div><div className="overline mb-1">Inspector</div><h3 className="font-display text-2xl uppercase">{activeSlot.text_layer ? "Text" : "Image"} Layer</h3><p className="text-xs text-zinc-500 mt-1">{activeArea.name} · {activeArea.width_mm || 0}×{activeArea.height_mm || 0}mm</p></div><button type="button" className="btn-secondary border-[#FF3B30] text-[#FF8A84] whitespace-nowrap" onClick={() => removeSlot(activeSlot.id)} title="Delete selected layer"><Trash2 size={16} /> Delete Layer</button></div>
               {activeSlot.text_layer && <div className="border border-white/10 bg-black/30 rounded-xl p-3 space-y-3"><div className="font-bold text-sm">Text editor</div><label><span className="label">Text</span><textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(event) => updateTextLayer({ text_content: event.target.value })} /></label><div className="grid grid-cols-2 gap-2"><label><span className="label">Font</span><select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(event) => updateTextLayer({ text_font_family: event.target.value })}>{TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}</select></label><label><span className="label">Weight</span><select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(event) => updateTextLayer({ text_font_weight: event.target.value })}><option value="400">Regular</option><option value="600">Semi-bold</option><option value="700">Bold</option><option value="900">Heavy</option></select></label><label><span className="label">Text render size</span><input className="input-base" type="text" inputMode="numeric" value={Number(activeSlot.text_font_size || 180)} onChange={(event) => updateTextLayer({ text_font_size: event.target.value })} onBlur={(event) => updateTextLayer({ text_font_size: clamp(event.target.value, TEXT_RENDER_MIN, TEXT_RENDER_MAX) })} /></label><label><span className="label">Colour</span><input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(event) => updateTextLayer({ text_color: event.target.value })} /></label></div><p className="text-[11px] text-zinc-500">Use handles to resize text. Render size controls sharpness, not final product size.</p></div>}
-              {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
+              {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingReplaceSlotIdRef.current = activeSlot.id; pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
               <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} />
               <ColourRestrictionBlock profile={selectedProfile} slot={activeSlot} onChange={(value) => setLayerStockedColour(activeSlot.id, value)} />
               <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">
