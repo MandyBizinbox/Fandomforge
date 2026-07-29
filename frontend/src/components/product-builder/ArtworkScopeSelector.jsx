@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
   asArray,
@@ -92,6 +92,11 @@ export default function ArtworkScopeSelector({ selectedVariations, hasTemplateVa
   const attributeOptions = useMemo(() => collectAttributeOptions(selectedVariations), [selectedVariations]);
   const defaultAttributeKey = presetAttributeKey || attributeOptions[0]?.key || "";
 
+  useEffect(() => {
+    if (hasTemplateVariations || safeGroups.length) return;
+    onChange([createDefaultArtworkGroup()]);
+  }, [hasTemplateVariations, onChange, safeGroups.length]);
+
   const applyPreset = (preset) => {
     if (preset === "all") {
       onChange([createDefaultArtworkGroup()]);
@@ -162,29 +167,37 @@ export default function ArtworkScopeSelector({ selectedVariations, hasTemplateVa
         </p>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-3">
+      <div className={hasTemplateVariations ? "grid md:grid-cols-3 gap-3" : "grid gap-3"}>
         <button type="button" className="card text-left hover:border-[#FF3B30]" onClick={() => applyPreset("all")}>
           <div className="font-display text-2xl uppercase mb-2">Same for all</div>
-          <p className="text-sm text-zinc-500">One set of artwork applies to every selected variation.</p>
+          <p className="text-sm text-zinc-500">
+            {hasTemplateVariations
+              ? "One set of artwork applies to every selected variation."
+              : "Automatically selected because this product has no variations."}
+          </p>
         </button>
-        <button type="button" className="card text-left hover:border-[#FF3B30] disabled:opacity-40 disabled:cursor-not-allowed" disabled={!hasTemplateVariations || !attributeOptions.length} onClick={() => applyPreset("attribute")}>
-          <div className="font-display text-2xl uppercase mb-2">Per attribute</div>
-          <p className="text-sm text-zinc-500">Create one group per value of the selected attribute.</p>
-          {attributeOptions.length > 0 && (
-            <select
-              className="input-base mt-3"
-              value={defaultAttributeKey}
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => setPresetAttributeKey(event.target.value)}
-            >
-              {attributeOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
-            </select>
-          )}
-        </button>
-        <button type="button" className="card text-left hover:border-[#FF3B30] disabled:opacity-40 disabled:cursor-not-allowed" disabled={!hasTemplateVariations} onClick={() => applyPreset("variation")}>
-          <div className="font-display text-2xl uppercase mb-2">Per variation</div>
-          <p className="text-sm text-zinc-500">Maximum control. Every exact variation can have unique artwork.</p>
-        </button>
+        {hasTemplateVariations && (
+          <>
+            <button type="button" className="card text-left hover:border-[#FF3B30] disabled:opacity-40 disabled:cursor-not-allowed" disabled={!attributeOptions.length} onClick={() => applyPreset("attribute")}>
+              <div className="font-display text-2xl uppercase mb-2">Per attribute</div>
+              <p className="text-sm text-zinc-500">Create one group per value of the selected attribute.</p>
+              {attributeOptions.length > 0 && (
+                <select
+                  className="input-base mt-3"
+                  value={defaultAttributeKey}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => setPresetAttributeKey(event.target.value)}
+                >
+                  {attributeOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+                </select>
+              )}
+            </button>
+            <button type="button" className="card text-left hover:border-[#FF3B30]" onClick={() => applyPreset("variation")}>
+              <div className="font-display text-2xl uppercase mb-2">Per variation</div>
+              <p className="text-sm text-zinc-500">Maximum control. Every exact variation can have unique artwork.</p>
+            </button>
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -193,10 +206,12 @@ export default function ArtworkScopeSelector({ selectedVariations, hasTemplateVa
             <div className="overline mb-1">Artwork Groups</div>
             <p className="text-xs text-zinc-500">These groups appear in the artwork studio.</p>
           </div>
-          <div className="flex gap-2">
-            <input className="input-base min-w-[220px]" placeholder="Custom group label" value={customLabel} onChange={(event) => setCustomLabel(event.target.value)} />
-            <button type="button" className="btn-primary" onClick={addCustomGroup}><Plus size={14} /> Add</button>
-          </div>
+          {hasTemplateVariations && (
+            <div className="flex gap-2">
+              <input className="input-base min-w-[220px]" placeholder="Custom group label" value={customLabel} onChange={(event) => setCustomLabel(event.target.value)} />
+              <button type="button" className="btn-primary" onClick={addCustomGroup}><Plus size={14} /> Add</button>
+            </div>
+          )}
         </div>
 
         <div className="space-y-3">
