@@ -793,13 +793,13 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
 
   return (
     <div className="product-builder-shell min-h-[calc(100vh-120px)]" data-testid={`${mode}-product-builder`}>
-      <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="flex items-center justify-between gap-4 mb-4">
         <div>
-          <div className="overline mb-2">{isAdmin ? "Admin Product Builder" : "Creator Product Builder"}</div>
-          <h1 className="font-display text-5xl uppercase">{isNew ? "New Product" : form.title || "Edit Product"}</h1>
+          <div className="overline mb-1">{isAdmin ? "Admin Product Builder" : "Creator Product Builder"}</div>
+          <h1 className="font-display text-4xl md:text-[2.75rem] leading-none uppercase">{isNew ? "New Product" : form.title || "Edit Product"}</h1>
         </div>
-        <button type="button" className="btn-secondary" onClick={() => navigate(backTo)}>
-          <ArrowLeft size={14} /> Back
+        <button type="button" className="btn-secondary !px-4 !py-2 text-xs" onClick={() => navigate(backTo)}>
+          <ArrowLeft size={13} /> Back
         </button>
       </div>
 
@@ -807,7 +807,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         <CreatorPublishingPanel product={product} publishing={publishing} onPublish={publishProduct} />
       )}
 
-      <div className="mb-6 overflow-auto">
+      <div className="mb-4 overflow-auto">
         <div className="flex gap-2 min-w-max">
           {steps.map((step, index) => {
             const active = activeStep === step.key;
@@ -816,7 +816,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
                 key={step.key}
                 type="button"
                 onClick={() => goToStep(step.key)}
-                className={`px-4 py-3 rounded-xl border text-xs uppercase tracking-widest font-bold ${active ? "border-[#FF3B30] bg-[#FF3B30]/15 text-white" : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-white"}`}
+                className={`px-3 py-2 rounded-lg border text-[11px] uppercase tracking-[0.08em] font-bold ${active ? "border-[#FF3B30] bg-[#FF3B30]/15 text-white" : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-white"}`}
               >
                 {step.label}
               </button>
