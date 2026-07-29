@@ -1283,6 +1283,76 @@ function getPricingReviewMessages(product = {}, isAdmin = false, pricing = {}) {
   return [...new Set(messages)];
 }
 
+function MoneyInput({
+  value,
+  onCommit,
+  min = 0,
+  className = "input-base",
+  disabled = false,
+  ariaLabel,
+}) {
+  const formatValue = (nextValue) => {
+    const numericValue = Number(nextValue);
+    const minimum = Number(min);
+    const safeMinimum = Number.isFinite(minimum) ? minimum : 0;
+    const safeValue = Number.isFinite(numericValue) ? Math.max(numericValue, safeMinimum) : safeMinimum;
+    return safeValue.toFixed(2);
+  };
+
+  const [draft, setDraft] = useState(() => formatValue(value));
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setDraft(formatValue(value));
+  }, [editing, min, value]);
+
+  const updateDraft = (nextValue) => {
+    const normalized = String(nextValue || "").replace(",", ".").replace(/[^0-9.]/g, "");
+    const [whole = "", ...decimalParts] = normalized.split(".");
+    const hasDecimal = normalized.includes(".");
+    const decimals = decimalParts.join("").slice(0, 2);
+    setDraft(hasDecimal ? `${whole}.${decimals}` : whole);
+  };
+
+  const commit = () => {
+    const numericValue = Number(draft);
+    const nextValue = formatValue(Number.isFinite(numericValue) ? numericValue : value);
+    setDraft(nextValue);
+    setEditing(false);
+    onCommit?.(nextValue);
+  };
+
+  return (
+    <input
+      className={className}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      value={draft}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      onFocus={(event) => {
+        setEditing(true);
+        event.currentTarget.select();
+      }}
+      onChange={(event) => updateDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setDraft(formatValue(value));
+          setEditing(false);
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isAdmin = false, compact = false, fundraisingValue = "", onFundraisingChange = null, showPlatformFee = true }) {
   const fundraisingAmount = Number(fundraisingValue || Math.max(Number(pricing.profit || 0), 0) || 0);
   const rate = Number(pricing.rate || 0);
@@ -1337,13 +1407,11 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
 
         <PricingSummaryGroup title="Fundraising amount">
           {onFundraisingChange ? (
-            <input
-              className="input-base"
-              type="number"
-              step="0.01"
-              min="0"
+            <MoneyInput
               value={fundraisingValue}
-              onChange={(event) => onFundraisingChange(event.target.value)}
+              min={0}
+              onCommit={onFundraisingChange}
+              ariaLabel="Fundraising amount"
             />
           ) : (
             <PricingSummaryMetric label="Amount" value={money(fundraisingAmount)} />
@@ -1922,25 +1990,21 @@ function VariationPricingMatrix({
 
                 <label className="block min-w-[190px]">
                   <span className="label">Default fundraising</span>
-                  <input
-                    className="input-base"
-                    type="number"
-                    step="0.01"
-                    min="0"
+                  <MoneyInput
                     value={fundraisingAmount}
-                    onChange={(event) => handleDefaultFundraisingChange(event.target.value)}
+                    min={0}
+                    onCommit={handleDefaultFundraisingChange}
+                    ariaLabel="Default fundraising amount"
                   />
                 </label>
 
                 <label className="block min-w-[190px]">
                   <span className="label">Default retail price</span>
-                  <input
-                    className="input-base"
-                    type="number"
-                    step="0.01"
-                    min={defaultMinimum.toFixed(2)}
+                  <MoneyInput
                     value={defaultRetailValue}
-                    onChange={(event) => handleDefaultRetailChange(event.target.value)}
+                    min={defaultMinimum}
+                    onCommit={handleDefaultRetailChange}
+                    ariaLabel="Default retail price"
                   />
                   <span className="mt-1 block text-[10px] text-zinc-500">Minimum {money(defaultMinimum)}</span>
                 </label>
@@ -1990,25 +2054,23 @@ function VariationPricingMatrix({
                       <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.printCost)}</td>
 
                       <td className="py-3 px-3">
-                        <input
+                        <MoneyInput
                           className="input-base w-[160px] text-xs"
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={Math.max(Number(row.creatorAmount || 0), 0).toFixed(2)}
-                          onChange={(event) => setRowFundraising(row, event.target.value)}
+                          value={Math.max(Number(row.creatorAmount || 0), 0)}
+                          min={0}
+                          onCommit={(value) => setRowFundraising(row, value)}
+                          ariaLabel={`${row.label} fundraising amount`}
                         />
                         <div className="text-[10px] text-zinc-500 mt-1">Saved through row selling price</div>
                       </td>
 
                       <td className="py-3 px-3">
-                        <input
+                        <MoneyInput
                           className="input-base w-[150px] text-xs"
-                          type="number"
-                          step="0.01"
-                          min={row.minimumRetail.toFixed(2)}
-                          value={Number(row.retailPrice || 0).toFixed(2)}
-                          onChange={(event) => setRowRetail(row, event.target.value)}
+                          value={row.retailPrice}
+                          min={row.minimumRetail}
+                          onCommit={(value) => setRowRetail(row, value)}
+                          ariaLabel={`${row.label} retail selling price`}
                         />
                         <div className={retailTooLow ? "text-[10px] text-[#FFB4B0] mt-1" : "text-[10px] text-zinc-500 mt-1"}>
                           Minimum {money(row.minimumRetail)}
