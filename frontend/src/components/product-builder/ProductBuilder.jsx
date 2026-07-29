@@ -26,7 +26,6 @@ import {
   getSelectedVariations,
   getEnabledTemplateVariations,
   buildStandardProductVariation,
-  getTemplateAttributeRange,
   getTemplateAvailableOptionsSummary,
   getTemplateImage,
   getTemplateShortDescription,
@@ -36,7 +35,6 @@ import {
   getVariationCost,
   resolveCreatorCommissionRate,
   resolveCreatorCommissionSource,
-  effectivePricingStatusLabel,
   getEffectivePricingStatus,
   hasEffectivePricingBlocker,
   money,
@@ -853,7 +851,6 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               isAdmin={isAdmin}
               creators={creators}
               form={form}
-              selectedTemplate={selectedTemplate}
               product={product}
               isNew={isNew}
               update={update}
@@ -946,13 +943,6 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         {!wideWorkspace && (
           <aside className="product-builder-aside space-y-4">
             <BuilderSidebar
-              canContinueProductType={canContinueProductType}
-              canContinueProductOption={canContinueProductOption}
-              canContinueDetails={canContinueDetails}
-              hasTemplateVariations={hasTemplateVariations}
-              form={form}
-              readyArtworkSlots={readyArtworkSlots}
-              generatedMockups={generatedMockups}
               pricing={pricing}
               productPrimaryMockup={productPrimaryMockup}
               stepIndex={stepIndex}
@@ -966,70 +956,34 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           </aside>
         )}
 
-        {pricingWorkspace && (
-          <section className="card flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-            <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-2 text-xs">
-              <ChecklistItem done={Boolean(canContinueProductType)} label="Product type" />
-              <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option" />
-              <ChecklistItem done={Boolean(canContinueDetails)} label="Details" />
-              <ChecklistItem done={!hasTemplateVariations || form.selected_template_variation_ids.length > 0} label={hasTemplateVariations ? `${form.selected_template_variation_ids.length} variations` : "No variations needed"} />
-              <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} artwork groups`} />
-              <ChecklistItem done={readyArtworkSlots.length > 0} label={`${readyArtworkSlots.length} ready artwork slots`} />
-              <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockups`} />
-              <ChecklistItem done={pricing.canPublishWithOverride} label={pricing.canPublishProfitably ? "Price covers costs" : "Pricing override approved"} />
-            </div>
-            <div className="flex gap-2 md:min-w-[260px]">
-              <button type="button" className="btn-secondary flex-1" onClick={prevStep} disabled={stepIndex === 0}>Previous</button>
-              <button type="button" className="btn-primary flex-1" onClick={nextStep}>Next</button>
-            </div>
-          </section>
-        )}
-
-        {activeStep === "artwork" && (
-          <section className="card flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-2 text-xs">
-              <ChecklistItem done={Boolean(canContinueProductType)} label="Product type" />
-              <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option" />
-              <ChecklistItem done={Boolean(canContinueDetails)} label="Details" />
-              <ChecklistItem done={!hasTemplateVariations || form.selected_template_variation_ids.length > 0} label={hasTemplateVariations ? `${form.selected_template_variation_ids.length} variations` : "No variations needed"} />
-              <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} groups`} />
-              <ChecklistItem
-                done={readyArtworkSlots.length > 0}
-                label={
-                  uploadedWithoutPrintMethod.length
-                    ? `${uploadedWithoutPrintMethod.length} missing print method`
-                    : `${readyArtworkSlots.length} art ready`
-                }
-              />
-              <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockups`} />
-              <ChecklistItem done={pricing.canPublishWithOverride} label={pricing.canPublishProfitably ? "Price covers costs" : "Pricing override approved"} />
-            </div>
-            <div className="flex gap-2">
-              <button type="button" className="btn-secondary" onClick={prevStep}>Previous</button>
-              <button type="button" className="btn-primary" onClick={nextStep}>Next</button>
-            </div>
-          </section>
+        {(pricingWorkspace || activeStep === "artwork") && (
+          <BuilderNavigation
+            stepIndex={stepIndex}
+            prevStep={prevStep}
+            nextStep={nextStep}
+          />
         )}
       </div>
     </div>
   );
 }
 
-function BuilderSidebar({ canContinueProductType, canContinueProductOption, canContinueDetails, hasTemplateVariations, form, readyArtworkSlots, generatedMockups, pricing, productPrimaryMockup, stepIndex, activeStep, prevStep, nextStep, save, saving, isNew }) {
+function BuilderNavigation({ stepIndex, prevStep, nextStep }) {
+  return (
+    <section className="builder-navigation">
+      <button type="button" className="builder-nav-button builder-nav-button-secondary" onClick={prevStep} disabled={stepIndex === 0}>
+        Previous
+      </button>
+      <button type="button" className="builder-nav-button builder-nav-button-primary" onClick={nextStep}>
+        Next
+      </button>
+    </section>
+  );
+}
+
+function BuilderSidebar({ pricing, productPrimaryMockup, stepIndex, activeStep, prevStep, nextStep, save, saving, isNew }) {
   return (
     <>
-      <section className="card">
-        <div className="overline mb-3">Progress</div>
-        <ChecklistItem done={Boolean(canContinueProductType)} label="Product type selected" />
-        <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option selected" />
-        <ChecklistItem done={Boolean(canContinueDetails)} label="Details complete" />
-        <ChecklistItem done={!hasTemplateVariations || form.selected_template_variation_ids.length > 0} label={hasTemplateVariations ? `${form.selected_template_variation_ids.length} variation(s) selected` : "No variations needed"} />
-        <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} artwork group(s)`} />
-        <ChecklistItem done={readyArtworkSlots.length > 0} label={`${readyArtworkSlots.length} artwork slot(s) ready`} />
-        <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockup(s) generated`} />
-        <ChecklistItem done={pricing.canPublishWithOverride} label={pricing.canPublishProfitably ? "Price covers costs" : "Pricing override approved"} />
-      </section>
-
       <section className="card">
         <div className="overline mb-3">Primary Mockup</div>
         {productPrimaryMockup ? (
@@ -1050,11 +1004,7 @@ function BuilderSidebar({ canContinueProductType, canContinueProductOption, canC
               <td className="text-right">{pricing.print > 0 ? money(pricing.production) : "Pending"}</td>
             </tr>
             <tr>
-              <td className="text-zinc-400">Platform fee {Number((pricing.rate || 0) * 100).toFixed(2)}%</td>
-              <td className="text-right">{money(pricing.commission)}</td>
-            </tr>
-            <tr>
-              <td className="text-zinc-400">Minimum selling price</td>
+              <td className="text-zinc-400">Estimated selling price</td>
               <td className="text-right">{money(pricing.minimumSellingPrice || 0)}</td>
             </tr>
             <tr className="border-t border-white/15">
@@ -1214,7 +1164,7 @@ function ProductOptionStep({ templates = [], selectedProductType, form, chooseTe
   );
 }
 
-function ProductDetailsStep({ isAdmin, creators, form, selectedTemplate, product, isNew, update, applyTextFormat }) {
+function ProductDetailsStep({ isAdmin, creators, form, product, isNew, update, applyTextFormat }) {
   return (
     <div className="space-y-6 product-builder-main">
       <div>
@@ -1281,17 +1231,6 @@ function ProductDetailsStep({ isAdmin, creators, form, selectedTemplate, product
         )}
       </section>
 
-      {selectedTemplate && (
-        <div className="border border-white/10 bg-black/20 p-5 rounded-xl">
-          <div className="overline mb-2">Selected product option</div>
-          <div className="grid md:grid-cols-4 gap-4 text-sm">
-            <Info label="Product option" value={selectedTemplate.name} />
-            <Info label="Category" value={selectedTemplate.category} />
-            <Info label="Available options" value={getTemplateAttributeRange(selectedTemplate)} />
-            <Info label="Creator cost excl. printing" value={money(getCreatorBlankPrice(selectedTemplate))} />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1346,22 +1285,23 @@ function getPricingReviewMessages(product = {}, isAdmin = false, pricing = {}) {
   return [...new Set(messages)];
 }
 
-function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isAdmin = false, compact = false, fundraisingValue = "", onFundraisingChange = null }) {
+function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isAdmin = false, compact = false, fundraisingValue = "", onFundraisingChange = null, showPlatformFee = true }) {
   const fundraisingAmount = Number(fundraisingValue || Math.max(Number(pricing.profit || 0), 0) || 0);
   const rate = Number(pricing.rate || 0);
   const minimumSellingPrice = rate >= 1
     ? pricing.production + fundraisingAmount
     : Math.ceil(((Number(pricing.production || 0) + fundraisingAmount) / (1 - rate)) * 100) / 100;
-  const platformFeeAmount = Math.round(minimumSellingPrice * rate * 100) / 100;
+  const actualSellingPrice = Number(sellingPrice || 0);
+  const platformFeeAmount = Math.round(actualSellingPrice * rate * 100) / 100;
+  const profitAfterFundraising = Math.round((
+    actualSellingPrice
+    - Number(pricing.production || 0)
+    - platformFeeAmount
+    - fundraisingAmount
+  ) * 100) / 100;
   const reviewMessages = getPricingReviewMessages(product, isAdmin, pricing);
   const overrideActive = Boolean(product?.pricing_override_approved || pricing.pricingOverrideApproved);
   const manualPricingActive = Boolean(product?.manual_pricing_override_active);
-  const effectivePricingStatus = getEffectivePricingStatus(product, pricing);
-  const sourceLabel = pricing.commissionSource === "default"
-    ? "default"
-    : pricing.commissionSource === "monthly_package"
-    ? "monthly package"
-    : "creator rate";
   const statusTone = pricing.canPublishProfitably
     ? "border-[#34C759]/40 text-[#A7F3C4] bg-[#34C759]/10"
     : overrideActive || manualPricingActive
@@ -1389,22 +1329,15 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-        <PricingSummaryGroup title="Estimated production cost">
-          <PricingSummaryMetric label="Product + printing" value={pricing.print > 0 ? money(pricing.production) : "Pending print method"} />
+      <div className={`grid md:grid-cols-2 ${showPlatformFee ? "xl:grid-cols-5" : "xl:grid-cols-4"} gap-4 text-sm`}>
+        <PricingSummaryGroup title="Total product cost">
+          <PricingSummaryMetric label="Blank product + printing" value={pricing.print > 0 ? money(pricing.production) : "Pending print method"} />
           <div className="text-[11px] leading-relaxed text-zinc-500">
-            Includes base product cost plus creator-facing printing/production estimate.
+            The complete estimated production cost for one item.
           </div>
         </PricingSummaryGroup>
 
-        <PricingSummaryGroup title="Platform fee">
-          <PricingSummaryMetric label={`Platform fee ${Number((pricing.rate || 0) * 100).toFixed(2)}%`} value={money(platformFeeAmount)} />
-          <div className="text-[11px] leading-relaxed text-zinc-500">
-            Calculated against the selling price needed to cover production and fundraising.
-          </div>
-        </PricingSummaryGroup>
-
-        <PricingSummaryGroup title="Markup / fundraising amount">
+        <PricingSummaryGroup title="Fundraising amount">
           {onFundraisingChange ? (
             <input
               className="input-base"
@@ -1418,16 +1351,36 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
             <PricingSummaryMetric label="Amount" value={money(fundraisingAmount)} />
           )}
           <div className="text-[11px] leading-relaxed text-zinc-500">
-            This is the creator, club or fundraiser amount per item.
+            The amount you want to raise from each sale.
           </div>
         </PricingSummaryGroup>
 
-        <PricingSummaryGroup title="Minimum selling price">
-          <PricingSummaryMetric label="Required customer price" value={money(minimumSellingPrice)} />
+        <PricingSummaryGroup title="Recommended selling price">
+          <PricingSummaryMetric label="Customer price" value={money(minimumSellingPrice)} />
           <div className="text-[11px] leading-relaxed text-zinc-500">
-            Production cost + platform fee + markup/fundraising.
+            Recommended to cover the product and your fundraising target.
           </div>
         </PricingSummaryGroup>
+
+        <PricingSummaryGroup title="Profit per sale">
+          <PricingSummaryMetric
+            label="Additional profit"
+            value={money(profitAfterFundraising)}
+            valueClassName={profitAfterFundraising >= 0 ? "text-[#34C759]" : "text-[#FF3B30]"}
+          />
+          <div className="text-[11px] leading-relaxed text-zinc-500">
+            What remains after your fundraising target and required costs.
+          </div>
+        </PricingSummaryGroup>
+
+        {showPlatformFee && (
+          <PricingSummaryGroup title="Platform fee">
+            <PricingSummaryMetric label={`Platform fee ${Number(rate * 100).toFixed(2)}%`} value={money(platformFeeAmount)} />
+            <div className="text-[11px] leading-relaxed text-zinc-500">
+              Confirmed here during final review.
+            </div>
+          </PricingSummaryGroup>
+        )}
       </div>
 
       {manualPricingActive && (
@@ -1509,10 +1462,6 @@ function PricingStep({
   const [desiredFundraisingAmount, setDesiredFundraisingAmount] = useState(() => Math.max(Number(pricing.profit || 0), 0).toFixed(2));
   const canUseAdminPricingControl = Boolean(isAdmin && user?.role === "super_admin" && product?.id);
 
-  useEffect(() => {
-    setDesiredFundraisingAmount(Math.max(Number(pricing.profit || 0), 0).toFixed(2));
-  }, [form.selling_price, pricing.production, pricing.rate, pricing.profit]);
-
   const updateDesiredFundraisingAmount = (value) => {
     setDesiredFundraisingAmount(value);
     const desired = Number(value || 0);
@@ -1537,6 +1486,7 @@ function PricingStep({
         isAdmin={isAdmin}
         fundraisingValue={desiredFundraisingAmount}
         onFundraisingChange={updateDesiredFundraisingAmount}
+        showPlatformFee={false}
       />
 
       <VariationPricingMatrix
@@ -2078,7 +2028,7 @@ function VariationPricingMatrix({
         )}
 
         <p className="text-xs text-zinc-500 mt-3">
-          Retail prices are clamped to the minimum needed to cover base cost, print/production cost and platform fee. Fundraising amount is derived from the saved selling price for each row.
+          Retail prices cannot be lower than the amount needed to cover required costs. The final fee breakdown is shown on Review.
         </p>
       </div>
     </section>
