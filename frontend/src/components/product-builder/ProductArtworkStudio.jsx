@@ -1085,8 +1085,6 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     }
   };
 
-  const updateTextLayer =
-
   const updateTextLayer = (patch) => {
     if (!activeSlot?.text_layer || !activeArea) return;
     const nextSettings = normaliseTextSettings({ text_content: activeSlot.text_content, text_font_family: activeSlot.text_font_family, text_font_weight: activeSlot.text_font_weight, text_font_size: activeSlot.text_font_size, text_color: activeSlot.text_color, ...patch });
@@ -1118,8 +1116,6 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     window.addEventListener("keydown", handleDeleteKey);
     return () => window.removeEventListener("keydown", handleDeleteKey);
   }, [activeSlot?.id, removeSlot]);
-
-  const startDrag =
 
   const startDrag = (event, slot, type, handle = "") => {
     const area = printAreas.find((item) => item.id === slot?.print_area_id);
