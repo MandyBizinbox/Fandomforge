@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, Store } from "lucide-react";
+import { ExternalLink, Globe2, Mail, MessageCircle, Phone, Store } from "lucide-react";
 import { http, assetUrl } from "../lib/api";
 import Navbar from "../components/Navbar";
 import ProductCard from "../components/ProductCard";
@@ -19,6 +19,22 @@ function socialUrl(name, value) {
   if (key.includes("youtube")) return `https://youtube.com/@${username}`;
   if (key.includes("x") || key.includes("twitter")) return `https://x.com/${username}`;
   return "";
+}
+
+function externalUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+}
+
+function whatsappUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  let digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.startsWith("0")) digits = `27${digits.slice(1)}`;
+  return digits ? `https://wa.me/${digits}` : "";
 }
 
 async function loadCreatorByIdentifier(identifier) {
@@ -136,7 +152,42 @@ export default function BandStorefront() {
     );
   }
 
-  const socialEntries = Object.entries(creator.socials || {}).filter(([, value]) => String(value || "").trim());
+  const socials = creator.socials || {};
+  const socialEntries = Object.entries(socials)
+    .filter(([name, value]) => name !== "whatsapp" && String(value || "").trim());
+
+  const contactEntries = [
+    {
+      key: "website",
+      label: "Website",
+      value: creator.website_url,
+      href: externalUrl(creator.website_url),
+      icon: Globe2,
+      external: true,
+    },
+    {
+      key: "email",
+      label: "Email",
+      value: creator.contact_email,
+      href: creator.contact_email ? `mailto:${String(creator.contact_email).trim()}` : "",
+      icon: Mail,
+    },
+    {
+      key: "phone",
+      label: "Phone",
+      value: creator.contact_phone,
+      href: creator.contact_phone ? `tel:${String(creator.contact_phone).replace(/[^+\d]/g, "")}` : "",
+      icon: Phone,
+    },
+    {
+      key: "whatsapp",
+      label: "WhatsApp",
+      value: socials.whatsapp,
+      href: whatsappUrl(socials.whatsapp),
+      icon: MessageCircle,
+      external: true,
+    },
+  ].filter((entry) => String(entry.value || "").trim() && entry.href);
 
   return (
     <div className="min-h-screen page-shell">
@@ -172,6 +223,35 @@ export default function BandStorefront() {
           </div>
         </div>
       </header>
+
+      {contactEntries.length > 0 && (
+        <section className="border-y border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)]" data-testid="creator-contact-links">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-10 py-5 sm:py-6">
+            <p className="overline mb-3">Connect with {creator.name}</p>
+            <div className="grid gap-px bg-[var(--ff-card-border)] border border-[var(--ff-card-border)] sm:grid-cols-2 lg:grid-cols-4">
+              {contactEntries.map((entry) => {
+                const Icon = entry.icon;
+                return (
+                  <a
+                    key={entry.key}
+                    href={entry.href}
+                    target={entry.external ? "_blank" : undefined}
+                    rel={entry.external ? "noreferrer" : undefined}
+                    className="min-w-0 bg-[var(--ff-card-bg)] text-[var(--ff-card-text)] p-4 flex items-start gap-3 hover:bg-[var(--ff-page-bg)] transition-colors"
+                  >
+                    <Icon size={18} className="text-[var(--ff-primary)] shrink-0 mt-0.5" />
+                    <span className="min-w-0">
+                      <span className="overline block mb-1">{entry.label}</span>
+                      <span className="text-sm font-medium break-all">{entry.value}</span>
+                    </span>
+                    {entry.external && <ExternalLink size={12} className="ml-auto shrink-0 text-[var(--ff-muted-text)]" />}
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="py-10 sm:py-16 border-t border-[var(--ff-card-border)]" data-testid="creator-products-section">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-10">
