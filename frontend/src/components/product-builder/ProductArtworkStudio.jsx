@@ -155,6 +155,84 @@ function readImageFileDimensions(file) {
   });
 }
 
+function trimTransparentImageFile(file) {
+  return new Promise((resolve) => {
+    const fallback = async () => {
+      const dimensions = await readImageFileDimensions(file);
+      resolve({ file, ...dimensions, trimmed: false });
+    };
+    if (!file || !["image/png", "image/webp"].includes(String(file.type || "").toLowerCase())) {
+      fallback();
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = async () => {
+      try {
+        const width = img.naturalWidth || img.width || 0;
+        const height = img.naturalHeight || img.height || 0;
+        if (!width || !height) {
+          URL.revokeObjectURL(url);
+          fallback();
+          return;
+        }
+
+        const source = document.createElement("canvas");
+        source.width = width;
+        source.height = height;
+        const sourceContext = source.getContext("2d", { willReadFrequently: true });
+        sourceContext.drawImage(img, 0, 0);
+        const pixels = sourceContext.getImageData(0, 0, width, height).data;
+        let left = width;
+        let top = height;
+        let right = -1;
+        let bottom = -1;
+
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            if (pixels[(y * width + x) * 4 + 3] <= 8) continue;
+            if (x < left) left = x;
+            if (x > right) right = x;
+            if (y < top) top = y;
+            if (y > bottom) bottom = y;
+          }
+        }
+
+        if (right < left || bottom < top || (left === 0 && top === 0 && right === width - 1 && bottom === height - 1)) {
+          URL.revokeObjectURL(url);
+          resolve({ file, width, height, aspectRatio: width / height, trimmed: false });
+          return;
+        }
+
+        const cropWidth = right - left + 1;
+        const cropHeight = bottom - top + 1;
+        const cropped = document.createElement("canvas");
+        cropped.width = cropWidth;
+        cropped.height = cropHeight;
+        cropped.getContext("2d").drawImage(source, left, top, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+        const blob = await blobFromCanvas(cropped);
+        URL.revokeObjectURL(url);
+        if (!blob) {
+          fallback();
+          return;
+        }
+        const baseName = String(file.name || "artwork").replace(/\.[^.]+$/, "");
+        const trimmedFile = new File([blob], `${baseName}-trimmed.png`, { type: "image/png", lastModified: file.lastModified || Date.now() });
+        resolve({ file: trimmedFile, width: cropWidth, height: cropHeight, aspectRatio: cropWidth / cropHeight, trimmed: true });
+      } catch (error) {
+        URL.revokeObjectURL(url);
+        fallback();
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      fallback();
+    };
+    img.src = url;
+  });
+}
+
 function escapeSvg(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -314,16 +392,39 @@ function profileIdentityValues(profile = {}) {
     profile.id,
     profile.profile_id,
     profile.manufacturing_profile_id,
+    profile.production_profile_id,
     profile.print_option_id,
     profile.legacy_print_option_id,
     profile.legacy_source_identifier,
     profile.source_identifier,
-    profile.method_key,
-    profile.production_method_key,
-    profile.method_name,
-    profile.print_method,
+    profile.source_print_option_id,
+    profile.source_print_option_slug,
     ...asArray(profile.identity_values),
   ].map((value) => compact(value)).filter(Boolean));
+}
+
+function profileExactMatchValues(profile = {}) {
+  return new Set([
+    ...profileIdentityValues(profile),
+    profile.profile_name,
+    profile.rule_name,
+    profile.display_label,
+    profile.display_name,
+    profile.profile_label,
+    profile.print_size,
+    profile.profile_print_size,
+  ].map((value) => compact(value).toLowerCase()).filter(Boolean));
+}
+
+function profileMethodValues(profile = {}) {
+  return new Set([
+    profile.method_key,
+    profile.production_method_key,
+    profile.manufacturing_method_id,
+    profile.method_name,
+    profile.method,
+    profile.production_method_display_name,
+  ].map((value) => normalizeProductionMethodKey(value)).filter(Boolean));
 }
 
 function normaliseManufacturingProfile(raw = {}) {
@@ -392,16 +493,14 @@ function supportsStockedColours(profile = {}) {
   return ["htv", "adhesive_vinyl"].includes(methodKey);
 }
 
-function profileMatchesAllowedIds(profile, allowedIds) {
+function profileMatchesAllowedIds(profile, allowedIds, { methodFallback = true } = {}) {
   const allowed = asArray(allowedIds).map((value) => compact(value)).filter(Boolean);
   if (!allowed.length) return true;
-  const identities = [...profileIdentityValues(profile)];
-  const exactValues = new Set(identities.map((value) => compact(value).toLowerCase()).filter(Boolean));
-  const methodValues = new Set(identities.map((value) => normalizeProductionMethodKey(value)).filter(Boolean));
-  return allowed.some((id) => (
-    exactValues.has(id.toLowerCase())
-    || methodValues.has(normalizeProductionMethodKey(id))
-  ));
+  const exactValues = profileExactMatchValues(profile);
+  if (allowed.some((id) => exactValues.has(id.toLowerCase()))) return true;
+  if (!methodFallback) return false;
+  const methodValues = profileMethodValues(profile);
+  return allowed.some((id) => methodValues.has(normalizeProductionMethodKey(id)));
 }
 
 function resolveProfileForSlot(slot = {}, profiles = [], legacyPrintOptions = []) {
@@ -707,7 +806,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     const allowedIds = [...new Set(areaOptionIds.length ? areaOptionIds : templateOptionIds)];
     const activeProfiles = profileCatalog.filter((profile) => profile.active !== false);
     if (!allowedIds.length) return activeProfiles;
-    return activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds));
+    const exactProfiles = activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds, { methodFallback: false }));
+    if (exactProfiles.length) return exactProfiles;
+    return activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds, { methodFallback: true }));
   };
 
   const allowedProfiles = useMemo(() => allowedProfilesForArea(activeArea), [activeArea, profileCatalog, template]);
@@ -899,14 +1000,14 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     if (!file || !area) return;
     setUploading(true);
     try {
-      const dimensions = await readImageFileDimensions(file);
+      const prepared = await trimTransparentImageFile(file);
       const data = new FormData();
-      data.append("file", file);
+      data.append("file", prepared.file);
       data.append("subdir", "product-artwork");
       const response = await http.post("/files/image", data);
       const width = 70;
-      const height = dimensions.aspectRatio ? fitHeightForAspect(area.id, width, dimensions.aspectRatio) : 70;
-      const patch = { original_url: response.data.url, file_name: file.name, mime_type: file.type || "", original_width_px: dimensions.width, original_height_px: dimensions.height, artwork_aspect_ratio: dimensions.aspectRatio || 1, lock_aspect_ratio: true, placement: centeredPlacement(area, width, height) };
+      const height = prepared.aspectRatio ? fitHeightForAspect(area.id, width, prepared.aspectRatio) : 70;
+      const patch = { original_url: response.data.url, file_name: file.name, mime_type: prepared.file.type || file.type || "", original_width_px: prepared.width, original_height_px: prepared.height, artwork_aspect_ratio: prepared.aspectRatio || 1, transparent_bounds_trimmed: prepared.trimmed, lock_aspect_ratio: true, placement: centeredPlacement(area, width, height) };
       createLayer(area, patch);
       toast.success("Image layer uploaded");
     } catch (error) {
