@@ -41,7 +41,10 @@
   user-select: none !important;
 }
 
-[data-testid="product-artwork-studio"] .cursor-move > .pointer-events-none,
+/* Text previews may scale beyond their typographic line box, but image layers
+   must remain exactly inside the green placement box. The previous generic
+   .pointer-events-none selector also matched artwork <img> elements and forced
+   them to 116% with negative margins and padding. */
 [data-testid="product-artwork-studio"] .cursor-move > .whitespace-pre {
   font-size: min(34cqw, 66cqh) !important;
   line-height: 1.28 !important;
@@ -51,6 +54,15 @@
   margin-left: -8% !important;
   margin-top: -8% !important;
   padding: 3% !important;
+  box-sizing: border-box !important;
+}
+
+[data-testid="product-artwork-studio"] .cursor-move > img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
   box-sizing: border-box !important;
 }
 
