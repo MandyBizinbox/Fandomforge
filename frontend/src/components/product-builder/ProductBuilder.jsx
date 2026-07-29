@@ -1293,9 +1293,7 @@ function MoneyInput({
 }) {
   const formatValue = (nextValue) => {
     const numericValue = Number(nextValue);
-    const minimum = Number(min);
-    const safeMinimum = Number.isFinite(minimum) ? minimum : 0;
-    const safeValue = Number.isFinite(numericValue) ? Math.max(numericValue, safeMinimum) : safeMinimum;
+    const safeValue = Number.isFinite(numericValue) ? Math.max(numericValue, 0) : 0;
     return safeValue.toFixed(2);
   };
 
@@ -1885,7 +1883,7 @@ function VariationPricingMatrix({
         ? Number(defaultSellingPrice || 0)
         : Number(retailOverride || 0);
       const minimumRetail = noProfitMinimum(baseCost, printCost);
-      const effectiveRetailPrice = Math.max(Number(retailPrice || 0), minimumRetail);
+      const effectiveRetailPrice = Math.max(Number(retailPrice || 0), 0);
       const creatorAmount = creatorAmountForRetail(effectiveRetailPrice, baseCost, printCost);
 
       return {
@@ -1916,8 +1914,8 @@ function VariationPricingMatrix({
 
   const setRowRetail = (row, value) => {
     const raw = Number(value || 0);
-    const clamped = Math.max(raw, row.minimumRetail);
-    const next = Number.isFinite(clamped) ? clamped.toFixed(2) : row.minimumRetail.toFixed(2);
+    const normalized = Math.max(raw, 0);
+    const next = Number.isFinite(normalized) ? normalized.toFixed(2) : "0.00";
 
     if (row.isStandard) {
       updateDefaultSellingPrice?.(next);
@@ -1957,7 +1955,8 @@ function VariationPricingMatrix({
   };
 
   const defaultMinimum = noProfitMinimum(Number(pricing.blank || 0), Number(pricing.print || 0));
-  const defaultRetailValue = Math.max(Number(defaultSellingPrice || 0), defaultMinimum).toFixed(2);
+  const defaultRetailValue = Math.max(Number(defaultSellingPrice || 0), 0).toFixed(2);
+  const defaultRetailTooLow = Number(defaultRetailValue) < defaultMinimum;
 
   return (
     <section className="card w-full" data-testid="variation-pricing-matrix">
@@ -2009,7 +2008,9 @@ function VariationPricingMatrix({
                     onCommit={handleDefaultRetailChange}
                     ariaLabel="Default retail price"
                   />
-                  <span className="mt-1 block text-[10px] text-zinc-500">Minimum {money(defaultMinimum)}</span>
+                  <span className={defaultRetailTooLow ? "mt-1 block text-[10px] text-[#FFB4B0]" : "mt-1 block text-[10px] text-zinc-500"}>
+                    Minimum {money(defaultMinimum)}
+                  </span>
                 </label>
 
                 <label className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/30 px-3 py-3 text-xs text-zinc-300">
