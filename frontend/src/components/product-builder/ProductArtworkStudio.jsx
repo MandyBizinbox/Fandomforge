@@ -812,7 +812,12 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   };
 
   const allowedProfiles = useMemo(() => allowedProfilesForArea(activeArea), [activeArea, profileCatalog, template]);
-  const selectedProfile = useMemo(() => resolveProfileForSlot(activeSlot || {}, profileCatalog, printOptions), [activeSlot, profileCatalog, printOptions]);
+  const selectedProfile = useMemo(() => {
+    const candidate = resolveProfileForSlot(activeSlot || {}, profileCatalog, printOptions);
+    if (!candidate) return null;
+    const candidateIds = profileIdentityValues(candidate);
+    return allowedProfiles.find((profile) => [...profileIdentityValues(profile)].some((value) => candidateIds.has(value))) || null;
+  }, [activeSlot, allowedProfiles, profileCatalog, printOptions]);
   const activeImage = areasForScreen.find((area) => area.effective_base_image_url)?.effective_base_image_url || activeScreen?.image_url || "";
   const activePlacement = sanitizePlacement(previewPlacements[activeSlot?.id] || activeSlot?.placement, activeArea);
   const templateForCosting = useMemo(() => ({ ...(template || {}), print_areas: printAreas }), [template, printAreas]);
@@ -888,8 +893,29 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     let changed = false;
     const nextSlots = slots.map((slot) => {
       const area = printAreas.find((item) => item.id === slot.print_area_id);
-      const profile = resolveProfileForSlot(slot, profileCatalog, printOptions);
-      if (!area || !profile) return slot;
+      if (!area) return slot;
+      const allowed = allowedProfilesForArea(area);
+      const resolvedProfile = resolveProfileForSlot(slot, profileCatalog, printOptions);
+      const resolvedIds = profileIdentityValues(resolvedProfile || {});
+      const compatibleProfile = resolvedProfile
+        ? allowed.find((profile) => [...profileIdentityValues(profile)].some((value) => resolvedIds.has(value)))
+        : null;
+      const profile = compatibleProfile || (allowed.length === 1 ? allowed[0] : null);
+      if (!profile) {
+        const hadInvalidProfile = Boolean(slot.print_option_id || slot.manufacturing_profile_id || slot.production_profile_id);
+        if (!hadInvalidProfile) return slot;
+        changed = true;
+        return {
+          ...slot,
+          print_option_id: "",
+          manufacturing_profile_id: "",
+          production_profile_id: "",
+          manufacturing_profile_display_label: "",
+          manufacturing_profile_name: "",
+          calculated_print_cost: 0,
+          print_cost_max: 0,
+        };
+      }
       const patch = profilePatchForSlot(slot, area, profile, { preserveSelectedColour: true });
       const nextProfileId = patch.manufacturing_profile_id || patch.print_option_id;
       const currentProfileId = slot.manufacturing_profile_id || slot.production_profile_id || slot.print_option_id;
