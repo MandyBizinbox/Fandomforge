@@ -1332,8 +1332,12 @@ function MoneyInput({
       disabled={disabled}
       aria-label={ariaLabel}
       onFocus={(event) => {
+        const input = event.currentTarget;
         setEditing(true);
-        event.currentTarget.select();
+        window.requestAnimationFrame(() => input.select());
+      }}
+      onMouseUp={(event) => {
+        if (!editing) event.preventDefault();
       }}
       onChange={(event) => updateDraft(event.target.value)}
       onBlur={commit}
