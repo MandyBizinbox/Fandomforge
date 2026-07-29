@@ -324,3 +324,125 @@
     order: 0;
   }
 }
+
+/* Compact Previous / Next navigation for the wide Artwork and Pricing workspaces. */
+.builder-navigation {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  padding: 0.75rem 0;
+}
+
+.builder-nav-button {
+  min-width: 112px;
+  min-height: 38px;
+  padding: 0.55rem 1rem;
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.builder-nav-button-secondary {
+  background: transparent;
+}
+
+.builder-nav-button-primary {
+  background: var(--admin-primary, #FF3B30);
+  border-color: var(--admin-primary, #FF3B30);
+}
+
+.builder-nav-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Creator console contrast lock.
+   Public brand theme variables must not turn dashboard copy dark on dark. */
+.creator-workspace {
+  --ff-page-bg: #0A0A0A;
+  --ff-page-text: #F7F7F7;
+  --ff-card-bg: #111111;
+  --ff-card-text: #F7F7F7;
+  --ff-card-border: rgba(255,255,255,0.16);
+  --ff-surface-bg: #181818;
+  --ff-muted-text: #B3B3BC;
+  --ff-header-bg: rgba(10,10,10,0.97);
+  --ff-header-text: #FFFFFF;
+}
+
+.creator-workspace,
+.creator-workspace main,
+.creator-workspace [data-testid$="-main"] {
+  background: #0A0A0A !important;
+  color: #F7F7F7 !important;
+}
+
+.creator-workspace .card,
+.creator-workspace section,
+.creator-workspace [class*="bg-black"] {
+  color: #F7F7F7;
+}
+
+.creator-workspace .overline,
+.creator-workspace .label,
+.creator-workspace .text-zinc-400,
+.creator-workspace .text-zinc-500,
+.creator-workspace .text-zinc-600,
+.creator-workspace [class*="text-[var(--ff-muted-text)]"] {
+  color: #B3B3BC !important;
+}
+
+.creator-workspace .text-white,
+.creator-workspace h1,
+.creator-workspace h2,
+.creator-workspace h3,
+.creator-workspace h4,
+.creator-workspace strong,
+.creator-workspace b {
+  color: #FFFFFF !important;
+}
+
+.creator-workspace button:not(:disabled),
+.creator-workspace a {
+  opacity: 1;
+}
+
+.creator-workspace button {
+  color: #FFFFFF !important;
+}
+
+html[data-theme-bg-tone] .creator-workspace .overline,
+html[data-theme-bg-tone] .creator-workspace .label,
+html[data-theme-bg-tone] .creator-workspace .text-zinc-400,
+html[data-theme-bg-tone] .creator-workspace .text-zinc-500,
+html[data-theme-bg-tone] .creator-workspace .text-zinc-600,
+html[data-theme-bg-tone] .creator-workspace [class*="text-[var(--ff-muted-text)]"] {
+  color: #B3B3BC !important;
+}
+
+html[data-theme-bg-tone] .creator-workspace [data-testid^="creator-"] {
+  color: #F7F7F7 !important;
+}
+
+.creator-workspace .input-base,
+.creator-workspace input,
+.creator-workspace textarea,
+.creator-workspace select,
+.creator-workspace option {
+  color: #111111 !important;
+}
+
+@media (max-width: 640px) {
+  .builder-navigation {
+    justify-content: stretch;
+  }
+
+  .builder-nav-button {
+    flex: 1;
+    min-width: 0;
+  }
+}
