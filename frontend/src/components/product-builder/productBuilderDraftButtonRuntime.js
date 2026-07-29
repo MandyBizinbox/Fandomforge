@@ -1,7 +1,6 @@
-// Builder V2 visible Save Draft control.
-// Temporary UX bridge until ProductBuilder exposes a native React draft action on every step.
-
-let draftButtonTimer = null;
+// Builder V2 Save Draft action bridge.
+// ProductBuilder owns the visible fixed action bar; this runtime keeps the
+// established initial-draft and existing-draft save lifecycle intact.
 
 function normaliseText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
@@ -36,7 +35,7 @@ function showNotice(message, tone = "info") {
     node.id = "ff-builder-draft-save-notice";
     node.style.position = "fixed";
     node.style.right = "18px";
-    node.style.bottom = "78px";
+    node.style.bottom = "94px";
     node.style.zIndex = "100000";
     node.style.padding = "12px 14px";
     node.style.border = "1px solid rgba(255,255,255,0.18)";
@@ -171,7 +170,9 @@ function clickVisibleSaveButton() {
   const buttons = [...(shell?.querySelectorAll("button") || [])];
   const saveButton = buttons.find((button) => {
     const text = lowerText(button.textContent || "");
-    return !button.disabled && (text === "save" || text.includes(" save") || text === "create" || text.includes(" create"));
+    return button.id !== "ff-builder-visible-save-draft"
+      && !button.disabled
+      && (text === "save" || text.includes(" save") || text === "create" || text.includes(" create"));
   });
   if (saveButton) {
     saveButton.click();
@@ -208,43 +209,7 @@ async function handleSaveDraftClick() {
   }
 }
 
-function ensureDraftButton() {
-  const shell = builderShell();
-  if (!shell || document.getElementById("ff-builder-visible-save-draft")) return;
-  const button = document.createElement("button");
-  button.id = "ff-builder-visible-save-draft";
-  button.type = "button";
-  button.textContent = "Save Draft";
-  button.style.position = "fixed";
-  button.style.right = "18px";
-  button.style.bottom = "18px";
-  button.style.zIndex = "99999";
-  button.style.border = "1px solid rgba(52,199,89,0.8)";
-  button.style.background = "#0A1B10";
-  button.style.color = "#fff";
-  button.style.padding = "12px 16px";
-  button.style.fontSize = "12px";
-  button.style.fontWeight = "900";
-  button.style.textTransform = "uppercase";
-  button.style.letterSpacing = "0.08em";
-  button.style.boxShadow = "0 12px 30px rgba(0,0,0,0.45)";
-  button.addEventListener("click", handleSaveDraftClick);
-  document.body.appendChild(button);
-}
-
-function scheduleDraftButton() {
-  if (draftButtonTimer) return;
-  draftButtonTimer = window.setTimeout(() => {
-    draftButtonTimer = null;
-    ensureDraftButton();
-  }, 180);
-}
-
 if (typeof window !== "undefined" && !window.__ffBuilderVisibleDraftButtonLoaded) {
   window.__ffBuilderVisibleDraftButtonLoaded = true;
-  window.addEventListener("load", ensureDraftButton);
-  window.addEventListener("click", scheduleDraftButton, true);
-  const observer = new MutationObserver(scheduleDraftButton);
-  observer.observe(document.body, { childList: true, subtree: true });
-  scheduleDraftButton();
+  window.addEventListener("ff-builder-save-draft", handleSaveDraftClick);
 }
