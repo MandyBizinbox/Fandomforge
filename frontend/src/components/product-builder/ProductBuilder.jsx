@@ -945,34 +945,40 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
             <BuilderSidebar
               pricing={pricing}
               productPrimaryMockup={productPrimaryMockup}
-              stepIndex={stepIndex}
-              activeStep={activeStep}
-              prevStep={prevStep}
-              nextStep={nextStep}
-              save={save}
-              saving={saving}
-              isNew={isNew}
             />
           </aside>
         )}
 
-        {(pricingWorkspace || activeStep === "artwork") && (
-          <BuilderNavigation
-            stepIndex={stepIndex}
-            prevStep={prevStep}
-            nextStep={nextStep}
-          />
-        )}
       </div>
+
+      {activeStep !== "review" && (
+        <BuilderNavigation
+          stepIndex={stepIndex}
+          prevStep={prevStep}
+          nextStep={nextStep}
+        />
+      )}
     </div>
   );
 }
 
 function BuilderNavigation({ stepIndex, prevStep, nextStep }) {
+  const saveDraft = () => {
+    window.dispatchEvent(new CustomEvent("ff-builder-save-draft"));
+  };
+
   return (
-    <section className="builder-navigation">
+    <section className="builder-navigation" aria-label="Product builder actions">
       <button type="button" className="builder-nav-button builder-nav-button-secondary" onClick={prevStep} disabled={stepIndex === 0}>
         Previous
+      </button>
+      <button
+        id="ff-builder-visible-save-draft"
+        type="button"
+        className="builder-nav-button builder-nav-button-save"
+        onClick={saveDraft}
+      >
+        <Save size={14} /> Save Draft
       </button>
       <button type="button" className="builder-nav-button builder-nav-button-primary" onClick={nextStep}>
         Next
@@ -981,7 +987,7 @@ function BuilderNavigation({ stepIndex, prevStep, nextStep }) {
   );
 }
 
-function BuilderSidebar({ pricing, productPrimaryMockup, stepIndex, activeStep, prevStep, nextStep, save, saving, isNew }) {
+function BuilderSidebar({ pricing, productPrimaryMockup }) {
   return (
     <>
       <section className="card">
@@ -1016,14 +1022,6 @@ function BuilderSidebar({ pricing, productPrimaryMockup, stepIndex, activeStep, 
         <p className="text-xs text-zinc-500 mt-3">Printing includes print cost plus production labour estimate.</p>
       </section>
 
-      <section className="card flex gap-2">
-        <button type="button" className="btn-secondary flex-1" onClick={prevStep} disabled={stepIndex === 0}>Previous</button>
-        {activeStep !== "review" ? (
-          <button type="button" className="btn-primary flex-1" onClick={nextStep}>Next</button>
-        ) : (
-          <button type="button" className="btn-primary flex-1" disabled={saving} onClick={save}><Save size={14} /> {saving ? "Saving…" : isNew ? "Create" : "Save"}</button>
-        )}
-      </section>
     </>
   );
 }
