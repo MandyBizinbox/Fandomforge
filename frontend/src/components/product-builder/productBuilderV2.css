@@ -325,19 +325,37 @@
   }
 }
 
-/* Compact Previous / Next navigation for the wide Artwork and Pricing workspaces. */
+/* One persistent action bar for the seven editable Builder screens. */
+.product-builder-shell {
+  padding-bottom: 88px;
+}
+
 .builder-navigation {
-  display: flex;
-  justify-content: flex-end;
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 99990;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(112px, auto));
   gap: 0.65rem;
-  padding: 0.75rem 0;
+  padding: 0.65rem;
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 12px;
+  background: rgba(10,10,10,0.94);
+  box-shadow: 0 14px 38px rgba(0,0,0,0.5);
+  backdrop-filter: blur(14px);
 }
 
 .builder-nav-button {
   min-width: 112px;
-  min-height: 38px;
-  padding: 0.55rem 1rem;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
   border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
   color: #fff;
   font-size: 0.72rem;
   font-weight: 800;
@@ -348,6 +366,11 @@
 
 .builder-nav-button-secondary {
   background: transparent;
+}
+
+.builder-nav-button-save {
+  border-color: rgba(52,199,89,0.8);
+  background: #0A1B10;
 }
 
 .builder-nav-button-primary {
@@ -437,12 +460,23 @@ html[data-theme-bg-tone] .creator-workspace [data-testid^="creator-"] {
 }
 
 @media (max-width: 640px) {
+  .product-builder-shell {
+    padding-bottom: 82px;
+  }
+
   .builder-navigation {
-    justify-content: stretch;
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
+    padding: 0.45rem;
   }
 
   .builder-nav-button {
-    flex: 1;
     min-width: 0;
+    padding-inline: 0.45rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
   }
 }
