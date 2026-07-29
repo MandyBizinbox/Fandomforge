@@ -1280,11 +1280,11 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
 
         <div className="border border-[#34C759]/40 bg-[#0A1B10] p-3">
           <div className="text-center font-bold uppercase mb-2">Selected layer</div>
-          <div className="grid md:grid-cols-2 gap-3">
+          <div>
             <label>
-              <span className="label">Manufacturing profile</span>
+              <span className="label">Print method</span>
               <select className="input-base" value={selectedProfile?.id || activeSlot?.print_option_id || ""} disabled={!activeSlot || profilesLoading} onChange={(event) => activeSlot && setLayerManufacturingProfile(activeSlot.id, event.target.value)}>
-                <option value="">{profilesLoading ? "Loading profiles…" : "Select profile"}</option>
+                <option value="">{profilesLoading ? "Loading print methods…" : "Select print method"}</option>
                 {groupedProfiles.map((group) => (
                   <optgroup key={group.key} label={group.label}>
                     {group.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profileLabel(profile)}</option>)}
@@ -1292,24 +1292,13 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                 ))}
               </select>
             </label>
-            <label>
-              <span className="label">Layer</span>
-              <select className="input-base" value={activeSlot?.id || ""} onChange={(event) => setActiveSlotId(event.target.value)}>
-                <option value="">Select layer</option>
-                {currentScreenSlots.map((slot) => {
-                  const profile = resolveProfileForSlot(slot, profileCatalog, printOptions);
-                  return <option key={slot.id} value={slot.id}>{slot.text_layer ? "Text" : "Image"} · {printAreas.find((area) => area.id === slot.print_area_id)?.name || "Area"} · {profile ? profileLabel(profile) : "No profile"}</option>;
-                })}
-              </select>
-            </label>
           </div>
           {selectedProfile && <div className="text-[11px] text-[#B8F5C3] mt-2">Selected: {methodLabel(selectedProfile.method_key)} / {profileLabel(selectedProfile)}</div>}
         </div>
 
         <div className="grid gap-2">
-          <button type="button" className="btn-secondary justify-start text-lg" disabled={!activeGroup || !areasForScreen.length || uploading} onClick={() => { pendingReplaceSlotIdRef.current = ""; pendingUploadAreaRef.current = activeArea || normalPrintAreas[0] || areasForScreen[0]; fileInputRef.current?.click(); }}><ImageIcon size={22} /> {uploading ? "Uploading" : "Add Image"}</button>
-          <button type="button" className="btn-secondary justify-start text-lg" disabled={!activeGroup || !areasForScreen.length} onClick={addTextLayer}><Type size={22} /> Add Text</button>
-          <button type="button" className="btn-secondary justify-start text-lg border-[#FF3B30] text-[#FF8A84]" disabled={!activeSlot} onClick={() => activeSlot && removeSlot(activeSlot.id)}><Trash2 size={22} /> Delete Layer</button>
+          <button type="button" className="btn-secondary justify-start text-sm" disabled={!activeGroup || !areasForScreen.length || uploading} onClick={() => { pendingReplaceSlotIdRef.current = ""; pendingUploadAreaRef.current = activeArea || normalPrintAreas[0] || areasForScreen[0]; fileInputRef.current?.click(); }}><ImageIcon size={18} /> {uploading ? "Uploading" : "Add Image"}</button>
+          <button type="button" className="btn-secondary justify-start text-sm" disabled={!activeGroup || !areasForScreen.length} onClick={addTextLayer}><Type size={18} /> Add Text</button>
         </div>
 
         <div className="border border-[#34C759]/40 bg-[#0A1B10] p-3 grid grid-cols-2 gap-3">
