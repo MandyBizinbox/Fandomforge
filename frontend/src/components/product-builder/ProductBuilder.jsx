@@ -1345,8 +1345,7 @@ function MoneyInput({
         if (event.key === "Escape") {
           event.preventDefault();
           setDraft(formatValue(value));
-          setEditing(false);
-          event.currentTarget.blur();
+          event.currentTarget.select();
         }
       }}
     />
