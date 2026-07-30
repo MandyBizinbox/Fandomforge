@@ -2539,12 +2539,21 @@ async def _profile_for_owner(db, owner_type: str, owner_id: str) -> Optional[dic
 
 
 CREATOR_VISIBILITIES = {"public", "unlisted", "private"}
-ADMIN_CONTROLLED_CREATOR_PUBLISHING_FIELDS = {
+CREATOR_SELF_SERVICE_FIELDS = {
+    "name",
+    "slug",
+    "category",
+    "bio",
+    "logo_url",
+    "banner_url",
+    "profile_image_url",
+    "contact_email",
+    "contact_phone",
+    "website_url",
+    "socials",
+    "group_delivery",
     "visibility",
     "show_on_platform_gallery",
-    "gallery_logo_url",
-    "gallery_banner_url",
-    "gallery_display_name",
     "allow_search_indexing",
 }
 
@@ -2684,9 +2693,11 @@ async def update_my_band(
     db = request.app.state.db
     creator = await get_creator_account_for_user(db, user, permission="manage_settings")
 
-    updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
-    for key in ADMIN_CONTROLLED_CREATOR_PUBLISHING_FIELDS:
-        updates.pop(key, None)
+    updates = {
+        key: value
+        for key, value in payload.model_dump(exclude_none=True).items()
+        if key in CREATOR_SELF_SERVICE_FIELDS
+    }
 
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")

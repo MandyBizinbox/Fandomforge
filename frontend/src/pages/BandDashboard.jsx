@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "../components/DashboardLayout";
+import CreatorPayoutSettings from "../components/creator/CreatorPayoutSettings";
 import ProductBuilder from "../components/product-builder/ProductBuilder";
 import { http, assetUrl } from "../lib/api";
 import {
@@ -1238,15 +1239,48 @@ function Earnings() {
   );
 }
 
+function SettingsToggle({ label, description, checked, disabled = false, onChange }) {
+  return (
+    <label className={`flex items-start justify-between gap-5 border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-4 ${disabled ? "opacity-50" : "cursor-pointer"}`}>
+      <span>
+        <span className="block text-sm font-bold">{label}</span>
+        <span className="block text-xs text-[var(--ff-muted-text)] mt-1">{description}</span>
+      </span>
+      <span className="flex items-center gap-3 shrink-0">
+        <span className="text-xs font-bold uppercase tracking-widest">{checked ? "Yes" : "No"}</span>
+        <input
+          type="checkbox"
+          className="h-5 w-5 accent-[var(--ff-primary)]"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+      </span>
+    </label>
+  );
+}
+
 function SettingsPage() {
   const [creator, setCreator] = useState(null);
+  const [activeTab, setActiveTab] = useState("details");
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: "",
     bio: "",
-    logo_url: "",
+    profile_image_url: "",
     banner_url: "",
+    contact_email: "",
+    contact_phone: "",
+    website_url: "",
+    whatsapp: "",
     instagram: "",
+    facebook: "",
+    tiktok: "",
+    youtube: "",
     twitter: "",
+    visibility: "unlisted",
+    show_on_platform_gallery: false,
+    allow_search_indexing: false,
     group_delivery: {
       enabled: false,
       delivery_interval_days: 14,
@@ -1268,10 +1302,20 @@ function SettingsPage() {
       setForm({
         name: r.data.name || "",
         bio: r.data.bio || "",
-        logo_url: r.data.logo_url || "",
+        profile_image_url: r.data.profile_image_url || r.data.logo_url || "",
         banner_url: r.data.banner_url || "",
+        contact_email: r.data.contact_email || "",
+        contact_phone: r.data.contact_phone || "",
+        website_url: r.data.website_url || "",
+        whatsapp: r.data.socials?.whatsapp || "",
         instagram: r.data.socials?.instagram || "",
+        facebook: r.data.socials?.facebook || "",
+        tiktok: r.data.socials?.tiktok || "",
+        youtube: r.data.socials?.youtube || "",
         twitter: r.data.socials?.twitter || "",
+        visibility: r.data.visibility || "unlisted",
+        show_on_platform_gallery: Boolean(r.data.show_on_platform_gallery),
+        allow_search_indexing: Boolean(r.data.allow_search_indexing),
         group_delivery: {
           enabled: Boolean(r.data.group_delivery?.enabled),
           delivery_interval_days: Number(r.data.group_delivery?.delivery_interval_days || 14),
@@ -1286,7 +1330,9 @@ function SettingsPage() {
           internal_notes: r.data.group_delivery?.internal_notes || "",
         },
       });
-    }).catch(() => {});
+    }).catch(() => {
+      toast.error("Could not load storefront settings");
+    });
   }, []);
 
   const updateForm = (key, value) => {
@@ -1303,37 +1349,49 @@ function SettingsPage() {
     }));
   };
 
+  const updatePublicVisibility = (makePublic) => {
+    setForm((current) => ({
+      ...current,
+      visibility: makePublic ? "public" : "unlisted",
+      show_on_platform_gallery: makePublic ? current.show_on_platform_gallery : false,
+      allow_search_indexing: makePublic ? current.allow_search_indexing : false,
+    }));
+  };
+
   const uploadStoreImage = async (file, targetField) => {
     if (!file) return;
+    if (file.size > MAX_CREATOR_UPLOAD_BYTES) {
+      toast.error(`File too large. Maximum upload size is ${MAX_CREATOR_UPLOAD_MB}MB.`);
+      return;
+    }
 
     const fd = new FormData();
     fd.append("file", file);
     fd.append("subdir", "creator-storefronts");
 
     try {
-      const r = await http.post("/files/image", fd, {
+      const response = await http.post("/files/image", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-
-      updateForm(targetField, r.data.url);
-      toast.success("Image uploaded");
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Image upload failed");
+      updateForm(targetField, response.data.url);
+      toast.success(targetField === "banner_url" ? "Store banner uploaded" : "Profile picture uploaded");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Image upload failed");
     }
   };
 
-  const save = async (e) => {
-    e.preventDefault();
-
-    const socials = {};
-    if (form.instagram) socials.instagram = form.instagram;
-    if (form.twitter) socials.twitter = form.twitter;
-
+  const save = async (event) => {
+    event.preventDefault();
     const intervalDays = Number(form.group_delivery?.delivery_interval_days || 14);
     if (form.group_delivery?.enabled && intervalDays < 14) {
-      toast.error("Group Delivery interval must be at least 14 days");
+      toast.error("Bulk Batched Shipping interval must be at least 14 days");
       return;
     }
+
+    const socials = {};
+    ["whatsapp", "instagram", "facebook", "tiktok", "youtube", "twitter"].forEach((key) => {
+      if (form[key]) socials[key] = form[key];
+    });
 
     const groupDelivery = {
       enabled: Boolean(form.group_delivery?.enabled),
@@ -1349,20 +1407,29 @@ function SettingsPage() {
       internal_notes: form.group_delivery?.internal_notes || "",
     };
 
+    setSaving(true);
     try {
-      const r = await http.patch("/creators/me", {
+      const response = await http.patch("/creators/me", {
         name: form.name,
         bio: form.bio,
-        logo_url: form.logo_url || null,
+        logo_url: form.profile_image_url || null,
+        profile_image_url: form.profile_image_url || null,
         banner_url: form.banner_url || null,
+        contact_email: form.contact_email || "",
+        contact_phone: form.contact_phone || "",
+        website_url: form.website_url || "",
         socials,
         group_delivery: groupDelivery,
+        visibility: form.visibility,
+        show_on_platform_gallery: Boolean(form.show_on_platform_gallery),
+        allow_search_indexing: Boolean(form.allow_search_indexing),
       });
-
-      setCreator(r.data);
-      toast.success("Storefront saved");
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Save failed");
+      setCreator(response.data);
+      toast.success("Store settings saved");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Save failed");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1370,10 +1437,10 @@ function SettingsPage() {
     try {
       await http.post("/payments/subscribe");
       toast.success("Subscription activated");
-      const r = await http.get("/creators/me");
-      setCreator(r.data);
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Subscription failed");
+      const response = await http.get("/creators/me");
+      setCreator(response.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Subscription failed");
     }
   };
 
@@ -1385,7 +1452,6 @@ function SettingsPage() {
 
   const copyDirectStoreLink = async () => {
     if (!directStoreLink) return;
-
     try {
       await navigator.clipboard.writeText(directStoreLink);
       toast.success("Store link copied");
@@ -1394,257 +1460,279 @@ function SettingsPage() {
     }
   };
 
+  const isPublic = form.visibility === "public";
+  const tabs = [
+    { key: "details", label: "Store Details" },
+    { key: "shipping", label: "Shipping Options" },
+    { key: "visibility", label: "Visibility Options" },
+    { key: "payouts", label: "Payout Details" },
+  ];
+
   return (
     <div data-testid="creator-settings-page">
       <div className="overline mb-2">Settings</div>
-      <h1 className="font-display text-5xl uppercase mb-8">Storefront</h1>
+      <h1 className="font-display text-5xl uppercase mb-6">Storefront</h1>
 
-      <div className="card max-w-2xl mb-8" data-testid="creator-publishing-panel">
-        <div className="overline mb-2">Publishing & Visibility</div>
-        <h2 className="font-display text-3xl uppercase mb-4">Current store status</h2>
-
-        <div className="grid sm:grid-cols-3 gap-3 mb-5">
-          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
-            <div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mb-1">Store visibility</div>
-            <div className="font-bold">{creatorVisibilityLabel(creator.visibility)}</div>
-          </div>
-          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
-            <div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mb-1">Homepage gallery</div>
-            <div className="font-bold">{creator.show_on_platform_gallery ? "Enabled" : "Disabled"}</div>
-          </div>
-          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
-            <div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mb-1">Search indexing</div>
-            <div className="font-bold">{creator.allow_search_indexing ? "Enabled" : "Disabled"}</div>
-          </div>
-        </div>
-
-        <p className="text-sm text-[var(--ff-muted-text)] mb-4">{creatorVisibilityDescription(creator.visibility)}</p>
-
-        <div>
-          <label className="label">Direct store link</label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input className="input-base font-mono text-sm" readOnly value={directStoreLink} />
-            <button type="button" className="btn-secondary shrink-0" onClick={copyDirectStoreLink}>
-              <Copy size={14} /> Copy
-            </button>
-          </div>
-        </div>
-
-        <p className="text-xs text-[var(--ff-muted-text)] mt-4">
-          Need to change publishing settings? Contact FandomForge support.
-        </p>
+      <div className="flex flex-wrap border-b border-[var(--ff-card-border)] mb-6" role="tablist" aria-label="Store settings">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-3 text-xs font-bold uppercase tracking-widest border-b-2 -mb-px ${
+              activeTab === tab.key
+                ? "border-[var(--ff-primary)] text-[var(--ff-card-text)]"
+                : "border-transparent text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)]"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      <form onSubmit={save} className="max-w-2xl space-y-4">
-        <div>
-          <label htmlFor="creator-name" className="label">Creator name</label>
-          <input
-            id="creator-name"
-            name="name"
-            className="input-base"
-            value={form.name}
-            onChange={(e) => updateForm("name", e.target.value)}
-          />
+      {activeTab === "payouts" ? (
+        <div className="max-w-4xl">
+          <CreatorPayoutSettings />
         </div>
+      ) : (
+        <form onSubmit={save} className="max-w-4xl space-y-6">
+          {activeTab === "details" && (
+            <>
+              <section className="card space-y-4">
+                <div>
+                  <p className="overline mb-2">Public storefront</p>
+                  <h2 className="font-display text-3xl uppercase">Store details</h2>
+                </div>
 
-        <div>
-          <label htmlFor="creator-bio" className="label">Bio</label>
-          <textarea
-            id="creator-bio"
-            name="bio"
-            className="input-base"
-            rows={4}
-            value={form.bio}
-            onChange={(e) => updateForm("bio", e.target.value)}
-          />
-        </div>
+                <div>
+                  <label className="label">Store public link</label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input className="input-base font-mono text-sm" readOnly value={directStoreLink} />
+                    <button type="button" className="btn-secondary shrink-0" onClick={copyDirectStoreLink}>
+                      <Copy size={14} /> Copy
+                    </button>
+                  </div>
+                </div>
 
-        <div className="card space-y-4 border border-[var(--ff-card-border)]">
-          <div>
-            <p className="overline mb-2">Group Delivery</p>
-            <h2 className="font-display text-3xl uppercase">Free batched collection</h2>
-            <p className="text-sm text-[var(--ff-muted-text)] mt-1">
-              Customers do not pay delivery. Orders are batched to your collection point and assigned to the next valid batch date.
-            </p>
-          </div>
+                <div>
+                  <label htmlFor="creator-name" className="label">Store name</label>
+                  <input
+                    id="creator-name"
+                    className="input-base"
+                    required
+                    value={form.name}
+                    onChange={(event) => updateForm("name", event.target.value)}
+                  />
+                </div>
 
-          <label className="flex items-start gap-3 border border-[var(--ff-card-border)] p-3 bg-[var(--ff-surface-bg)] cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={Boolean(form.group_delivery?.enabled)}
-              onChange={(e) => updateGroupDelivery("enabled", e.target.checked)}
-            />
-            <span>
-              <span className="block text-sm font-bold">Enable Free Group Delivery</span>
-              <span className="block text-xs text-[var(--ff-muted-text)] mt-1">Only shown when the cart contains products from this creator/store.</span>
-            </span>
-          </label>
+                <div>
+                  <label htmlFor="creator-bio" className="label">Store About Us / Bio</label>
+                  <textarea
+                    id="creator-bio"
+                    className="input-base"
+                    rows={5}
+                    value={form.bio}
+                    onChange={(event) => updateForm("bio", event.target.value)}
+                  />
+                </div>
+              </section>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <label className="label">Delivery interval days</label>
-              <input
-                className="input-base"
-                type="number"
-                min="14"
-                value={form.group_delivery?.delivery_interval_days || 14}
-                onChange={(e) => updateGroupDelivery("delivery_interval_days", Number(e.target.value || 14))}
+              <section className="card space-y-4">
+                <div>
+                  <p className="overline mb-2">Public contact information</p>
+                  <h2 className="font-display text-3xl uppercase">Store contact details</h2>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Website</label>
+                    <input className="input-base" type="url" value={form.website_url} onChange={(event) => updateForm("website_url", event.target.value)} placeholder="https://example.com" />
+                  </div>
+                  <div>
+                    <label className="label">Contact email</label>
+                    <input className="input-base" type="email" value={form.contact_email} onChange={(event) => updateForm("contact_email", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">Contact number</label>
+                    <input className="input-base" value={form.contact_phone} onChange={(event) => updateForm("contact_phone", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">WhatsApp number</label>
+                    <input className="input-base" value={form.whatsapp} onChange={(event) => updateForm("whatsapp", event.target.value)} placeholder="+27…" />
+                  </div>
+                  <div>
+                    <label className="label">Instagram</label>
+                    <input className="input-base" value={form.instagram} onChange={(event) => updateForm("instagram", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">Facebook</label>
+                    <input className="input-base" value={form.facebook} onChange={(event) => updateForm("facebook", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">TikTok</label>
+                    <input className="input-base" value={form.tiktok} onChange={(event) => updateForm("tiktok", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">YouTube</label>
+                    <input className="input-base" value={form.youtube} onChange={(event) => updateForm("youtube", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">X / Twitter</label>
+                    <input className="input-base" value={form.twitter} onChange={(event) => updateForm("twitter", event.target.value)} />
+                  </div>
+                </div>
+              </section>
+
+              <div className="grid lg:grid-cols-2 gap-6">
+                <CreatorImageField
+                  label="Store Profile Picture"
+                  value={form.profile_image_url}
+                  inputId="creator-profile-picture"
+                  hint="Shown on your public storefront and creator cards."
+                  requirements="Recommended: square image, 800×800px or larger."
+                  previewClassName="aspect-square"
+                  onUpload={(file) => uploadStoreImage(file, "profile_image_url")}
+                />
+                <CreatorImageField
+                  label="Store Banner"
+                  value={form.banner_url}
+                  inputId="creator-banner"
+                  hint="Shown as the wide header image on your public storefront."
+                  requirements="Recommended: 1600×600px or larger."
+                  previewClassName="aspect-[16/6]"
+                  onUpload={(file) => uploadStoreImage(file, "banner_url")}
+                />
+              </div>
+            </>
+          )}
+
+          {activeTab === "shipping" && (
+            <section className="card space-y-4">
+              <div>
+                <p className="overline mb-2">Bulk Batched Shipping</p>
+                <h2 className="font-display text-3xl uppercase">Free batched collection</h2>
+                <p className="text-sm text-[var(--ff-muted-text)] mt-1">
+                  Customers do not pay delivery. Orders are batched to your collection point and assigned to the next valid batch date.
+                </p>
+              </div>
+
+              <SettingsToggle
+                label="Enable Bulk Batched Shipping"
+                description="This option is only shown when the cart contains products from this store."
+                checked={Boolean(form.group_delivery?.enabled)}
+                onChange={(checked) => updateGroupDelivery("enabled", checked)}
               />
-              <p className="text-xs text-[var(--ff-muted-text)] mt-1">Minimum 14 days.</p>
-            </div>
 
-            <div>
-              <label className="label">First batch date</label>
-              <input
-                className="input-base"
-                type="date"
-                value={form.group_delivery?.first_batch_date || ""}
-                onChange={(e) => updateGroupDelivery("first_batch_date", e.target.value)}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Delivery interval days</label>
+                  <input className="input-base" type="number" min="14" value={form.group_delivery?.delivery_interval_days || 14} onChange={(event) => updateGroupDelivery("delivery_interval_days", Number(event.target.value || 14))} />
+                  <p className="text-xs text-[var(--ff-muted-text)] mt-1">Minimum 14 days.</p>
+                </div>
+                <div>
+                  <label className="label">First batch date</label>
+                  <input className="input-base" type="date" value={form.group_delivery?.first_batch_date || ""} onChange={(event) => updateGroupDelivery("first_batch_date", event.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Collection point name</label>
+                  <input className="input-base" value={form.group_delivery?.collection_point_name || ""} onChange={(event) => updateGroupDelivery("collection_point_name", event.target.value)} placeholder="Group Hall" />
+                </div>
+                <div>
+                  <label className="label">Address line 1</label>
+                  <input className="input-base" value={form.group_delivery?.collection_address_line_1 || ""} onChange={(event) => updateGroupDelivery("collection_address_line_1", event.target.value)} placeholder="1 Main Road" />
+                </div>
+                <div>
+                  <label className="label">Suburb</label>
+                  <input className="input-base" value={form.group_delivery?.collection_suburb || ""} onChange={(event) => updateGroupDelivery("collection_suburb", event.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Town</label>
+                  <input className="input-base" value={form.group_delivery?.collection_town || ""} onChange={(event) => updateGroupDelivery("collection_town", event.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Province</label>
+                  <input className="input-base" value={form.group_delivery?.collection_province || ""} onChange={(event) => updateGroupDelivery("collection_province", event.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Postal code</label>
+                  <input className="input-base" value={form.group_delivery?.collection_postal_code || ""} onChange={(event) => updateGroupDelivery("collection_postal_code", event.target.value)} />
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Customer instructions</label>
+                <textarea className="input-base" rows={3} value={form.group_delivery?.customer_instructions || ""} onChange={(event) => updateGroupDelivery("customer_instructions", event.target.value)} />
+              </div>
+              <div>
+                <label className="label">Internal notes</label>
+                <textarea className="input-base" rows={3} value={form.group_delivery?.internal_notes || ""} onChange={(event) => updateGroupDelivery("internal_notes", event.target.value)} placeholder="Internal only. Not shown to buyers." />
+              </div>
+            </section>
+          )}
+
+          {activeTab === "visibility" && (
+            <section className="card space-y-4">
+              <div>
+                <p className="overline mb-2">Publishing & visibility</p>
+                <h2 className="font-display text-3xl uppercase">Store visibility</h2>
+                <p className="text-sm text-[var(--ff-muted-text)] mt-1">
+                  Control how customers can discover your store. Your direct store link remains available when the store is unlisted.
+                </p>
+              </div>
+
+              <SettingsToggle
+                label="Make Public"
+                description="Allow the store to participate in public discovery. Turn this off to keep it accessible by direct link only."
+                checked={isPublic}
+                onChange={updatePublicVisibility}
               />
-            </div>
-
-            <div>
-              <label className="label">Collection point name</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_point_name || ""}
-                onChange={(e) => updateGroupDelivery("collection_point_name", e.target.value)}
-                placeholder="Group Hall"
+              <SettingsToggle
+                label="Display on Home Page"
+                description="Allow FandomForge to feature this store and its eligible published products on the homepage."
+                checked={Boolean(form.show_on_platform_gallery)}
+                disabled={!isPublic}
+                onChange={(checked) => updateForm("show_on_platform_gallery", checked)}
               />
-            </div>
-
-            <div>
-              <label className="label">Address line 1</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_address_line_1 || ""}
-                onChange={(e) => updateGroupDelivery("collection_address_line_1", e.target.value)}
-                placeholder="1 Main Road"
+              <SettingsToggle
+                label="Search Indexing"
+                description="Allow search engines to index the public storefront."
+                checked={Boolean(form.allow_search_indexing)}
+                disabled={!isPublic}
+                onChange={(checked) => updateForm("allow_search_indexing", checked)}
               />
-            </div>
 
-            <div>
-              <label className="label">Suburb</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_suburb || ""}
-                onChange={(e) => updateGroupDelivery("collection_suburb", e.target.value)}
-                placeholder="Durbanville"
-              />
-            </div>
+              <div className="grid sm:grid-cols-3 gap-3 pt-2">
+                <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
+                  <div className="overline mb-1">Store</div>
+                  <div className="font-bold">{isPublic ? "Public" : "Unlisted"}</div>
+                </div>
+                <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
+                  <div className="overline mb-1">Home Page</div>
+                  <div className="font-bold">{form.show_on_platform_gallery ? "Enabled" : "Disabled"}</div>
+                </div>
+                <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
+                  <div className="overline mb-1">Search</div>
+                  <div className="font-bold">{form.allow_search_indexing ? "Enabled" : "Disabled"}</div>
+                </div>
+              </div>
+            </section>
+          )}
 
-            <div>
-              <label className="label">Town</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_town || ""}
-                onChange={(e) => updateGroupDelivery("collection_town", e.target.value)}
-                placeholder="Cape Town"
-              />
-            </div>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            <Save size={14} /> {saving ? "Saving…" : "Save Settings"}
+          </button>
+        </form>
+      )}
 
-            <div>
-              <label className="label">Province</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_province || ""}
-                onChange={(e) => updateGroupDelivery("collection_province", e.target.value)}
-                placeholder="Western Cape"
-              />
-            </div>
-
-            <div>
-              <label className="label">Postal code</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_postal_code || ""}
-                onChange={(e) => updateGroupDelivery("collection_postal_code", e.target.value)}
-                placeholder="7550"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="label">Customer instructions</label>
-            <textarea
-              className="input-base"
-              rows={3}
-              value={form.group_delivery?.customer_instructions || ""}
-              onChange={(e) => updateGroupDelivery("customer_instructions", e.target.value)}
-              placeholder="Orders are delivered in batches to the group hall. You will be notified when your order is ready for collection."
-            />
-          </div>
-
-          <div>
-            <label className="label">Internal notes</label>
-            <textarea
-              className="input-base"
-              rows={3}
-              value={form.group_delivery?.internal_notes || ""}
-              onChange={(e) => updateGroupDelivery("internal_notes", e.target.value)}
-              placeholder="Internal only. Not shown to buyers."
-            />
-          </div>
-        </div>
-
-          <CreatorImageField
-            label="Logo"
-            value={form.logo_url}
-            inputId="creator-logo"
-            hint="Shown on your public storefront and creator cards."
-            requirements="Recommended: square or transparent logo, at least 800×800px."
-            previewClassName="aspect-square"
-            onUpload={(file) => uploadStoreImage(file, "logo_url")}
-          />
-
-          <CreatorImageField
-            label="Banner"
-            value={form.banner_url}
-            inputId="creator-banner"
-            hint="Shown as the wide header image on your public storefront."
-            requirements="Recommended: wide banner, around 1600×600px or larger."
-            previewClassName="aspect-[16/6]"
-            onUpload={(file) => uploadStoreImage(file, "banner_url")}
-          />
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="creator-instagram" className="label">Instagram</label>
-            <input
-              id="creator-instagram"
-              name="instagram"
-              className="input-base"
-              value={form.instagram}
-              onChange={(e) => updateForm("instagram", e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="creator-twitter" className="label">Twitter / X</label>
-            <input
-              id="creator-twitter"
-              name="twitter"
-              className="input-base"
-              value={form.twitter}
-              onChange={(e) => updateForm("twitter", e.target.value)}
-            />
-          </div>
-        </div>
-
-        <button type="submit" className="btn-primary">
-          <Save size={14} /> Save Storefront
-        </button>
-      </form>
-
-      <div className="mt-10 card max-w-2xl">
+      <div className="mt-10 card max-w-4xl">
         <div className="overline mb-2">Subscription</div>
-
         <div className="flex items-center justify-between gap-4">
           <div>
             <div className="text-sm text-[var(--ff-muted-text)]">Current status</div>
             <StatusBadge status={creator.subscription_status} />
           </div>
-
           <button type="button" onClick={subscribe} className="btn-secondary">
             Activate / Renew
           </button>

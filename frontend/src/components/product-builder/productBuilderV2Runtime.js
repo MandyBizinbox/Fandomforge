@@ -9,6 +9,8 @@ let lastSafeguardRun = 0;
 let restoreTimer = null;
 let restoreAttempts = 0;
 let creatingServerDraft = false;
+let serverDraftAttempted = false;
+let observedBuilderPath = "";
 
 function normaliseText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
@@ -103,6 +105,23 @@ function getPathDraft() {
 
 function setPathDraft(patch) {
   writeJson(pathKey(), { ...getPathDraft(), ...patch, saved_at: Date.now() });
+}
+
+function prepareBuilderRoute() {
+  if (typeof window === "undefined") return;
+  const currentPath = window.location.pathname;
+  if (currentPath === observedBuilderPath) return;
+
+  observedBuilderPath = currentPath;
+  restoreAttempts = 0;
+  serverDraftAttempted = false;
+
+  // A /new route is not a draft. Never let choices or a product id from an
+  // earlier unfinished session turn a fresh builder into a restored product.
+  if (isNewBuilderUrl()) {
+    window.localStorage.removeItem(draftKey());
+    window.localStorage.removeItem(pathKey());
+  }
 }
 
 function showTransientNotice(message, tone = "info") {
@@ -294,6 +313,7 @@ function collectDraftFields() {
 
 function saveBuilderDraft() {
   if (typeof window === "undefined") return;
+  if (isNewBuilderUrl() && currentScreenKey() !== "details") return;
   const data = {};
   const detailFields = {};
   collectDraftFields().forEach((element, index) => {
@@ -375,9 +395,11 @@ function buildServerDraftPayload() {
   const description = document.querySelector('[data-format-field="description"]');
   const specs = document.querySelector('[data-format-field="specs"]');
   const selectedPanelChoice = selectedOptionFromDetailsPanel();
+  const creatorInput = inputForLabelText("Creator");
   if (selectedPanelChoice && !path.productOptionChoice) setPathDraft({ productOptionChoice: selectedPanelChoice });
   return {
     draft_product_id: path.draftProductId || null,
+    band_id: creatorInput?.value || null,
     product_type_choice: path.productTypeChoice || "",
     product_option_choice: path.productOptionChoice || selectedPanelChoice || "",
     title: titleInput?.value || details.title || "",
@@ -387,16 +409,12 @@ function buildServerDraftPayload() {
 }
 
 async function createServerDraftAfterDetails() {
-  if (creatingServerDraft || !isNewBuilderUrl()) return false;
+  if (creatingServerDraft || serverDraftAttempted || !isNewBuilderUrl() || currentScreenKey() !== "details") return false;
   const payload = buildServerDraftPayload();
-  if (!payload.product_option_choice) {
-    showTransientNotice("Could not detect selected product option", "error");
-    return false;
-  }
-  if (!normaliseText(payload.title)) {
-    showTransientNotice("Enter a product title before draft save", "error");
-    return false;
-  }
+  if (!payload.product_option_choice || !normaliseText(payload.title)) return false;
+  if (/\/admin\/products\/new\/?$/.test(window.location.pathname) && !payload.band_id) return false;
+
+  serverDraftAttempted = true;
   creatingServerDraft = true;
   showTransientNotice("Saving draft product…");
   try {
@@ -408,9 +426,11 @@ async function createServerDraftAfterDetails() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.detail || "Draft product save failed");
     if (!data?.id) throw new Error("Draft product created without id");
-    setPathDraft({ draftProductId: data.id, activeStep: "variations" });
     showTransientNotice("Draft saved. Opening draft…");
-    window.location.assign(`/creator/products/${data.id}`);
+    const productBase = window.location.pathname.startsWith("/admin/")
+      ? "/admin/products"
+      : "/creator/products";
+    window.location.assign(`${productBase}/${data.id}?builderStep=details`);
     return true;
   } catch (error) {
     showTransientNotice(error.message || "Could not save draft product", "error");
@@ -420,35 +440,11 @@ async function createServerDraftAfterDetails() {
   }
 }
 
-function shouldHardInterceptDetailsNext(button) {
-  if (!button || !builderShell()?.contains(button) || !isNewBuilderUrl()) return false;
-  if (currentScreenKey() !== "details") return false;
-  const text = lowerText(button.textContent || "");
-  const step = stepFromText(text);
-  return text.includes("next") || step === "variations";
-}
-
-function hardInterceptDetailsNext(event) {
-  const button = event.target?.closest?.("button");
-  if (!shouldHardInterceptDetailsNext(button)) return;
-  event.preventDefault();
-  event.stopPropagation();
-  if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
-  if (button.dataset.ffDraftClickLocked === "1") return;
-  button.dataset.ffDraftClickLocked = "1";
-  window.setTimeout(() => {
-    createServerDraftAfterDetails().finally(() => {
-      delete button.dataset.ffDraftClickLocked;
-    });
-  }, 0);
-}
-
 function rememberBuilderClick(event) {
   const shell = builderShell();
   if (!shell) return;
   const button = event.target?.closest?.("button");
   if (!button || !shell.contains(button)) return;
-  if (shouldHardInterceptDetailsNext(button)) return;
   const text = normaliseText(button.textContent || "");
   const step = stepFromText(text);
   if (step) {
@@ -484,6 +480,14 @@ function clickStep(stepKey) {
 }
 
 function replayBuilderPath() {
+  if (isNewBuilderUrl()) return;
+
+  const requestedStep = new URLSearchParams(window.location.search).get("builderStep");
+  if (requestedStep === "details" && currentScreenKey() !== "details") {
+    clickStep("details");
+    return;
+  }
+
   const path = getPathDraft();
   if (!path.productTypeChoice && !path.productOptionChoice && !path.detailFields && !path.activeStep) return;
   if (restoreAttempts > 40) return;
@@ -541,11 +545,15 @@ function attachDraftHandlers() {
   if (!shell || shell.dataset.ffDraftHandlersAttached) return;
   shell.dataset.ffDraftHandlersAttached = "1";
   shell.addEventListener("input", () => window.setTimeout(saveBuilderDraft, 50));
-  shell.addEventListener("change", () => window.setTimeout(saveBuilderDraft, 50));
+  shell.addEventListener("change", () => {
+    window.setTimeout(saveBuilderDraft, 50);
+    window.setTimeout(createServerDraftAfterDetails, 75);
+  });
   shell.addEventListener("click", rememberBuilderClick, true);
 }
 
 function runBuilderV2Safeguards() {
+  prepareBuilderRoute();
   const now = Date.now();
   if (now - lastSafeguardRun < 250) return;
   lastSafeguardRun = now;
@@ -556,6 +564,7 @@ function runBuilderV2Safeguards() {
   attachDraftHandlers();
   restoreBuilderDraft();
   scheduleReplayBuilderPath();
+  createServerDraftAfterDetails();
 }
 
 function scheduleBuilderV2Safeguards() {
@@ -568,7 +577,6 @@ function scheduleBuilderV2Safeguards() {
 
 if (typeof window !== "undefined" && !window.__fandomForgeBuilderV2RuntimeLoaded) {
   window.__fandomForgeBuilderV2RuntimeLoaded = true;
-  document.addEventListener("click", hardInterceptDetailsNext, true);
   runBuilderV2Safeguards();
   window.setTimeout(runBuilderV2Safeguards, 350);
   window.setInterval(scheduleReplayBuilderPath, 500);

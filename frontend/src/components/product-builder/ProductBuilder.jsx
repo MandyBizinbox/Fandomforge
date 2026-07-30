@@ -26,7 +26,6 @@ import {
   getSelectedVariations,
   getEnabledTemplateVariations,
   buildStandardProductVariation,
-  getTemplateAttributeRange,
   getTemplateAvailableOptionsSummary,
   getTemplateImage,
   getTemplateShortDescription,
@@ -36,7 +35,6 @@ import {
   getVariationCost,
   resolveCreatorCommissionRate,
   resolveCreatorCommissionSource,
-  effectivePricingStatusLabel,
   getEffectivePricingStatus,
   hasEffectivePricingBlocker,
   money,
@@ -599,27 +597,31 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     try {
       if (isNew) {
         const response = await http.post(isAdmin ? "/admin/products" : "/products", payload);
-        toast.success("Product created");
-        if (!isAdmin) {
-          setSubmittedProduct(response.data);
-          emitCreatorProductsReadyRefresh();
-        } else {
-          navigate(`/admin/products/${response.data.id}`, { replace: true });
-        }
-      } else {
-        const response = await http.patch(isAdmin ? `/admin/products/${routeId}` : `/products/${routeId}`, payload);
-        setProduct(response.data);
-        setForm((current) => ({
-          ...current,
-          artworks: asArray(response.data.artworks),
-          artwork_groups: asArray(response.data.artwork_groups),
-          mockup_images: asArray(response.data.mockup_images),
-          mockup_image_url: response.data.mockup_image_url || "",
-          primary_mockup_image_url: response.data.primary_mockup_image_url || response.data.mockup_image_url || "",
-        }));
+        const savedProduct = response.data;
+        const destination = isAdmin ? `/admin/products/${savedProduct.id}` : `/creator/products/${savedProduct.id}`;
+        setProduct(savedProduct);
+        setSubmittedProduct(null);
         if (!isAdmin) emitCreatorProductsReadyRefresh();
-        toast.success("Product saved");
+        toast.success("Product created");
+        navigate(destination, { replace: true });
+        return;
       }
+
+      const response = await http.patch(isAdmin ? `/admin/products/${routeId}` : `/products/${routeId}`, payload);
+      const savedProduct = response.data;
+      setProduct(savedProduct);
+      setForm((current) => ({
+        ...current,
+        artworks: asArray(savedProduct.artworks),
+        artwork_groups: asArray(savedProduct.artwork_groups),
+        mockup_images: asArray(savedProduct.mockup_images),
+        mockup_image_url: savedProduct.mockup_image_url || "",
+        primary_mockup_image_url: savedProduct.primary_mockup_image_url || savedProduct.mockup_image_url || "",
+      }));
+      if (!isAdmin) emitCreatorProductsReadyRefresh();
+      setActiveStep("review");
+      navigate(isAdmin ? `/admin/products/${savedProduct.id}` : `/creator/products/${savedProduct.id}`, { replace: true });
+      toast.success("Product saved");
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not save product");
     } finally {
@@ -791,13 +793,13 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
 
   return (
     <div className="product-builder-shell min-h-[calc(100vh-120px)]" data-testid={`${mode}-product-builder`}>
-      <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="flex items-center justify-between gap-4 mb-4">
         <div>
-          <div className="overline mb-2">{isAdmin ? "Admin Product Builder" : "Creator Product Builder"}</div>
-          <h1 className="font-display text-5xl uppercase">{isNew ? "New Product" : form.title || "Edit Product"}</h1>
+          <div className="overline mb-1">{isAdmin ? "Admin Product Builder" : "Creator Product Builder"}</div>
+          <h1 className="font-display text-4xl md:text-[2.75rem] leading-none uppercase">{isNew ? "New Product" : form.title || "Edit Product"}</h1>
         </div>
-        <button type="button" className="btn-secondary" onClick={() => navigate(backTo)}>
-          <ArrowLeft size={14} /> Back
+        <button type="button" className="btn-secondary !px-4 !py-2 text-xs" onClick={() => navigate(backTo)}>
+          <ArrowLeft size={13} /> Back
         </button>
       </div>
 
@@ -805,7 +807,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         <CreatorPublishingPanel product={product} publishing={publishing} onPublish={publishProduct} />
       )}
 
-      <div className="mb-6 overflow-auto">
+      <div className="mb-4 overflow-auto">
         <div className="flex gap-2 min-w-max">
           {steps.map((step, index) => {
             const active = activeStep === step.key;
@@ -814,7 +816,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
                 key={step.key}
                 type="button"
                 onClick={() => goToStep(step.key)}
-                className={`px-4 py-3 rounded-xl border text-xs uppercase tracking-widest font-bold ${active ? "border-[#FF3B30] bg-[#FF3B30]/15 text-white" : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-white"}`}
+                className={`px-3 py-2 rounded-lg border text-[11px] uppercase tracking-[0.08em] font-bold ${active ? "border-[#FF3B30] bg-[#FF3B30]/15 text-white" : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-white"}`}
               >
                 {step.label}
               </button>
@@ -849,7 +851,6 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               isAdmin={isAdmin}
               creators={creators}
               form={form}
-              selectedTemplate={selectedTemplate}
               product={product}
               isNew={isNew}
               update={update}
@@ -942,90 +943,53 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         {!wideWorkspace && (
           <aside className="product-builder-aside space-y-4">
             <BuilderSidebar
-              canContinueProductType={canContinueProductType}
-              canContinueProductOption={canContinueProductOption}
-              canContinueDetails={canContinueDetails}
-              hasTemplateVariations={hasTemplateVariations}
-              form={form}
-              readyArtworkSlots={readyArtworkSlots}
-              generatedMockups={generatedMockups}
               pricing={pricing}
               productPrimaryMockup={productPrimaryMockup}
-              stepIndex={stepIndex}
-              activeStep={activeStep}
-              prevStep={prevStep}
-              nextStep={nextStep}
-              save={save}
-              saving={saving}
-              isNew={isNew}
             />
           </aside>
         )}
 
-        {pricingWorkspace && (
-          <section className="card flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-            <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-2 text-xs">
-              <ChecklistItem done={Boolean(canContinueProductType)} label="Product type" />
-              <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option" />
-              <ChecklistItem done={Boolean(canContinueDetails)} label="Details" />
-              <ChecklistItem done={!hasTemplateVariations || form.selected_template_variation_ids.length > 0} label={hasTemplateVariations ? `${form.selected_template_variation_ids.length} variations` : "No variations needed"} />
-              <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} artwork groups`} />
-              <ChecklistItem done={readyArtworkSlots.length > 0} label={`${readyArtworkSlots.length} ready artwork slots`} />
-              <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockups`} />
-              <ChecklistItem done={pricing.canPublishWithOverride} label={pricing.canPublishProfitably ? "Price covers costs" : "Pricing override approved"} />
-            </div>
-            <div className="flex gap-2 md:min-w-[260px]">
-              <button type="button" className="btn-secondary flex-1" onClick={prevStep} disabled={stepIndex === 0}>Previous</button>
-              <button type="button" className="btn-primary flex-1" onClick={nextStep}>Next</button>
-            </div>
-          </section>
-        )}
-
-        {activeStep === "artwork" && (
-          <section className="card flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-2 text-xs">
-              <ChecklistItem done={Boolean(canContinueProductType)} label="Product type" />
-              <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option" />
-              <ChecklistItem done={Boolean(canContinueDetails)} label="Details" />
-              <ChecklistItem done={!hasTemplateVariations || form.selected_template_variation_ids.length > 0} label={hasTemplateVariations ? `${form.selected_template_variation_ids.length} variations` : "No variations needed"} />
-              <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} groups`} />
-              <ChecklistItem
-                done={readyArtworkSlots.length > 0}
-                label={
-                  uploadedWithoutPrintMethod.length
-                    ? `${uploadedWithoutPrintMethod.length} missing print method`
-                    : `${readyArtworkSlots.length} art ready`
-                }
-              />
-              <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockups`} />
-              <ChecklistItem done={pricing.canPublishWithOverride} label={pricing.canPublishProfitably ? "Price covers costs" : "Pricing override approved"} />
-            </div>
-            <div className="flex gap-2">
-              <button type="button" className="btn-secondary" onClick={prevStep}>Previous</button>
-              <button type="button" className="btn-primary" onClick={nextStep}>Next</button>
-            </div>
-          </section>
-        )}
       </div>
+
+      {activeStep !== "review" && (
+        <BuilderNavigation
+          stepIndex={stepIndex}
+          prevStep={prevStep}
+          nextStep={nextStep}
+        />
+      )}
     </div>
   );
 }
 
-function BuilderSidebar({ canContinueProductType, canContinueProductOption, canContinueDetails, hasTemplateVariations, form, readyArtworkSlots, generatedMockups, pricing, productPrimaryMockup, stepIndex, activeStep, prevStep, nextStep, save, saving, isNew }) {
+function BuilderNavigation({ stepIndex, prevStep, nextStep }) {
+  const saveDraft = () => {
+    window.dispatchEvent(new CustomEvent("ff-builder-save-draft"));
+  };
+
+  return (
+    <section className="builder-navigation" aria-label="Product builder actions">
+      <button type="button" className="builder-nav-button builder-nav-button-secondary" onClick={prevStep} disabled={stepIndex === 0}>
+        Previous
+      </button>
+      <button
+        id="ff-builder-visible-save-draft"
+        type="button"
+        className="builder-nav-button builder-nav-button-save"
+        onClick={saveDraft}
+      >
+        <Save size={14} /> Save Draft
+      </button>
+      <button type="button" className="builder-nav-button builder-nav-button-primary" onClick={nextStep}>
+        Next
+      </button>
+    </section>
+  );
+}
+
+function BuilderSidebar({ pricing, productPrimaryMockup }) {
   return (
     <>
-      <section className="card">
-        <div className="overline mb-3">Progress</div>
-        <ChecklistItem done={Boolean(canContinueProductType)} label="Product type selected" />
-        <ChecklistItem done={Boolean(canContinueProductOption)} label="Product option selected" />
-        <ChecklistItem done={Boolean(canContinueDetails)} label="Details complete" />
-        <ChecklistItem done={!hasTemplateVariations || form.selected_template_variation_ids.length > 0} label={hasTemplateVariations ? `${form.selected_template_variation_ids.length} variation(s) selected` : "No variations needed"} />
-        <ChecklistItem done={form.artwork_groups.length > 0} label={`${form.artwork_groups.length} artwork group(s)`} />
-        <ChecklistItem done={readyArtworkSlots.length > 0} label={`${readyArtworkSlots.length} artwork slot(s) ready`} />
-        <ChecklistItem done={generatedMockups.length > 0} label={`${generatedMockups.length} mockup(s) generated`} />
-        <ChecklistItem done={pricing.canPublishWithOverride} label={pricing.canPublishProfitably ? "Price covers costs" : "Pricing override approved"} />
-      </section>
-
       <section className="card">
         <div className="overline mb-3">Primary Mockup</div>
         {productPrimaryMockup ? (
@@ -1046,11 +1010,7 @@ function BuilderSidebar({ canContinueProductType, canContinueProductOption, canC
               <td className="text-right">{pricing.print > 0 ? money(pricing.production) : "Pending"}</td>
             </tr>
             <tr>
-              <td className="text-zinc-400">Platform fee {Number((pricing.rate || 0) * 100).toFixed(2)}%</td>
-              <td className="text-right">{money(pricing.commission)}</td>
-            </tr>
-            <tr>
-              <td className="text-zinc-400">Minimum selling price</td>
+              <td className="text-zinc-400">Estimated selling price</td>
               <td className="text-right">{money(pricing.minimumSellingPrice || 0)}</td>
             </tr>
             <tr className="border-t border-white/15">
@@ -1062,14 +1022,6 @@ function BuilderSidebar({ canContinueProductType, canContinueProductOption, canC
         <p className="text-xs text-zinc-500 mt-3">Printing includes print cost plus production labour estimate.</p>
       </section>
 
-      <section className="card flex gap-2">
-        <button type="button" className="btn-secondary flex-1" onClick={prevStep} disabled={stepIndex === 0}>Previous</button>
-        {activeStep !== "review" ? (
-          <button type="button" className="btn-primary flex-1" onClick={nextStep}>Next</button>
-        ) : (
-          <button type="button" className="btn-primary flex-1" disabled={saving} onClick={save}><Save size={14} /> {saving ? "Saving…" : isNew ? "Create" : "Save"}</button>
-        )}
-      </section>
     </>
   );
 }
@@ -1210,7 +1162,7 @@ function ProductOptionStep({ templates = [], selectedProductType, form, chooseTe
   );
 }
 
-function ProductDetailsStep({ isAdmin, creators, form, selectedTemplate, product, isNew, update, applyTextFormat }) {
+function ProductDetailsStep({ isAdmin, creators, form, product, isNew, update, applyTextFormat }) {
   return (
     <div className="space-y-6 product-builder-main">
       <div>
@@ -1277,17 +1229,6 @@ function ProductDetailsStep({ isAdmin, creators, form, selectedTemplate, product
         )}
       </section>
 
-      {selectedTemplate && (
-        <div className="border border-white/10 bg-black/20 p-5 rounded-xl">
-          <div className="overline mb-2">Selected product option</div>
-          <div className="grid md:grid-cols-4 gap-4 text-sm">
-            <Info label="Product option" value={selectedTemplate.name} />
-            <Info label="Category" value={selectedTemplate.category} />
-            <Info label="Available options" value={getTemplateAttributeRange(selectedTemplate)} />
-            <Info label="Creator cost excl. printing" value={money(getCreatorBlankPrice(selectedTemplate))} />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1342,28 +1283,90 @@ function getPricingReviewMessages(product = {}, isAdmin = false, pricing = {}) {
   return [...new Set(messages)];
 }
 
-function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isAdmin = false, compact = false, fundraisingValue = "", onFundraisingChange = null }) {
+
+function sanitizeMoneyDraft(nextValue) {
+  const normalized = String(nextValue ?? "").replace(",", ".").replace(/[^0-9.]/g, "");
+  const [whole = "", ...decimalParts] = normalized.split(".");
+  const hasDecimal = normalized.includes(".");
+  const decimals = decimalParts.join("").slice(0, 2);
+  return hasDecimal ? `${whole}.${decimals}` : whole;
+}
+
+function formatMoneyDraft(nextValue) {
+  const numericValue = Number(nextValue);
+  const safeValue = Number.isFinite(numericValue) ? Math.max(numericValue, 0) : 0;
+  return safeValue.toFixed(2);
+}
+
+function MoneyInput({
+  value,
+  onChange,
+  className = "input-base",
+  disabled = false,
+  ariaLabel,
+}) {
+  return (
+    <input
+      className={className}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      value={value ?? ""}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      onFocus={(event) => {
+        const input = event.currentTarget;
+        window.requestAnimationFrame(() => input.select());
+      }}
+      onChange={(event) => onChange?.(sanitizeMoneyDraft(event.target.value))}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
+
+function PricingSummaryPanel({
+  pricing = {},
+  sellingPrice = 0,
+  product = {},
+  isAdmin = false,
+  compact = false,
+  fundraisingValue = "",
+  onFundraisingChange = null,
+  showPlatformFee = true,
+  pricingDirty = false,
+}) {
   const fundraisingAmount = Number(fundraisingValue || Math.max(Number(pricing.profit || 0), 0) || 0);
   const rate = Number(pricing.rate || 0);
   const minimumSellingPrice = rate >= 1
-    ? pricing.production + fundraisingAmount
+    ? Number(pricing.production || 0) + fundraisingAmount
     : Math.ceil(((Number(pricing.production || 0) + fundraisingAmount) / (1 - rate)) * 100) / 100;
-  const platformFeeAmount = Math.round(minimumSellingPrice * rate * 100) / 100;
+  const actualSellingPrice = Number(sellingPrice || 0);
+  const platformFeeAmount = Math.round(actualSellingPrice * rate * 100) / 100;
+  const profitAfterFundraising = Math.round((
+    actualSellingPrice
+    - Number(pricing.production || 0)
+    - platformFeeAmount
+    - fundraisingAmount
+  ) * 100) / 100;
   const reviewMessages = getPricingReviewMessages(product, isAdmin, pricing);
   const overrideActive = Boolean(product?.pricing_override_approved || pricing.pricingOverrideApproved);
   const manualPricingActive = Boolean(product?.manual_pricing_override_active);
-  const effectivePricingStatus = getEffectivePricingStatus(product, pricing);
-  const sourceLabel = pricing.commissionSource === "default"
-    ? "default"
-    : pricing.commissionSource === "monthly_package"
-    ? "monthly package"
-    : "creator rate";
-  const statusTone = pricing.canPublishProfitably
+  const statusTone = pricingDirty
+    ? "border-amber-400/50 text-amber-100 bg-amber-500/10"
+    : pricing.canPublishProfitably
     ? "border-[#34C759]/40 text-[#A7F3C4] bg-[#34C759]/10"
     : overrideActive || manualPricingActive
     ? "border-amber-400/50 text-amber-100 bg-amber-500/10"
     : "border-[#FF3B30]/50 text-[#FFB4B0] bg-[#FF3B30]/10";
-  const statusLabel = pricing.canPublishProfitably
+  const statusLabel = pricingDirty
+    ? "Pricing changes not yet applied"
+    : pricing.canPublishProfitably
     ? "Price covers estimated costs"
     : overrideActive
     ? "Pricing override approved"
@@ -1377,7 +1380,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         <div>
           <div className="overline mb-1">Pricing Summary</div>
           <p className="text-sm text-zinc-500 max-w-3xl">
-            Pricing updates as product, artwork, print method, and variation settings change.
+            Enter pricing freely, then use Check &amp; Apply Pricing to run the cost calculations.
           </p>
         </div>
         <div className={`text-xs rounded-lg px-3 py-2 border font-bold uppercase tracking-widest ${statusTone}`}>
@@ -1385,46 +1388,62 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-        <PricingSummaryGroup title="Estimated production cost">
-          <PricingSummaryMetric label="Product + printing" value={pricing.print > 0 ? money(pricing.production) : "Pending print method"} />
+      <div className={`grid md:grid-cols-2 ${showPlatformFee ? "xl:grid-cols-5" : "xl:grid-cols-4"} gap-4 text-sm`}>
+        <PricingSummaryGroup title="Total product cost">
+          <PricingSummaryMetric label="Blank product + printing" value={pricing.print > 0 ? money(pricing.production) : "Pending print method"} />
           <div className="text-[11px] leading-relaxed text-zinc-500">
-            Includes base product cost plus creator-facing printing/production estimate.
+            The complete estimated production cost for one item.
           </div>
         </PricingSummaryGroup>
 
-        <PricingSummaryGroup title="Platform fee">
-          <PricingSummaryMetric label={`Platform fee ${Number((pricing.rate || 0) * 100).toFixed(2)}%`} value={money(platformFeeAmount)} />
-          <div className="text-[11px] leading-relaxed text-zinc-500">
-            Calculated against the selling price needed to cover production and fundraising.
-          </div>
-        </PricingSummaryGroup>
-
-        <PricingSummaryGroup title="Markup / fundraising amount">
+        <PricingSummaryGroup title="Fundraising amount">
           {onFundraisingChange ? (
-            <input
-              className="input-base"
-              type="number"
-              step="0.01"
-              min="0"
+            <MoneyInput
               value={fundraisingValue}
-              onChange={(event) => onFundraisingChange(event.target.value)}
+              onChange={onFundraisingChange}
+              ariaLabel="Fundraising amount"
             />
           ) : (
             <PricingSummaryMetric label="Amount" value={money(fundraisingAmount)} />
           )}
           <div className="text-[11px] leading-relaxed text-zinc-500">
-            This is the creator, club or fundraiser amount per item.
+            The amount you want to raise from each sale.
           </div>
         </PricingSummaryGroup>
 
-        <PricingSummaryGroup title="Minimum selling price">
-          <PricingSummaryMetric label="Required customer price" value={money(minimumSellingPrice)} />
+        <PricingSummaryGroup title="Recommended selling price">
+          <PricingSummaryMetric label="Customer price" value={money(minimumSellingPrice)} />
           <div className="text-[11px] leading-relaxed text-zinc-500">
-            Production cost + platform fee + markup/fundraising.
+            Recommended to cover the product and your fundraising target.
           </div>
         </PricingSummaryGroup>
+
+        <PricingSummaryGroup title="Profit per sale">
+          <PricingSummaryMetric
+            label="Additional profit"
+            value={money(profitAfterFundraising)}
+            valueClassName={profitAfterFundraising >= 0 ? "text-[#34C759]" : "text-[#FF3B30]"}
+          />
+          <div className="text-[11px] leading-relaxed text-zinc-500">
+            What remains after your fundraising target and required costs.
+          </div>
+        </PricingSummaryGroup>
+
+        {showPlatformFee && (
+          <PricingSummaryGroup title="Platform fee">
+            <PricingSummaryMetric label={`Platform fee ${Number(rate * 100).toFixed(2)}%`} value={money(platformFeeAmount)} />
+            <div className="text-[11px] leading-relaxed text-zinc-500">
+              Confirmed here during final review.
+            </div>
+          </PricingSummaryGroup>
+        )}
       </div>
+
+      {pricingDirty && (
+        <div className="border border-amber-400/40 bg-amber-500/10 p-3 text-xs text-amber-100 rounded-lg mt-4">
+          Pricing changes not yet applied. The saved product pricing will not change until you select Check &amp; Apply Pricing.
+        </div>
+      )}
 
       {manualPricingActive && (
         <div className="border border-amber-400/50 bg-amber-500/10 p-3 text-xs text-amber-100 rounded-lg mt-4">
@@ -1445,7 +1464,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         </div>
       )}
 
-      {!pricing.canPublishProfitably && Number(sellingPrice || 0) > 0 && (
+      {!pricingDirty && !pricing.canPublishProfitably && Number(sellingPrice || 0) > 0 && (
         <div className={`border p-3 text-xs rounded-lg mt-4 ${overrideActive ? "border-amber-400/40 bg-amber-500/10 text-amber-100" : "border-[#FF3B30]/50 bg-[#FF3B30]/10 text-[#FFB4B0]"}`}>
           {overrideActive
             ? "This product is below the normal minimum selling price, but FandomForge has approved a pricing override."
@@ -1453,7 +1472,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         </div>
       )}
 
-      {reviewMessages.length > 0 && (
+      {!pricingDirty && reviewMessages.length > 0 && (
         <div className="space-y-2 mt-4">
           {reviewMessages.map((message) => (
             <div key={message} className="border border-white/10 bg-black/20 p-3 text-xs text-zinc-400 rounded-lg">{message}</div>
@@ -1482,6 +1501,7 @@ function PricingSummaryMetric({ label, value, valueClassName = "text-white" }) {
   );
 }
 
+
 function PricingStep({
   form,
   update,
@@ -1502,19 +1522,55 @@ function PricingStep({
 }) {
   const safeSelectedVariations = asArray(selectedVariations);
   const overrides = form.variation_price_overrides || {};
-  const [desiredFundraisingAmount, setDesiredFundraisingAmount] = useState(() => Math.max(Number(pricing.profit || 0), 0).toFixed(2));
+  const [pricingDirty, setPricingDirty] = useState(false);
+  const [pricingDraft, setPricingDraft] = useState(() => ({
+    fundraising: Math.max(Number(pricing.profit || 0), 0).toFixed(2),
+    retail: formatMoneyDraft(form.selling_price),
+    source: "retail",
+    editedAt: 0,
+  }));
   const canUseAdminPricingControl = Boolean(isAdmin && user?.role === "super_admin" && product?.id);
 
   useEffect(() => {
-    setDesiredFundraisingAmount(Math.max(Number(pricing.profit || 0), 0).toFixed(2));
-  }, [form.selling_price, pricing.production, pricing.rate, pricing.profit]);
+    if (pricingDirty) return;
+    const nextFundraising = Math.max(Number(pricing.profit || 0), 0).toFixed(2);
+    const nextRetail = formatMoneyDraft(form.selling_price);
+    setPricingDraft((current) => {
+      if (current.fundraising === nextFundraising && current.retail === nextRetail && current.editedAt === 0) {
+        return current;
+      }
+      return {
+        fundraising: nextFundraising,
+        retail: nextRetail,
+        source: "retail",
+        editedAt: 0,
+      };
+    });
+  }, [form.selling_price, pricing.profit, pricingDirty]);
 
-  const updateDesiredFundraisingAmount = (value) => {
-    setDesiredFundraisingAmount(value);
-    const desired = Number(value || 0);
-    const rate = Number(pricing.rate || 0);
-    const suggestedPrice = rate >= 1 ? pricing.production + desired : (pricing.production + desired) / (1 - rate);
-    update("selling_price", Number.isFinite(suggestedPrice) ? suggestedPrice.toFixed(2) : "0.00");
+  const updateDefaultDraft = (key, value) => {
+    setPricingDraft((current) => ({
+      ...current,
+      [key]: value,
+      source: key,
+      editedAt: Date.now(),
+    }));
+    setPricingDirty(true);
+  };
+
+  const applyPricing = ({ defaultFundraising, defaultRetail, rowRetailValues }) => {
+    setPricingDraft({
+      fundraising: defaultFundraising,
+      retail: defaultRetail,
+      source: "retail",
+      editedAt: 0,
+    });
+    update("selling_price", defaultRetail);
+    Object.entries(rowRetailValues || {}).forEach(([variationKey, value]) => {
+      updateVariationPrice?.(variationKey, value);
+    });
+    setPricingDirty(false);
+    toast.success("Pricing checked and applied");
   };
 
   return (
@@ -1522,28 +1578,35 @@ function PricingStep({
       <div>
         <div className="overline mb-1">Pricing</div>
         <p className="text-sm text-zinc-500 max-w-3xl">
-          Pricing updates as product, artwork, print method, and variation settings change.
+          Enter fundraising or retail values without live recalculation. Check &amp; Apply Pricing calculates the linked values and validates the costings.
         </p>
       </div>
 
       <PricingSummaryPanel
         pricing={pricing}
-        sellingPrice={form.selling_price}
+        sellingPrice={pricingDraft.retail}
         product={product}
         isAdmin={isAdmin}
-        fundraisingValue={desiredFundraisingAmount}
-        onFundraisingChange={updateDesiredFundraisingAmount}
+        fundraisingValue={pricingDraft.fundraising}
+        onFundraisingChange={(value) => updateDefaultDraft("fundraising", value)}
+        showPlatformFee={false}
+        pricingDirty={pricingDirty}
       />
 
       <VariationPricingMatrix
         variations={safeSelectedVariations}
         defaultSellingPrice={form.selling_price}
-        updateDefaultSellingPrice={(value) => update("selling_price", value)}
         retailOverrides={overrides}
-        updateVariationPrice={updateVariationPrice}
         pricing={pricing}
-        fundraisingAmount={desiredFundraisingAmount}
-        updateFundraisingAmount={updateDesiredFundraisingAmount}
+        defaultFundraisingDraft={pricingDraft.fundraising}
+        defaultRetailDraft={pricingDraft.retail}
+        defaultSource={pricingDraft.source}
+        defaultEditedAt={pricingDraft.editedAt}
+        onDefaultFundraisingDraftChange={(value) => updateDefaultDraft("fundraising", value)}
+        onDefaultRetailDraftChange={(value) => updateDefaultDraft("retail", value)}
+        pricingDirty={pricingDirty}
+        setPricingDirty={setPricingDirty}
+        onApplyPricing={applyPricing}
         pricingControl={pricingControl}
         loadingPricingControl={pricingControlLoading}
         canManagePricingControl={canUseAdminPricingControl}
@@ -1795,15 +1858,21 @@ function PricingOverridePanel({ product, pricing, user, reason, setReason, savin
   );
 }
 
+
 function VariationPricingMatrix({
   variations = [],
   defaultSellingPrice = 0,
-  updateDefaultSellingPrice,
   retailOverrides = {},
-  updateVariationPrice,
   pricing = {},
-  fundraisingAmount = "0",
-  updateFundraisingAmount,
+  defaultFundraisingDraft = "0.00",
+  defaultRetailDraft = "0.00",
+  defaultSource = "retail",
+  defaultEditedAt = 0,
+  onDefaultFundraisingDraftChange,
+  onDefaultRetailDraftChange,
+  pricingDirty = false,
+  setPricingDirty,
+  onApplyPricing,
   pricingControl,
   loadingPricingControl = false,
   canManagePricingControl = false,
@@ -1811,11 +1880,13 @@ function VariationPricingMatrix({
   onSaveManualPricing,
 }) {
   const selectedVariations = asArray(variations);
-  const adminRows = asArray(pricingControl?.variations);
+  const adminRows = useMemo(() => asArray(pricingControl?.variations), [pricingControl?.variations]);
   const rate = Number(pricing.rate || 0);
   const safeRate = Math.max(0, Math.min(rate, 0.95));
-  const defaultFundraisingAmount = Math.max(Number(fundraisingAmount || 0), 0);
   const [applyToAll, setApplyToAll] = useState(false);
+  const [rowDrafts, setRowDrafts] = useState({});
+  const [validatedDefaultRetail, setValidatedDefaultRetail] = useState(() => Math.max(Number(defaultSellingPrice || 0), 0));
+  const [validatedRowRetail, setValidatedRowRetail] = useState({});
 
   const noProfitMinimum = (baseCost, printCost) => {
     const production = Number(baseCost || 0) + Number(printCost || 0);
@@ -1834,6 +1905,18 @@ function VariationPricingMatrix({
     const price = Number(retailPrice || 0);
     const commission = price * safeRate;
     return Math.round((price - Number(baseCost || 0) - Number(printCost || 0) - commission) * 100) / 100;
+  };
+
+  const resolvePricingPair = (source, fundraisingValue, retailValue, baseCost, printCost) => {
+    if (source === "fundraising") {
+      const fundraising = formatMoneyDraft(fundraisingValue);
+      const retail = formatMoneyDraft(retailForFundraising(baseCost, printCost, fundraising));
+      return { fundraising, retail };
+    }
+
+    const retail = formatMoneyDraft(retailValue);
+    const fundraising = formatMoneyDraft(Math.max(creatorAmountForRetail(retail, baseCost, printCost), 0));
+    return { fundraising, retail };
   };
 
   const rows = useMemo(() => {
@@ -1862,7 +1945,7 @@ function VariationPricingMatrix({
         ? Number(defaultSellingPrice || 0)
         : Number(retailOverride || 0);
       const minimumRetail = noProfitMinimum(baseCost, printCost);
-      const effectiveRetailPrice = Math.max(Number(retailPrice || 0), minimumRetail);
+      const effectiveRetailPrice = Math.max(Number(retailPrice || 0), 0);
       const creatorAmount = creatorAmountForRetail(effectiveRetailPrice, baseCost, printCost);
 
       return {
@@ -1891,50 +1974,111 @@ function VariationPricingMatrix({
     return [buildRow(null, 0)];
   }, [adminRows, defaultSellingPrice, pricing.blank, pricing.print, retailOverrides, selectedVariations, safeRate]);
 
-  const setRowRetail = (row, value) => {
-    const raw = Number(value || 0);
-    const clamped = Math.max(raw, row.minimumRetail);
-    const next = Number.isFinite(clamped) ? clamped.toFixed(2) : row.minimumRetail.toFixed(2);
+  const createAppliedRowDraft = (row) => ({
+    fundraising: formatMoneyDraft(Math.max(Number(row.creatorAmount || 0), 0)),
+    retail: formatMoneyDraft(row.retailPrice),
+    source: "retail",
+    editedAt: 0,
+  });
 
-    if (row.isStandard) {
-      updateDefaultSellingPrice?.(next);
-      return;
-    }
+  useEffect(() => {
+    if (pricingDirty) return;
+    const nextDrafts = {};
+    const nextValidatedRetail = {};
+    rows.forEach((row) => {
+      nextDrafts[row.key] = createAppliedRowDraft(row);
+      nextValidatedRetail[row.key] = Number(row.retailPrice || 0);
+    });
+    setRowDrafts(nextDrafts);
+    setValidatedRowRetail(nextValidatedRetail);
+    setValidatedDefaultRetail(Math.max(Number(defaultSellingPrice || 0), 0));
+  }, [defaultSellingPrice, pricingDirty, rows]);
 
-    updateVariationPrice?.(row.key, next);
-  };
+  const getRowDraft = (row) => rowDrafts[row.key] || createAppliedRowDraft(row);
 
-  const setRowFundraising = (row, value) => {
-    const desired = Math.max(Number(value || 0), 0);
-    const retail = retailForFundraising(row.baseCost, row.printCost, desired);
-    setRowRetail(row, retail);
-  };
-
-  const applyRetailToAllRows = (value) => {
-    rows.forEach((row) => setRowRetail(row, value));
-  };
-
-  const applyFundraisingToAllRows = (value) => {
-    rows.forEach((row) => setRowFundraising(row, value));
-  };
-
-  const handleDefaultFundraisingChange = (value) => {
-    updateFundraisingAmount?.(value);
-    if (applyToAll) applyFundraisingToAllRows(value);
-  };
-
-  const handleDefaultRetailChange = (value) => {
-    updateDefaultSellingPrice?.(value);
-    if (applyToAll) applyRetailToAllRows(value);
+  const updateRowDraft = (row, key, value) => {
+    setRowDrafts((current) => ({
+      ...current,
+      [row.key]: {
+        ...(current[row.key] || createAppliedRowDraft(row)),
+        [key]: value,
+        source: key,
+        editedAt: Date.now(),
+      },
+    }));
+    setPricingDirty?.(true);
   };
 
   const handleApplyToAllChange = (checked) => {
     setApplyToAll(checked);
-    if (checked) applyRetailToAllRows(defaultSellingPrice);
+    setPricingDirty?.(true);
+  };
+
+  const applyPricingDrafts = () => {
+    let resolvedDefault = resolvePricingPair(
+      defaultSource,
+      defaultFundraisingDraft,
+      defaultRetailDraft,
+      Number(pricing.blank || 0),
+      Number(pricing.print || 0)
+    );
+
+    const standardRow = rows.find((row) => row.isStandard);
+    if (standardRow) {
+      const standardDraft = getRowDraft(standardRow);
+      if (Number(standardDraft.editedAt || 0) > Number(defaultEditedAt || 0)) {
+        resolvedDefault = resolvePricingPair(
+          standardDraft.source,
+          standardDraft.fundraising,
+          standardDraft.retail,
+          standardRow.baseCost,
+          standardRow.printCost
+        );
+      }
+    }
+
+    const nextRowDrafts = {};
+    const nextValidatedRetail = {};
+    const rowRetailValues = {};
+
+    rows.forEach((row) => {
+      const draft = getRowDraft(row);
+      let resolved = row.isStandard
+        ? resolvedDefault
+        : resolvePricingPair(draft.source, draft.fundraising, draft.retail, row.baseCost, row.printCost);
+
+      if (!row.isStandard && applyToAll) {
+        resolved = {
+          retail: resolvedDefault.retail,
+          fundraising: formatMoneyDraft(Math.max(creatorAmountForRetail(resolvedDefault.retail, row.baseCost, row.printCost), 0)),
+        };
+      }
+
+      nextRowDrafts[row.key] = {
+        ...resolved,
+        source: "retail",
+        editedAt: 0,
+      };
+      nextValidatedRetail[row.key] = Number(resolved.retail || 0);
+
+      if (!row.isStandard && (applyToAll || Number(draft.editedAt || 0) > 0)) {
+        rowRetailValues[row.key] = resolved.retail;
+      }
+    });
+
+    setRowDrafts(nextRowDrafts);
+    setValidatedRowRetail(nextValidatedRetail);
+    setValidatedDefaultRetail(Number(resolvedDefault.retail || 0));
+    onApplyPricing?.({
+      defaultFundraising: resolvedDefault.fundraising,
+      defaultRetail: resolvedDefault.retail,
+      rowRetailValues,
+    });
   };
 
   const defaultMinimum = noProfitMinimum(Number(pricing.blank || 0), Number(pricing.print || 0));
-  const defaultRetailValue = Math.max(Number(defaultSellingPrice || 0), defaultMinimum).toFixed(2);
+  const defaultRetailTooLow = Number(validatedDefaultRetail || 0) < defaultMinimum;
+  const defaultShortfall = Math.max(defaultMinimum - Number(validatedDefaultRetail || 0), 0);
 
   return (
     <section className="card w-full" data-testid="variation-pricing-matrix">
@@ -1944,7 +2088,7 @@ function VariationPricingMatrix({
             <div className="overline mb-2">Pricing Table</div>
             <h2 className="font-display text-3xl uppercase text-white">Variation pricing</h2>
             <p className="text-sm text-zinc-400 mt-2 max-w-4xl">
-              Use one row for standard products or one row per variation. Base and print cost calculate automatically. Fundraising and retail price can be adjusted per row.
+              Enter fundraising or retail values freely. Nothing recalculates while you type; Check &amp; Apply Pricing runs the linked calculations and validation together.
             </p>
           </div>
 
@@ -1964,33 +2108,31 @@ function VariationPricingMatrix({
                 <div className="flex-1">
                   <div className="overline mb-2">Default pricing controls</div>
                   <p className="text-xs text-zinc-500 max-w-3xl">
-                    Set the default fundraising amount and retail selling price. Use Apply to all to push the default retail price to every variation row.
+                    Set the default fundraising amount or retail selling price. Apply retail price to all rows is only processed when Check &amp; Apply Pricing is selected.
                   </p>
                 </div>
 
                 <label className="block min-w-[190px]">
                   <span className="label">Default fundraising</span>
-                  <input
-                    className="input-base"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={fundraisingAmount}
-                    onChange={(event) => handleDefaultFundraisingChange(event.target.value)}
+                  <MoneyInput
+                    value={defaultFundraisingDraft}
+                    onChange={onDefaultFundraisingDraftChange}
+                    ariaLabel="Default fundraising amount"
                   />
                 </label>
 
                 <label className="block min-w-[190px]">
                   <span className="label">Default retail price</span>
-                  <input
-                    className="input-base"
-                    type="number"
-                    step="0.01"
-                    min={defaultMinimum.toFixed(2)}
-                    value={defaultRetailValue}
-                    onChange={(event) => handleDefaultRetailChange(event.target.value)}
+                  <MoneyInput
+                    value={defaultRetailDraft}
+                    onChange={onDefaultRetailDraftChange}
+                    ariaLabel="Default retail price"
                   />
-                  <span className="mt-1 block text-[10px] text-zinc-500">Minimum {money(defaultMinimum)}</span>
+                  <span className={defaultRetailTooLow ? "mt-1 block text-[10px] text-[#FFB4B0]" : "mt-1 block text-[10px] text-zinc-500"}>
+                    {defaultRetailTooLow
+                      ? `${money(defaultShortfall)} below minimum · Minimum ${money(defaultMinimum)}`
+                      : `Minimum ${money(defaultMinimum)}`}
+                  </span>
                 </label>
 
                 <label className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/30 px-3 py-3 text-xs text-zinc-300">
@@ -2005,76 +2147,86 @@ function VariationPricingMatrix({
             </div>
 
             <div className="w-full overflow-x-auto border border-white/10 rounded-xl">
-            <table className="w-full min-w-[980px] text-xs">
-              <colgroup>
-                <col className="w-[280px]" />
-                <col className="w-[130px]" />
-                <col className="w-[140px]" />
-                <col className="w-[210px]" />
-                <col className="w-[260px]" />
-                <col className="w-[160px]" />
-              </colgroup>
-              <thead>
-                <tr className="text-left text-zinc-500 border-b border-white/10">
-                  <th className="py-3 px-4 sticky left-0 z-10 bg-[#080808] whitespace-nowrap">Variation</th>
-                  <th className="py-3 px-3 text-right whitespace-nowrap">Base</th>
-                  <th className="py-3 px-3 text-right whitespace-nowrap">Print cost</th>
-                  <th className="py-3 px-3 whitespace-nowrap">Fundraising amount</th>
-                  <th className="py-3 px-3 whitespace-nowrap">Retail selling price</th>
-                  <th className="py-3 px-4 text-right whitespace-nowrap">Minimum</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const retailTooLow = Number(row.retailPrice || 0) < Number(row.minimumRetail || 0);
-                  return (
-                    <tr key={row.key} className="border-b border-white/5 align-top">
-                      <td className="py-3 px-4 text-white sticky left-0 z-10 bg-[#080808]">
-                        <div className="font-bold leading-snug">{row.label}</div>
-                        <div className="text-[11px] text-zinc-500">{row.sublabel}</div>
-                      </td>
+              <table className="w-full min-w-[980px] text-xs">
+                <colgroup>
+                  <col className="w-[280px]" />
+                  <col className="w-[130px]" />
+                  <col className="w-[140px]" />
+                  <col className="w-[210px]" />
+                  <col className="w-[260px]" />
+                  <col className="w-[160px]" />
+                </colgroup>
+                <thead>
+                  <tr className="text-left text-zinc-500 border-b border-white/10">
+                    <th className="py-3 px-4 sticky left-0 z-10 bg-[#080808] whitespace-nowrap">Variation</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap">Base</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap">Print cost</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Fundraising amount</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Retail selling price</th>
+                    <th className="py-3 px-4 text-right whitespace-nowrap">Minimum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => {
+                    const draft = getRowDraft(row);
+                    const checkedRetail = Number(validatedRowRetail[row.key] ?? row.retailPrice ?? 0);
+                    const retailTooLow = checkedRetail < Number(row.minimumRetail || 0);
+                    const shortfall = Math.max(Number(row.minimumRetail || 0) - checkedRetail, 0);
+                    return (
+                      <tr key={row.key} className="border-b border-white/5 align-top">
+                        <td className="py-3 px-4 text-white sticky left-0 z-10 bg-[#080808]">
+                          <div className="font-bold leading-snug">{row.label}</div>
+                          <div className="text-[11px] text-zinc-500">{row.sublabel}</div>
+                        </td>
 
-                      <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.baseCost)}</td>
-                      <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.printCost)}</td>
+                        <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.baseCost)}</td>
+                        <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.printCost)}</td>
 
-                      <td className="py-3 px-3">
-                        <input
-                          className="input-base w-[160px] text-xs"
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={Math.max(Number(row.creatorAmount || 0), 0).toFixed(2)}
-                          onChange={(event) => setRowFundraising(row, event.target.value)}
-                        />
-                        <div className="text-[10px] text-zinc-500 mt-1">Saved through row selling price</div>
-                      </td>
+                        <td className="py-3 px-3">
+                          <MoneyInput
+                            className="input-base w-[160px] text-xs"
+                            value={draft.fundraising}
+                            onChange={(value) => updateRowDraft(row, "fundraising", value)}
+                            ariaLabel={`${row.label} fundraising amount`}
+                          />
+                          <div className="text-[10px] text-zinc-500 mt-1">Calculated with retail when pricing is applied</div>
+                        </td>
 
-                      <td className="py-3 px-3">
-                        <input
-                          className="input-base w-[150px] text-xs"
-                          type="number"
-                          step="0.01"
-                          min={row.minimumRetail.toFixed(2)}
-                          value={Number(row.retailPrice || 0).toFixed(2)}
-                          onChange={(event) => setRowRetail(row, event.target.value)}
-                        />
-                        <div className={retailTooLow ? "text-[10px] text-[#FFB4B0] mt-1" : "text-[10px] text-zinc-500 mt-1"}>
-                          Minimum {money(row.minimumRetail)}
-                        </div>
-                      </td>
+                        <td className="py-3 px-3">
+                          <MoneyInput
+                            className="input-base w-[150px] text-xs"
+                            value={draft.retail}
+                            onChange={(value) => updateRowDraft(row, "retail", value)}
+                            ariaLabel={`${row.label} retail selling price`}
+                          />
+                          <div className={retailTooLow ? "text-[10px] text-[#FFB4B0] mt-1" : "text-[10px] text-zinc-500 mt-1"}>
+                            {retailTooLow
+                              ? `${money(shortfall)} below minimum · Minimum ${money(row.minimumRetail)}`
+                              : `Minimum ${money(row.minimumRetail)}`}
+                          </div>
+                        </td>
 
-                      <td className="py-3 px-4 text-right font-bold text-white whitespace-nowrap">{money(row.minimumRetail)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        <td className="py-3 px-4 text-right font-bold text-white whitespace-nowrap">{money(row.minimumRetail)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-white/10 bg-black/25 p-4">
+              <div className={pricingDirty ? "text-sm text-amber-100" : "text-sm text-[#A7F3C4]"}>
+                {pricingDirty ? "Pricing changes not yet applied." : "Pricing calculations are applied."}
+              </div>
+              <button type="button" className="btn-primary sm:min-w-[220px]" onClick={applyPricingDrafts}>
+                Check &amp; Apply Pricing
+              </button>
+            </div>
           </>
         )}
 
         <p className="text-xs text-zinc-500 mt-3">
-          Retail prices are clamped to the minimum needed to cover base cost, print/production cost and platform fee. Fundraising amount is derived from the saved selling price for each row.
+          Retail prices below the required minimum remain visible for review; they are not silently replaced. The final fee breakdown is shown on Review.
         </p>
       </div>
     </section>

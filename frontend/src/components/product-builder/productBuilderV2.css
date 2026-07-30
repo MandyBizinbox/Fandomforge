@@ -41,7 +41,10 @@
   user-select: none !important;
 }
 
-[data-testid="product-artwork-studio"] .cursor-move > .pointer-events-none,
+/* Text previews may scale beyond their typographic line box, but image layers
+   must remain exactly inside the green placement box. The previous generic
+   .pointer-events-none selector also matched artwork <img> elements and forced
+   them to 116% with negative margins and padding. */
 [data-testid="product-artwork-studio"] .cursor-move > .whitespace-pre {
   font-size: min(34cqw, 66cqh) !important;
   line-height: 1.28 !important;
@@ -51,6 +54,15 @@
   margin-left: -8% !important;
   margin-top: -8% !important;
   padding: 3% !important;
+  box-sizing: border-box !important;
+}
+
+[data-testid="product-artwork-studio"] .cursor-move > img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
   box-sizing: border-box !important;
 }
 
@@ -310,5 +322,161 @@
 @media (max-width: 1024px) {
   .product-builder-layout > section.card.flex {
     order: 0;
+  }
+}
+
+/* One persistent action bar for the seven editable Builder screens. */
+.product-builder-shell {
+  padding-bottom: 88px;
+}
+
+.builder-navigation {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 99990;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(112px, auto));
+  gap: 0.65rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 12px;
+  background: rgba(10,10,10,0.94);
+  box-shadow: 0 14px 38px rgba(0,0,0,0.5);
+  backdrop-filter: blur(14px);
+}
+
+.builder-nav-button {
+  min-width: 112px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.builder-nav-button-secondary {
+  background: transparent;
+}
+
+.builder-nav-button-save {
+  border-color: rgba(52,199,89,0.8);
+  background: #0A1B10;
+}
+
+.builder-nav-button-primary {
+  background: var(--admin-primary, #FF3B30);
+  border-color: var(--admin-primary, #FF3B30);
+}
+
+.builder-nav-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Creator console contrast lock.
+   Public brand theme variables must not turn dashboard copy dark on dark. */
+.creator-workspace {
+  --ff-page-bg: #0A0A0A;
+  --ff-page-text: #F7F7F7;
+  --ff-card-bg: #111111;
+  --ff-card-text: #F7F7F7;
+  --ff-card-border: rgba(255,255,255,0.16);
+  --ff-surface-bg: #181818;
+  --ff-muted-text: #B3B3BC;
+  --ff-header-bg: rgba(10,10,10,0.97);
+  --ff-header-text: #FFFFFF;
+}
+
+.creator-workspace,
+.creator-workspace main,
+.creator-workspace [data-testid$="-main"] {
+  background: #0A0A0A !important;
+  color: #F7F7F7 !important;
+}
+
+.creator-workspace .card,
+.creator-workspace section,
+.creator-workspace [class*="bg-black"] {
+  color: #F7F7F7;
+}
+
+.creator-workspace .overline,
+.creator-workspace .label,
+.creator-workspace .text-zinc-400,
+.creator-workspace .text-zinc-500,
+.creator-workspace .text-zinc-600,
+.creator-workspace [class*="text-[var(--ff-muted-text)]"] {
+  color: #B3B3BC !important;
+}
+
+.creator-workspace .text-white,
+.creator-workspace h1,
+.creator-workspace h2,
+.creator-workspace h3,
+.creator-workspace h4,
+.creator-workspace strong,
+.creator-workspace b {
+  color: #FFFFFF !important;
+}
+
+.creator-workspace button:not(:disabled),
+.creator-workspace a {
+  opacity: 1;
+}
+
+.creator-workspace button {
+  color: #FFFFFF !important;
+}
+
+html[data-theme-bg-tone] .creator-workspace .overline,
+html[data-theme-bg-tone] .creator-workspace .label,
+html[data-theme-bg-tone] .creator-workspace .text-zinc-400,
+html[data-theme-bg-tone] .creator-workspace .text-zinc-500,
+html[data-theme-bg-tone] .creator-workspace .text-zinc-600,
+html[data-theme-bg-tone] .creator-workspace [class*="text-[var(--ff-muted-text)]"] {
+  color: #B3B3BC !important;
+}
+
+html[data-theme-bg-tone] .creator-workspace [data-testid^="creator-"] {
+  color: #F7F7F7 !important;
+}
+
+.creator-workspace .input-base,
+.creator-workspace input,
+.creator-workspace textarea,
+.creator-workspace select,
+.creator-workspace option {
+  color: #111111 !important;
+}
+
+@media (max-width: 640px) {
+  .product-builder-shell {
+    padding-bottom: 82px;
+  }
+
+  .builder-navigation {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
+    padding: 0.45rem;
+  }
+
+  .builder-nav-button {
+    min-width: 0;
+    padding-inline: 0.45rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
   }
 }

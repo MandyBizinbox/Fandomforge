@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Image as ImageIcon, Move, RefreshCw, RotateCcw, Trash2, Type } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
@@ -16,6 +16,7 @@ import {
 
 const TEXT_RENDER_MIN = 24;
 const TEXT_RENDER_MAX = 1200;
+const ALPHA_TRIM_THRESHOLD = 24;
 const METHOD_ORDER = ["dtf", "htv", "sublimation", "uv_dtf", "adhesive_vinyl"];
 const METHOD_LABELS = {
   dtf: "DTF",
@@ -67,12 +68,14 @@ function defaultPlacement(area) {
 
 function sanitizePlacement(placement, area) {
   const base = { ...defaultPlacement(area), ...(placement || {}) };
+  const width = round(clamp(base.width, 2, 100));
+  const height = round(clamp(base.height, 2, 100));
   return {
     ...base,
-    x: round(clamp(base.x, -100, 200)),
-    y: round(clamp(base.y, -100, 200)),
-    width: round(clamp(base.width, 2, 250)),
-    height: round(clamp(base.height, 2, 250)),
+    x: round(clamp(base.x, 0, Math.max(0, 100 - width))),
+    y: round(clamp(base.y, 0, Math.max(0, 100 - height))),
+    width,
+    height,
     rotation: round(base.rotation || 0),
   };
 }
@@ -153,6 +156,84 @@ function readImageFileDimensions(file) {
   });
 }
 
+function trimTransparentImageFile(file) {
+  return new Promise((resolve) => {
+    const fallback = async () => {
+      const dimensions = await readImageFileDimensions(file);
+      resolve({ file, ...dimensions, trimmed: false });
+    };
+    if (!file || !["image/png", "image/webp", "image/svg+xml"].includes(String(file.type || "").toLowerCase())) {
+      fallback();
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = async () => {
+      try {
+        const width = img.naturalWidth || img.width || 0;
+        const height = img.naturalHeight || img.height || 0;
+        if (!width || !height) {
+          URL.revokeObjectURL(url);
+          fallback();
+          return;
+        }
+
+        const source = document.createElement("canvas");
+        source.width = width;
+        source.height = height;
+        const sourceContext = source.getContext("2d", { willReadFrequently: true });
+        sourceContext.drawImage(img, 0, 0);
+        const pixels = sourceContext.getImageData(0, 0, width, height).data;
+        let left = width;
+        let top = height;
+        let right = -1;
+        let bottom = -1;
+
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            if (pixels[(y * width + x) * 4 + 3] <= ALPHA_TRIM_THRESHOLD) continue;
+            if (x < left) left = x;
+            if (x > right) right = x;
+            if (y < top) top = y;
+            if (y > bottom) bottom = y;
+          }
+        }
+
+        if (right < left || bottom < top || (left === 0 && top === 0 && right === width - 1 && bottom === height - 1)) {
+          URL.revokeObjectURL(url);
+          resolve({ file, width, height, aspectRatio: width / height, trimmed: false });
+          return;
+        }
+
+        const cropWidth = right - left + 1;
+        const cropHeight = bottom - top + 1;
+        const cropped = document.createElement("canvas");
+        cropped.width = cropWidth;
+        cropped.height = cropHeight;
+        cropped.getContext("2d").drawImage(source, left, top, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+        const blob = await blobFromCanvas(cropped);
+        URL.revokeObjectURL(url);
+        if (!blob) {
+          fallback();
+          return;
+        }
+        const baseName = String(file.name || "artwork").replace(/\.[^.]+$/, "");
+        const trimmedFile = new File([blob], `${baseName}-trimmed.png`, { type: "image/png", lastModified: file.lastModified || Date.now() });
+        resolve({ file: trimmedFile, width: cropWidth, height: cropHeight, aspectRatio: cropWidth / cropHeight, trimmed: true });
+      } catch (error) {
+        URL.revokeObjectURL(url);
+        fallback();
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      fallback();
+    };
+    img.src = url;
+  });
+}
+
 function escapeSvg(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -207,12 +288,9 @@ function buildTextLayerAsset(settings = {}) {
 }
 
 function drawImageContain(ctx, image, x, y, w, h) {
-  const sourceW = image.naturalWidth || image.width || 1;
-  const sourceH = image.naturalHeight || image.height || 1;
-  const scale = Math.min(w / sourceW, h / sourceH);
-  const drawW = sourceW * scale;
-  const drawH = sourceH * scale;
-  ctx.drawImage(image, x + (w - drawW) / 2, y + (h - drawH) / 2, drawW, drawH);
+  // The saved placement box is the artwork geometry. Drawing the stored,
+  // already-trimmed asset directly into it keeps editor and mockup identical.
+  ctx.drawImage(image, x, y, w, h);
 }
 
 async function drawTextLayer(ctx, slot, x, y, w, h) {
@@ -308,7 +386,43 @@ function collectIdentityValues(record = {}) {
 }
 
 function profileIdentityValues(profile = {}) {
-  return new Set([profile.id, profile.profile_id, profile.manufacturing_profile_id, profile.print_option_id, profile.legacy_print_option_id, profile.legacy_source_identifier, profile.source_identifier, ...asArray(profile.identity_values)].map((value) => compact(value)).filter(Boolean));
+  return new Set([
+    profile.id,
+    profile.profile_id,
+    profile.manufacturing_profile_id,
+    profile.production_profile_id,
+    profile.print_option_id,
+    profile.legacy_print_option_id,
+    profile.legacy_source_identifier,
+    profile.source_identifier,
+    profile.source_print_option_id,
+    profile.source_print_option_slug,
+    ...asArray(profile.identity_values),
+  ].map((value) => compact(value)).filter(Boolean));
+}
+
+function profileExactMatchValues(profile = {}) {
+  return new Set([
+    ...profileIdentityValues(profile),
+    profile.profile_name,
+    profile.rule_name,
+    profile.display_label,
+    profile.display_name,
+    profile.profile_label,
+    profile.print_size,
+    profile.profile_print_size,
+  ].map((value) => compact(value).toLowerCase()).filter(Boolean));
+}
+
+function profileMethodValues(profile = {}) {
+  return new Set([
+    profile.method_key,
+    profile.production_method_key,
+    profile.manufacturing_method_id,
+    profile.method_name,
+    profile.method,
+    profile.production_method_display_name,
+  ].map((value) => normalizeProductionMethodKey(value)).filter(Boolean));
 }
 
 function normaliseManufacturingProfile(raw = {}) {
@@ -377,11 +491,14 @@ function supportsStockedColours(profile = {}) {
   return ["htv", "adhesive_vinyl"].includes(methodKey);
 }
 
-function profileMatchesAllowedIds(profile, allowedIds) {
+function profileMatchesAllowedIds(profile, allowedIds, { methodFallback = true } = {}) {
   const allowed = asArray(allowedIds).map((value) => compact(value)).filter(Boolean);
   if (!allowed.length) return true;
-  const values = profileIdentityValues(profile);
-  return allowed.some((id) => values.has(id));
+  const exactValues = profileExactMatchValues(profile);
+  if (allowed.some((id) => exactValues.has(id.toLowerCase()))) return true;
+  if (!methodFallback) return false;
+  const methodValues = profileMethodValues(profile);
+  return allowed.some((id) => methodValues.has(normalizeProductionMethodKey(id)));
 }
 
 function resolveProfileForSlot(slot = {}, profiles = [], legacyPrintOptions = []) {
@@ -522,9 +639,9 @@ function TextLayerPreview({ slot }) {
   );
 }
 
-function ResizeHandle({ position, onMouseDown }) {
+function ResizeHandle({ position, onPointerDown }) {
   const positionClasses = { nw: "-left-2 -top-2 cursor-nwse-resize", ne: "-right-2 -top-2 cursor-nesw-resize", sw: "-left-2 -bottom-2 cursor-nesw-resize", se: "-right-2 -bottom-2 cursor-nwse-resize" };
-  return <button type="button" aria-label={`Resize ${position}`} className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`} onMouseDown={onMouseDown} />;
+  return <button type="button" aria-label={`Resize ${position}`} className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`} onPointerDown={onPointerDown} />;
 }
 
 function NumericControl({ label, value, onChange }) {
@@ -594,6 +711,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const [previewPlacements, setPreviewPlacements] = useState({});
   const fileInputRef = useRef(null);
   const pendingUploadAreaRef = useRef(null);
+  const pendingReplaceSlotIdRef = useRef("");
   const areaRefs = useRef({});
   const dragRef = useRef(null);
   const dragRafRef = useRef(null);
@@ -647,22 +765,58 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
 
   const legacyProfileFallbacks = useMemo(() => asArray(printOptions).map(profileFromLegacyPrintOption).filter((profile) => profile.id), [printOptions]);
   const profileCatalog = useMemo(() => {
+    const merged = [];
     const primary = asArray(manufacturingProfiles).filter((profile) => profile?.id && profile.active !== false);
-    return primary.length ? primary : legacyProfileFallbacks;
+    [...primary, ...legacyProfileFallbacks].forEach((profile) => {
+      if (!profile?.id || profile.active === false) return;
+      const identities = profileIdentityValues(profile);
+      const methodKey = normalizeProductionMethodKey(profile.method_key || profile.method_name || profile.print_method);
+      const nameKey = compact(profile.profile_name || profile.rule_name || profile.display_label).toLowerCase();
+      const existingIndex = merged.findIndex((existing) => {
+        const existingIdentities = profileIdentityValues(existing);
+        const identityMatch = [...identities].some((value) => existingIdentities.has(value));
+        const existingMethodKey = normalizeProductionMethodKey(existing.method_key || existing.method_name || existing.print_method);
+        const existingNameKey = compact(existing.profile_name || existing.rule_name || existing.display_label).toLowerCase();
+        return identityMatch || Boolean(methodKey && nameKey && methodKey === existingMethodKey && nameKey === existingNameKey);
+      });
+      if (existingIndex === -1) {
+        merged.push(profile);
+        return;
+      }
+      const existing = merged[existingIndex];
+      merged[existingIndex] = {
+        ...profile,
+        ...existing,
+        identity_values: [...new Set([...profileIdentityValues(profile), ...profileIdentityValues(existing)])],
+      };
+    });
+    return merged;
   }, [manufacturingProfiles, legacyProfileFallbacks]);
 
   const allowedProfilesForArea = (area) => {
     if (!area) return [];
     const templateOptionIds = asArray(template?.print_option_ids);
-    const areaOptionIds = asArray(area?.allowed_print_option_ids);
-    const allowedIds = areaOptionIds.length ? areaOptionIds : templateOptionIds;
+    const areaOptionIds = [
+      ...asArray(area?.allowed_print_option_ids),
+      ...asArray(area?.print_option_ids),
+      ...asArray(area?.compatible_method_ids),
+      ...asArray(area?.compatible_methods),
+    ];
+    const allowedIds = [...new Set(areaOptionIds.length ? areaOptionIds : templateOptionIds)];
     const activeProfiles = profileCatalog.filter((profile) => profile.active !== false);
-    const matched = activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds));
-    return matched.length || !allowedIds.length ? matched : activeProfiles;
+    if (!allowedIds.length) return activeProfiles;
+    const exactProfiles = activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds, { methodFallback: false }));
+    if (exactProfiles.length) return exactProfiles;
+    return activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds, { methodFallback: true }));
   };
 
   const allowedProfiles = useMemo(() => allowedProfilesForArea(activeArea), [activeArea, profileCatalog, template]);
-  const selectedProfile = useMemo(() => resolveProfileForSlot(activeSlot || {}, profileCatalog, printOptions), [activeSlot, profileCatalog, printOptions]);
+  const selectedProfile = useMemo(() => {
+    const candidate = resolveProfileForSlot(activeSlot || {}, profileCatalog, printOptions);
+    if (!candidate) return null;
+    const candidateIds = profileIdentityValues(candidate);
+    return allowedProfiles.find((profile) => [...profileIdentityValues(profile)].some((value) => candidateIds.has(value))) || null;
+  }, [activeSlot, allowedProfiles, profileCatalog, printOptions]);
   const activeImage = areasForScreen.find((area) => area.effective_base_image_url)?.effective_base_image_url || activeScreen?.image_url || "";
   const activePlacement = sanitizePlacement(previewPlacements[activeSlot?.id] || activeSlot?.placement, activeArea);
   const templateForCosting = useMemo(() => ({ ...(template || {}), print_areas: printAreas }), [template, printAreas]);
@@ -738,8 +892,29 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     let changed = false;
     const nextSlots = slots.map((slot) => {
       const area = printAreas.find((item) => item.id === slot.print_area_id);
-      const profile = resolveProfileForSlot(slot, profileCatalog, printOptions);
-      if (!area || !profile) return slot;
+      if (!area) return slot;
+      const allowed = allowedProfilesForArea(area);
+      const resolvedProfile = resolveProfileForSlot(slot, profileCatalog, printOptions);
+      const resolvedIds = profileIdentityValues(resolvedProfile || {});
+      const compatibleProfile = resolvedProfile
+        ? allowed.find((profile) => [...profileIdentityValues(profile)].some((value) => resolvedIds.has(value)))
+        : null;
+      const profile = compatibleProfile || (allowed.length === 1 ? allowed[0] : null);
+      if (!profile) {
+        const hadInvalidProfile = Boolean(slot.print_option_id || slot.manufacturing_profile_id || slot.production_profile_id);
+        if (!hadInvalidProfile) return slot;
+        changed = true;
+        return {
+          ...slot,
+          print_option_id: "",
+          manufacturing_profile_id: "",
+          production_profile_id: "",
+          manufacturing_profile_display_label: "",
+          manufacturing_profile_name: "",
+          calculated_print_cost: 0,
+          print_cost_max: 0,
+        };
+      }
       const patch = profilePatchForSlot(slot, area, profile, { preserveSelectedColour: true });
       const nextProfileId = patch.manufacturing_profile_id || patch.print_option_id;
       const currentProfileId = slot.manufacturing_profile_id || slot.production_profile_id || slot.print_option_id;
@@ -760,7 +935,30 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     const rect = areaRefs.current[areaId]?.getBoundingClientRect?.();
     return rect?.height ? rect.width / rect.height : 1;
   };
-  const fitHeightForAspect = (areaId, widthPercent, aspectRatio) => round(clamp((Number(widthPercent || 50) * areaRatioFor(areaId)) / Number(aspectRatio || 1), 2, 120));
+  const fitHeightForAspect = (areaId, widthPercent, aspectRatio) => round(clamp((Number(widthPercent || 50) * areaRatioFor(areaId)) / Number(aspectRatio || 1), 2, 100));
+
+  const centeredPlacement = (area, width, height, rotation = 0, centerX = 50, centerY = 50) => sanitizePlacement({
+    ...defaultPlacement(area),
+    x: Number(centerX || 50) - Number(width || 0) / 2,
+    y: Number(centerY || 50) - Number(height || 0) / 2,
+    width,
+    height,
+    rotation,
+  }, area);
+
+  const fittedPlacementForAspect = (area, aspectRatio, preferredWidth = 70, previousPlacement = null) => {
+    const safeAspect = Math.max(0.0001, Number(aspectRatio || 1));
+    let width = clamp(preferredWidth, 2, 100);
+    let height = (width * areaRatioFor(area?.id)) / safeAspect;
+    if (height > 100) {
+      width *= 100 / height;
+      height = 100;
+    }
+    const previous = previousPlacement ? sanitizePlacement(previousPlacement, area) : null;
+    const centerX = previous ? previous.x + previous.width / 2 : 50;
+    const centerY = previous ? previous.y + previous.height / 2 : 50;
+    return centeredPlacement(area, round(width), round(height), previous?.rotation || 0, centerX, centerY);
+  };
 
   const patchPlacement = (slotId, patch) => {
     const slot = slots.find((item) => item.id === slotId);
@@ -830,27 +1028,55 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const addTextLayer = () => {
     const area = activeArea || normalPrintAreas[0] || areasForScreen[0];
     const asset = buildTextLayerAsset({ text_content: "Custom Text" });
-    const width = 45;
-    const height = fitHeightForAspect(area?.id, width, asset.artwork_aspect_ratio);
-    createLayer(area, { ...asset, placement: { ...defaultPlacement(area), x: 12, y: 12, width, height } });
+    const placement = fittedPlacementForAspect(area, asset.artwork_aspect_ratio, 45);
+    createLayer(area, { ...asset, placement });
   };
 
-  const uploadFileToNewImageLayer = async (file) => {
-    const area = pendingUploadAreaRef.current || activeArea || normalPrintAreas[0] || areasForScreen[0];
+  const uploadFileToImageLayer = async (file) => {
+    const replaceSlotId = pendingReplaceSlotIdRef.current;
+    const replaceSlot = slots.find((slot) => slot.id === replaceSlotId) || null;
+    const replaceArea = printAreas.find((area) => area.id === replaceSlot?.print_area_id) || null;
+    const area = replaceArea || pendingUploadAreaRef.current || activeArea || normalPrintAreas[0] || areasForScreen[0];
+    pendingReplaceSlotIdRef.current = "";
     pendingUploadAreaRef.current = null;
     if (!file || !area) return;
     setUploading(true);
     try {
-      const dimensions = await readImageFileDimensions(file);
+      const prepared = await trimTransparentImageFile(file);
       const data = new FormData();
-      data.append("file", file);
+      data.append("file", prepared.file);
       data.append("subdir", "product-artwork");
       const response = await http.post("/files/image", data);
-      const width = 70;
-      const height = dimensions.aspectRatio ? fitHeightForAspect(area.id, width, dimensions.aspectRatio) : 70;
-      const patch = { original_url: response.data.url, file_name: file.name, mime_type: file.type || "", original_width_px: dimensions.width, original_height_px: dimensions.height, artwork_aspect_ratio: dimensions.aspectRatio || 1, lock_aspect_ratio: true, placement: { ...defaultPlacement(area), x: 10, y: 10, width, height } };
-      createLayer(area, patch);
-      toast.success("Image layer uploaded");
+      const placement = fittedPlacementForAspect(
+        area,
+        prepared.aspectRatio || 1,
+        replaceSlot?.placement?.width || 70,
+        replaceSlot?.placement || null
+      );
+      const patch = {
+        original_url: response.data.url,
+        file_name: file.name,
+        mime_type: prepared.file.type || file.type || "",
+        original_width_px: prepared.width,
+        original_height_px: prepared.height,
+        artwork_aspect_ratio: prepared.aspectRatio || 1,
+        transparent_bounds_trimmed: prepared.trimmed,
+        lock_aspect_ratio: true,
+        text_layer: false,
+        text_content: "",
+        mockup_image_url: "",
+        placement,
+      };
+      if (replaceSlot) {
+        patchSlot(replaceSlot.id, patch);
+        setActiveSlotId(replaceSlot.id);
+        setActivePrintAreaId(area.id);
+        setActiveScreenId(area.screen_id || currentScreenId);
+        toast.success("Image layer replaced");
+      } else {
+        createLayer(area, patch);
+        toast.success("Image layer uploaded");
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || "Image upload failed");
     } finally {
@@ -869,13 +1095,27 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     window.requestAnimationFrame(() => patchPlacement(activeSlot.id, nextPlacement));
   };
 
-  const removeSlot = (slotId) => {
+  const removeSlot = useCallback((slotId) => {
     if (!activeGroup) return;
     const next = slots.filter((slot) => slot.id !== slotId);
     setGroupSlots(activeGroup.id, next);
     const nextSlot = next.find((slot) => slot.screen_id === currentScreenId) || next[0];
     setActiveSlotId(nextSlot?.id || "");
-  };
+    toast.success("Layer deleted");
+  }, [activeGroup, slots, currentScreenId, setGroupSlots]);
+
+  useEffect(() => {
+    const handleDeleteKey = (event) => {
+      if (!["Delete", "Backspace"].includes(event.key) || !activeSlot?.id) return;
+      const target = event.target;
+      const tagName = String(target?.tagName || "").toLowerCase();
+      if (target?.isContentEditable || ["input", "textarea", "select"].includes(tagName)) return;
+      event.preventDefault();
+      removeSlot(activeSlot.id);
+    };
+    window.addEventListener("keydown", handleDeleteKey);
+    return () => window.removeEventListener("keydown", handleDeleteKey);
+  }, [activeSlot?.id, removeSlot]);
 
   const startDrag = (event, slot, type, handle = "") => {
     const area = printAreas.find((item) => item.id === slot?.print_area_id);
@@ -885,7 +1125,13 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     event.stopPropagation();
     setActiveSlotId(slot.id);
     setActivePrintAreaId(area.id);
-    dragRef.current = { slotId: slot.id, type, handle, startX: event.clientX, startY: event.clientY, startPlacement: sanitizePlacement(slot.placement, area), areaId: area.id };
+    const layerElement = event.currentTarget?.closest?.("[data-artwork-layer-id]") || null;
+    try {
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+    } catch (error) {
+      // Window-level pointer listeners keep the drag active when pointer capture is unavailable.
+    }
+    dragRef.current = { slotId: slot.id, type, handle, startX: event.clientX, startY: event.clientY, startPlacement: sanitizePlacement(slot.placement, area), areaId: area.id, layerElement };
   };
 
   useEffect(() => {
@@ -925,7 +1171,14 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       if (!dragRafRef.current) {
         dragRafRef.current = window.requestAnimationFrame(() => {
           dragRafRef.current = null;
-          setPreviewPlacements((prev) => ({ ...prev, [drag.slotId]: dragLatestRef.current }));
+          const placement = dragLatestRef.current;
+          const element = dragRef.current?.layerElement;
+          if (!element || !placement) return;
+          element.style.left = `${placement.x}%`;
+          element.style.top = `${placement.y}%`;
+          element.style.width = `${placement.width}%`;
+          element.style.height = `${placement.height}%`;
+          element.style.transform = `rotate(${placement.rotation}deg)`;
         });
       }
     };
@@ -936,11 +1189,13 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       dragLatestRef.current = null;
       setPreviewPlacements({});
     };
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("pointermove", handleMove, { passive: false });
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
     return () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
       if (dragRafRef.current) window.cancelAnimationFrame(dragRafRef.current);
     };
   }, [slots, printAreas, profileCatalog]);
@@ -1009,7 +1264,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
 
   return (
     <div className="space-y-4 studio-v21" data-testid="product-artwork-studio">
-      <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(event) => uploadFileToNewImageLayer(event.target.files?.[0] || null)} />
+      <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(event) => uploadFileToImageLayer(event.target.files?.[0] || null)} />
 
       <section className="grid xl:grid-cols-[minmax(260px,1fr)_minmax(360px,1.8fr)_140px_250px] gap-3">
         <div className="border border-[#34C759]/40 bg-black/40 p-3">
@@ -1025,11 +1280,11 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
 
         <div className="border border-[#34C759]/40 bg-[#0A1B10] p-3">
           <div className="text-center font-bold uppercase mb-2">Selected layer</div>
-          <div className="grid md:grid-cols-2 gap-3">
+          <div>
             <label>
-              <span className="label">Manufacturing profile</span>
+              <span className="label">Print method</span>
               <select className="input-base" value={selectedProfile?.id || activeSlot?.print_option_id || ""} disabled={!activeSlot || profilesLoading} onChange={(event) => activeSlot && setLayerManufacturingProfile(activeSlot.id, event.target.value)}>
-                <option value="">{profilesLoading ? "Loading profiles…" : "Select profile"}</option>
+                <option value="">{profilesLoading ? "Loading print methods…" : "Select print method"}</option>
                 {groupedProfiles.map((group) => (
                   <optgroup key={group.key} label={group.label}>
                     {group.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profileLabel(profile)}</option>)}
@@ -1037,23 +1292,13 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                 ))}
               </select>
             </label>
-            <label>
-              <span className="label">Layer</span>
-              <select className="input-base" value={activeSlot?.id || ""} onChange={(event) => setActiveSlotId(event.target.value)}>
-                <option value="">Select layer</option>
-                {currentScreenSlots.map((slot) => {
-                  const profile = resolveProfileForSlot(slot, profileCatalog, printOptions);
-                  return <option key={slot.id} value={slot.id}>{slot.text_layer ? "Text" : "Image"} · {printAreas.find((area) => area.id === slot.print_area_id)?.name || "Area"} · {profile ? profileLabel(profile) : "No profile"}</option>;
-                })}
-              </select>
-            </label>
           </div>
           {selectedProfile && <div className="text-[11px] text-[#B8F5C3] mt-2">Selected: {methodLabel(selectedProfile.method_key)} / {profileLabel(selectedProfile)}</div>}
         </div>
 
         <div className="grid gap-2">
-          <button type="button" className="btn-secondary justify-start text-lg" disabled={!activeGroup || !areasForScreen.length || uploading} onClick={() => { pendingUploadAreaRef.current = activeArea || normalPrintAreas[0] || areasForScreen[0]; fileInputRef.current?.click(); }}><ImageIcon size={22} /> {uploading ? "Uploading" : "Add Image"}</button>
-          <button type="button" className="btn-secondary justify-start text-lg" disabled={!activeGroup || !areasForScreen.length} onClick={addTextLayer}><Type size={22} /> Add Text</button>
+          <button type="button" className="btn-secondary justify-start text-sm" disabled={!activeGroup || !areasForScreen.length || uploading} onClick={() => { pendingReplaceSlotIdRef.current = ""; pendingUploadAreaRef.current = activeArea || normalPrintAreas[0] || areasForScreen[0]; fileInputRef.current?.click(); }}><ImageIcon size={18} /> {uploading ? "Uploading" : "Add Image"}</button>
+          <button type="button" className="btn-secondary justify-start text-sm" disabled={!activeGroup || !areasForScreen.length} onClick={addTextLayer}><Type size={18} /> Add Text</button>
         </div>
 
         <div className="border border-[#34C759]/40 bg-[#0A1B10] p-3 grid grid-cols-2 gap-3">
@@ -1116,9 +1361,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                       const placement = sanitizePlacement(previewPlacements[slot.id] || slot.placement, area);
                       const active = activeSlot?.id === slot.id;
                       return (
-                        <div key={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center" }} onMouseDown={(event) => startDrag(event, slot, "move")}>
-                          {slot.text_layer ? <TextLayerPreview slot={slot} /> : <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-contain pointer-events-none" draggable="false" />}
-                          {active && <><ResizeHandle position="nw" onMouseDown={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onMouseDown={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onMouseDown={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onMouseDown={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onMouseDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
+                        <div key={slot.id} data-artwork-layer-id={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center", touchAction: "none", willChange: "left, top, width, height, transform" }} onPointerDown={(event) => startDrag(event, slot, "move")}>
+                          {slot.text_layer ? <TextLayerPreview slot={slot} /> : <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-fill pointer-events-none" draggable="false" />}
+                          {active && <><ResizeHandle position="nw" onPointerDown={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onPointerDown={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onPointerDown={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onPointerDown={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onPointerDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
                         </div>
                       );
                     })}
@@ -1132,9 +1377,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
         <aside className="border border-white/10 bg-black/20 p-3 rounded-xl min-h-[680px] overflow-auto">
           {activeSlot && activeArea ? (
             <div className="space-y-4">
-              <div className="flex items-start justify-between gap-3"><div><div className="overline mb-1">Inspector</div><h3 className="font-display text-2xl uppercase">{activeSlot.text_layer ? "Text" : "Image"} Layer</h3><p className="text-xs text-zinc-500 mt-1">{activeArea.name} · {activeArea.width_mm || 0}×{activeArea.height_mm || 0}mm</p></div><button type="button" className="text-zinc-500 hover:text-[#FF3B30]" onClick={() => removeSlot(activeSlot.id)}><Trash2 size={16} /></button></div>
+              <div className="flex items-start justify-between gap-3"><div><div className="overline mb-1">Inspector</div><h3 className="font-display text-2xl uppercase">{activeSlot.text_layer ? "Text" : "Image"} Layer</h3><p className="text-xs text-zinc-500 mt-1">{activeArea.name} · {activeArea.width_mm || 0}×{activeArea.height_mm || 0}mm</p></div><button type="button" className="btn-secondary border-[#FF3B30] text-[#FF8A84] whitespace-nowrap" onClick={() => removeSlot(activeSlot.id)} title="Delete selected layer"><Trash2 size={16} /> Delete Layer</button></div>
               {activeSlot.text_layer && <div className="border border-white/10 bg-black/30 rounded-xl p-3 space-y-3"><div className="font-bold text-sm">Text editor</div><label><span className="label">Text</span><textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(event) => updateTextLayer({ text_content: event.target.value })} /></label><div className="grid grid-cols-2 gap-2"><label><span className="label">Font</span><select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(event) => updateTextLayer({ text_font_family: event.target.value })}>{TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}</select></label><label><span className="label">Weight</span><select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(event) => updateTextLayer({ text_font_weight: event.target.value })}><option value="400">Regular</option><option value="600">Semi-bold</option><option value="700">Bold</option><option value="900">Heavy</option></select></label><label><span className="label">Text render size</span><input className="input-base" type="text" inputMode="numeric" value={Number(activeSlot.text_font_size || 180)} onChange={(event) => updateTextLayer({ text_font_size: event.target.value })} onBlur={(event) => updateTextLayer({ text_font_size: clamp(event.target.value, TEXT_RENDER_MIN, TEXT_RENDER_MAX) })} /></label><label><span className="label">Colour</span><input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(event) => updateTextLayer({ text_color: event.target.value })} /></label></div><p className="text-[11px] text-zinc-500">Use handles to resize text. Render size controls sharpness, not final product size.</p></div>}
-              {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
+              {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingReplaceSlotIdRef.current = activeSlot.id; pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
               <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} />
               <ColourRestrictionBlock profile={selectedProfile} slot={activeSlot} onChange={(value) => setLayerStockedColour(activeSlot.id, value)} />
               <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">
