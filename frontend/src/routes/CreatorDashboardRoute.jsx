@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import {
   BarChart3,
@@ -52,8 +52,24 @@ function CreatorFinanceDashboard() {
   );
 }
 
+function updateCreatorFinanceNavigationLabel() {
+  const link = document.querySelector('[data-testid="creator-dash-nav-earnings"]');
+  if (!link) return;
+  link.setAttribute("title", "Earnings & Reports");
+  const text = [...link.querySelectorAll("span")].find((element) => element.classList.contains("hidden"));
+  if (text && text.textContent !== "Earnings & Reports") text.textContent = "Earnings & Reports";
+}
+
 export default function CreatorDashboardRoute() {
   const location = useLocation();
+
+  useEffect(() => {
+    updateCreatorFinanceNavigationLabel();
+    const observer = new MutationObserver(updateCreatorFinanceNavigationLabel);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [location.pathname]);
+
   const path = location.pathname.replace(/\/+$/, "");
   if (path === "/creator/earnings") return <CreatorFinanceDashboard />;
   return <BandDashboard />;
