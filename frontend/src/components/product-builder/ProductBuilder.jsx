@@ -1283,82 +1283,68 @@ function getPricingReviewMessages(product = {}, isAdmin = false, pricing = {}) {
   return [...new Set(messages)];
 }
 
+
+function sanitizeMoneyDraft(nextValue) {
+  const normalized = String(nextValue ?? "").replace(",", ".").replace(/[^0-9.]/g, "");
+  const [whole = "", ...decimalParts] = normalized.split(".");
+  const hasDecimal = normalized.includes(".");
+  const decimals = decimalParts.join("").slice(0, 2);
+  return hasDecimal ? `${whole}.${decimals}` : whole;
+}
+
+function formatMoneyDraft(nextValue) {
+  const numericValue = Number(nextValue);
+  const safeValue = Number.isFinite(numericValue) ? Math.max(numericValue, 0) : 0;
+  return safeValue.toFixed(2);
+}
+
 function MoneyInput({
   value,
-  onCommit,
-  min = 0,
+  onChange,
   className = "input-base",
   disabled = false,
   ariaLabel,
 }) {
-  const formatValue = (nextValue) => {
-    const numericValue = Number(nextValue);
-    const safeValue = Number.isFinite(numericValue) ? Math.max(numericValue, 0) : 0;
-    return safeValue.toFixed(2);
-  };
-
-  const [draft, setDraft] = useState(() => formatValue(value));
-  const [editing, setEditing] = useState(false);
-
-  useEffect(() => {
-    if (!editing) setDraft(formatValue(value));
-  }, [editing, min, value]);
-
-  const updateDraft = (nextValue) => {
-    const normalized = String(nextValue || "").replace(",", ".").replace(/[^0-9.]/g, "");
-    const [whole = "", ...decimalParts] = normalized.split(".");
-    const hasDecimal = normalized.includes(".");
-    const decimals = decimalParts.join("").slice(0, 2);
-    setDraft(hasDecimal ? `${whole}.${decimals}` : whole);
-  };
-
-  const commit = () => {
-    const numericValue = Number(draft);
-    const nextValue = formatValue(Number.isFinite(numericValue) ? numericValue : value);
-    setDraft(nextValue);
-    setEditing(false);
-    onCommit?.(nextValue);
-  };
-
   return (
     <input
       className={className}
       type="text"
       inputMode="decimal"
       autoComplete="off"
-      value={draft}
+      value={value ?? ""}
       disabled={disabled}
       aria-label={ariaLabel}
       onFocus={(event) => {
         const input = event.currentTarget;
-        setEditing(true);
         window.requestAnimationFrame(() => input.select());
       }}
-      onMouseUp={(event) => {
-        if (!editing) event.preventDefault();
-      }}
-      onChange={(event) => updateDraft(event.target.value)}
-      onBlur={commit}
+      onChange={(event) => onChange?.(sanitizeMoneyDraft(event.target.value))}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault();
           event.currentTarget.blur();
-        }
-        if (event.key === "Escape") {
-          event.preventDefault();
-          setDraft(formatValue(value));
-          event.currentTarget.select();
         }
       }}
     />
   );
 }
 
-function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isAdmin = false, compact = false, fundraisingValue = "", onFundraisingChange = null, showPlatformFee = true }) {
+
+function PricingSummaryPanel({
+  pricing = {},
+  sellingPrice = 0,
+  product = {},
+  isAdmin = false,
+  compact = false,
+  fundraisingValue = "",
+  onFundraisingChange = null,
+  showPlatformFee = true,
+  pricingDirty = false,
+}) {
   const fundraisingAmount = Number(fundraisingValue || Math.max(Number(pricing.profit || 0), 0) || 0);
   const rate = Number(pricing.rate || 0);
   const minimumSellingPrice = rate >= 1
-    ? pricing.production + fundraisingAmount
+    ? Number(pricing.production || 0) + fundraisingAmount
     : Math.ceil(((Number(pricing.production || 0) + fundraisingAmount) / (1 - rate)) * 100) / 100;
   const actualSellingPrice = Number(sellingPrice || 0);
   const platformFeeAmount = Math.round(actualSellingPrice * rate * 100) / 100;
@@ -1371,12 +1357,16 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
   const reviewMessages = getPricingReviewMessages(product, isAdmin, pricing);
   const overrideActive = Boolean(product?.pricing_override_approved || pricing.pricingOverrideApproved);
   const manualPricingActive = Boolean(product?.manual_pricing_override_active);
-  const statusTone = pricing.canPublishProfitably
+  const statusTone = pricingDirty
+    ? "border-amber-400/50 text-amber-100 bg-amber-500/10"
+    : pricing.canPublishProfitably
     ? "border-[#34C759]/40 text-[#A7F3C4] bg-[#34C759]/10"
     : overrideActive || manualPricingActive
     ? "border-amber-400/50 text-amber-100 bg-amber-500/10"
     : "border-[#FF3B30]/50 text-[#FFB4B0] bg-[#FF3B30]/10";
-  const statusLabel = pricing.canPublishProfitably
+  const statusLabel = pricingDirty
+    ? "Pricing changes not yet applied"
+    : pricing.canPublishProfitably
     ? "Price covers estimated costs"
     : overrideActive
     ? "Pricing override approved"
@@ -1390,7 +1380,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         <div>
           <div className="overline mb-1">Pricing Summary</div>
           <p className="text-sm text-zinc-500 max-w-3xl">
-            Pricing updates as product, artwork, print method, and variation settings change.
+            Enter pricing freely, then use Check &amp; Apply Pricing to run the cost calculations.
           </p>
         </div>
         <div className={`text-xs rounded-lg px-3 py-2 border font-bold uppercase tracking-widest ${statusTone}`}>
@@ -1410,8 +1400,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
           {onFundraisingChange ? (
             <MoneyInput
               value={fundraisingValue}
-              min={0}
-              onCommit={onFundraisingChange}
+              onChange={onFundraisingChange}
               ariaLabel="Fundraising amount"
             />
           ) : (
@@ -1450,6 +1439,12 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         )}
       </div>
 
+      {pricingDirty && (
+        <div className="border border-amber-400/40 bg-amber-500/10 p-3 text-xs text-amber-100 rounded-lg mt-4">
+          Pricing changes not yet applied. The saved product pricing will not change until you select Check &amp; Apply Pricing.
+        </div>
+      )}
+
       {manualPricingActive && (
         <div className="border border-amber-400/50 bg-amber-500/10 p-3 text-xs text-amber-100 rounded-lg mt-4">
           <div className="font-bold uppercase tracking-widest text-[11px] mb-1">Manual pricing override active</div>
@@ -1469,7 +1464,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         </div>
       )}
 
-      {!pricing.canPublishProfitably && Number(sellingPrice || 0) > 0 && (
+      {!pricingDirty && !pricing.canPublishProfitably && Number(sellingPrice || 0) > 0 && (
         <div className={`border p-3 text-xs rounded-lg mt-4 ${overrideActive ? "border-amber-400/40 bg-amber-500/10 text-amber-100" : "border-[#FF3B30]/50 bg-[#FF3B30]/10 text-[#FFB4B0]"}`}>
           {overrideActive
             ? "This product is below the normal minimum selling price, but FandomForge has approved a pricing override."
@@ -1477,7 +1472,7 @@ function PricingSummaryPanel({ pricing = {}, sellingPrice = 0, product = {}, isA
         </div>
       )}
 
-      {reviewMessages.length > 0 && (
+      {!pricingDirty && reviewMessages.length > 0 && (
         <div className="space-y-2 mt-4">
           {reviewMessages.map((message) => (
             <div key={message} className="border border-white/10 bg-black/20 p-3 text-xs text-zinc-400 rounded-lg">{message}</div>
@@ -1506,6 +1501,7 @@ function PricingSummaryMetric({ label, value, valueClassName = "text-white" }) {
   );
 }
 
+
 function PricingStep({
   form,
   update,
@@ -1526,15 +1522,55 @@ function PricingStep({
 }) {
   const safeSelectedVariations = asArray(selectedVariations);
   const overrides = form.variation_price_overrides || {};
-  const [desiredFundraisingAmount, setDesiredFundraisingAmount] = useState(() => Math.max(Number(pricing.profit || 0), 0).toFixed(2));
+  const [pricingDirty, setPricingDirty] = useState(false);
+  const [pricingDraft, setPricingDraft] = useState(() => ({
+    fundraising: Math.max(Number(pricing.profit || 0), 0).toFixed(2),
+    retail: formatMoneyDraft(form.selling_price),
+    source: "retail",
+    editedAt: 0,
+  }));
   const canUseAdminPricingControl = Boolean(isAdmin && user?.role === "super_admin" && product?.id);
 
-  const updateDesiredFundraisingAmount = (value) => {
-    setDesiredFundraisingAmount(value);
-    const desired = Number(value || 0);
-    const rate = Number(pricing.rate || 0);
-    const suggestedPrice = rate >= 1 ? pricing.production + desired : (pricing.production + desired) / (1 - rate);
-    update("selling_price", Number.isFinite(suggestedPrice) ? suggestedPrice.toFixed(2) : "0.00");
+  useEffect(() => {
+    if (pricingDirty) return;
+    const nextFundraising = Math.max(Number(pricing.profit || 0), 0).toFixed(2);
+    const nextRetail = formatMoneyDraft(form.selling_price);
+    setPricingDraft((current) => {
+      if (current.fundraising === nextFundraising && current.retail === nextRetail && current.editedAt === 0) {
+        return current;
+      }
+      return {
+        fundraising: nextFundraising,
+        retail: nextRetail,
+        source: "retail",
+        editedAt: 0,
+      };
+    });
+  }, [form.selling_price, pricing.profit, pricingDirty]);
+
+  const updateDefaultDraft = (key, value) => {
+    setPricingDraft((current) => ({
+      ...current,
+      [key]: value,
+      source: key,
+      editedAt: Date.now(),
+    }));
+    setPricingDirty(true);
+  };
+
+  const applyPricing = ({ defaultFundraising, defaultRetail, rowRetailValues }) => {
+    setPricingDraft({
+      fundraising: defaultFundraising,
+      retail: defaultRetail,
+      source: "retail",
+      editedAt: 0,
+    });
+    update("selling_price", defaultRetail);
+    Object.entries(rowRetailValues || {}).forEach(([variationKey, value]) => {
+      updateVariationPrice?.(variationKey, value);
+    });
+    setPricingDirty(false);
+    toast.success("Pricing checked and applied");
   };
 
   return (
@@ -1542,29 +1578,35 @@ function PricingStep({
       <div>
         <div className="overline mb-1">Pricing</div>
         <p className="text-sm text-zinc-500 max-w-3xl">
-          Pricing updates as product, artwork, print method, and variation settings change.
+          Enter fundraising or retail values without live recalculation. Check &amp; Apply Pricing calculates the linked values and validates the costings.
         </p>
       </div>
 
       <PricingSummaryPanel
         pricing={pricing}
-        sellingPrice={form.selling_price}
+        sellingPrice={pricingDraft.retail}
         product={product}
         isAdmin={isAdmin}
-        fundraisingValue={desiredFundraisingAmount}
-        onFundraisingChange={updateDesiredFundraisingAmount}
+        fundraisingValue={pricingDraft.fundraising}
+        onFundraisingChange={(value) => updateDefaultDraft("fundraising", value)}
         showPlatformFee={false}
+        pricingDirty={pricingDirty}
       />
 
       <VariationPricingMatrix
         variations={safeSelectedVariations}
         defaultSellingPrice={form.selling_price}
-        updateDefaultSellingPrice={(value) => update("selling_price", value)}
         retailOverrides={overrides}
-        updateVariationPrice={updateVariationPrice}
         pricing={pricing}
-        fundraisingAmount={desiredFundraisingAmount}
-        updateFundraisingAmount={updateDesiredFundraisingAmount}
+        defaultFundraisingDraft={pricingDraft.fundraising}
+        defaultRetailDraft={pricingDraft.retail}
+        defaultSource={pricingDraft.source}
+        defaultEditedAt={pricingDraft.editedAt}
+        onDefaultFundraisingDraftChange={(value) => updateDefaultDraft("fundraising", value)}
+        onDefaultRetailDraftChange={(value) => updateDefaultDraft("retail", value)}
+        pricingDirty={pricingDirty}
+        setPricingDirty={setPricingDirty}
+        onApplyPricing={applyPricing}
         pricingControl={pricingControl}
         loadingPricingControl={pricingControlLoading}
         canManagePricingControl={canUseAdminPricingControl}
@@ -1816,15 +1858,21 @@ function PricingOverridePanel({ product, pricing, user, reason, setReason, savin
   );
 }
 
+
 function VariationPricingMatrix({
   variations = [],
   defaultSellingPrice = 0,
-  updateDefaultSellingPrice,
   retailOverrides = {},
-  updateVariationPrice,
   pricing = {},
-  fundraisingAmount = "0",
-  updateFundraisingAmount,
+  defaultFundraisingDraft = "0.00",
+  defaultRetailDraft = "0.00",
+  defaultSource = "retail",
+  defaultEditedAt = 0,
+  onDefaultFundraisingDraftChange,
+  onDefaultRetailDraftChange,
+  pricingDirty = false,
+  setPricingDirty,
+  onApplyPricing,
   pricingControl,
   loadingPricingControl = false,
   canManagePricingControl = false,
@@ -1835,8 +1883,10 @@ function VariationPricingMatrix({
   const adminRows = asArray(pricingControl?.variations);
   const rate = Number(pricing.rate || 0);
   const safeRate = Math.max(0, Math.min(rate, 0.95));
-  const defaultFundraisingAmount = Math.max(Number(fundraisingAmount || 0), 0);
   const [applyToAll, setApplyToAll] = useState(false);
+  const [rowDrafts, setRowDrafts] = useState({});
+  const [validatedDefaultRetail, setValidatedDefaultRetail] = useState(() => Math.max(Number(defaultSellingPrice || 0), 0));
+  const [validatedRowRetail, setValidatedRowRetail] = useState({});
 
   const noProfitMinimum = (baseCost, printCost) => {
     const production = Number(baseCost || 0) + Number(printCost || 0);
@@ -1855,6 +1905,18 @@ function VariationPricingMatrix({
     const price = Number(retailPrice || 0);
     const commission = price * safeRate;
     return Math.round((price - Number(baseCost || 0) - Number(printCost || 0) - commission) * 100) / 100;
+  };
+
+  const resolvePricingPair = (source, fundraisingValue, retailValue, baseCost, printCost) => {
+    if (source === "fundraising") {
+      const fundraising = formatMoneyDraft(fundraisingValue);
+      const retail = formatMoneyDraft(retailForFundraising(baseCost, printCost, fundraising));
+      return { fundraising, retail };
+    }
+
+    const retail = formatMoneyDraft(retailValue);
+    const fundraising = formatMoneyDraft(Math.max(creatorAmountForRetail(retail, baseCost, printCost), 0));
+    return { fundraising, retail };
   };
 
   const rows = useMemo(() => {
@@ -1912,51 +1974,111 @@ function VariationPricingMatrix({
     return [buildRow(null, 0)];
   }, [adminRows, defaultSellingPrice, pricing.blank, pricing.print, retailOverrides, selectedVariations, safeRate]);
 
-  const setRowRetail = (row, value) => {
-    const raw = Number(value || 0);
-    const normalized = Math.max(raw, 0);
-    const next = Number.isFinite(normalized) ? normalized.toFixed(2) : "0.00";
+  const createAppliedRowDraft = (row) => ({
+    fundraising: formatMoneyDraft(Math.max(Number(row.creatorAmount || 0), 0)),
+    retail: formatMoneyDraft(row.retailPrice),
+    source: "retail",
+    editedAt: 0,
+  });
 
-    if (row.isStandard) {
-      updateDefaultSellingPrice?.(next);
-      return;
-    }
+  useEffect(() => {
+    if (pricingDirty) return;
+    const nextDrafts = {};
+    const nextValidatedRetail = {};
+    rows.forEach((row) => {
+      nextDrafts[row.key] = createAppliedRowDraft(row);
+      nextValidatedRetail[row.key] = Number(row.retailPrice || 0);
+    });
+    setRowDrafts(nextDrafts);
+    setValidatedRowRetail(nextValidatedRetail);
+    setValidatedDefaultRetail(Math.max(Number(defaultSellingPrice || 0), 0));
+  }, [defaultSellingPrice, pricingDirty, rows]);
 
-    updateVariationPrice?.(row.key, next);
-  };
+  const getRowDraft = (row) => rowDrafts[row.key] || createAppliedRowDraft(row);
 
-  const setRowFundraising = (row, value) => {
-    const desired = Math.max(Number(value || 0), 0);
-    const retail = retailForFundraising(row.baseCost, row.printCost, desired);
-    setRowRetail(row, retail);
-  };
-
-  const applyRetailToAllRows = (value) => {
-    rows.forEach((row) => setRowRetail(row, value));
-  };
-
-  const applyFundraisingToAllRows = (value) => {
-    rows.forEach((row) => setRowFundraising(row, value));
-  };
-
-  const handleDefaultFundraisingChange = (value) => {
-    updateFundraisingAmount?.(value);
-    if (applyToAll) applyFundraisingToAllRows(value);
-  };
-
-  const handleDefaultRetailChange = (value) => {
-    updateDefaultSellingPrice?.(value);
-    if (applyToAll) applyRetailToAllRows(value);
+  const updateRowDraft = (row, key, value) => {
+    setRowDrafts((current) => ({
+      ...current,
+      [row.key]: {
+        ...(current[row.key] || createAppliedRowDraft(row)),
+        [key]: value,
+        source: key,
+        editedAt: Date.now(),
+      },
+    }));
+    setPricingDirty?.(true);
   };
 
   const handleApplyToAllChange = (checked) => {
     setApplyToAll(checked);
-    if (checked) applyRetailToAllRows(defaultSellingPrice);
+    setPricingDirty?.(true);
+  };
+
+  const applyPricingDrafts = () => {
+    let resolvedDefault = resolvePricingPair(
+      defaultSource,
+      defaultFundraisingDraft,
+      defaultRetailDraft,
+      Number(pricing.blank || 0),
+      Number(pricing.print || 0)
+    );
+
+    const standardRow = rows.find((row) => row.isStandard);
+    if (standardRow) {
+      const standardDraft = getRowDraft(standardRow);
+      if (Number(standardDraft.editedAt || 0) > Number(defaultEditedAt || 0)) {
+        resolvedDefault = resolvePricingPair(
+          standardDraft.source,
+          standardDraft.fundraising,
+          standardDraft.retail,
+          standardRow.baseCost,
+          standardRow.printCost
+        );
+      }
+    }
+
+    const nextRowDrafts = {};
+    const nextValidatedRetail = {};
+    const rowRetailValues = {};
+
+    rows.forEach((row) => {
+      const draft = getRowDraft(row);
+      let resolved = row.isStandard
+        ? resolvedDefault
+        : resolvePricingPair(draft.source, draft.fundraising, draft.retail, row.baseCost, row.printCost);
+
+      if (!row.isStandard && applyToAll) {
+        resolved = {
+          retail: resolvedDefault.retail,
+          fundraising: formatMoneyDraft(Math.max(creatorAmountForRetail(resolvedDefault.retail, row.baseCost, row.printCost), 0)),
+        };
+      }
+
+      nextRowDrafts[row.key] = {
+        ...resolved,
+        source: "retail",
+        editedAt: 0,
+      };
+      nextValidatedRetail[row.key] = Number(resolved.retail || 0);
+
+      if (!row.isStandard && (applyToAll || Number(draft.editedAt || 0) > 0)) {
+        rowRetailValues[row.key] = resolved.retail;
+      }
+    });
+
+    setRowDrafts(nextRowDrafts);
+    setValidatedRowRetail(nextValidatedRetail);
+    setValidatedDefaultRetail(Number(resolvedDefault.retail || 0));
+    onApplyPricing?.({
+      defaultFundraising: resolvedDefault.fundraising,
+      defaultRetail: resolvedDefault.retail,
+      rowRetailValues,
+    });
   };
 
   const defaultMinimum = noProfitMinimum(Number(pricing.blank || 0), Number(pricing.print || 0));
-  const defaultRetailValue = Math.max(Number(defaultSellingPrice || 0), 0).toFixed(2);
-  const defaultRetailTooLow = Number(defaultRetailValue) < defaultMinimum;
+  const defaultRetailTooLow = Number(validatedDefaultRetail || 0) < defaultMinimum;
+  const defaultShortfall = Math.max(defaultMinimum - Number(validatedDefaultRetail || 0), 0);
 
   return (
     <section className="card w-full" data-testid="variation-pricing-matrix">
@@ -1966,7 +2088,7 @@ function VariationPricingMatrix({
             <div className="overline mb-2">Pricing Table</div>
             <h2 className="font-display text-3xl uppercase text-white">Variation pricing</h2>
             <p className="text-sm text-zinc-400 mt-2 max-w-4xl">
-              Use one row for standard products or one row per variation. Base and print cost calculate automatically. Fundraising and retail price can be adjusted per row.
+              Enter fundraising or retail values freely. Nothing recalculates while you type; Check &amp; Apply Pricing runs the linked calculations and validation together.
             </p>
           </div>
 
@@ -1986,16 +2108,15 @@ function VariationPricingMatrix({
                 <div className="flex-1">
                   <div className="overline mb-2">Default pricing controls</div>
                   <p className="text-xs text-zinc-500 max-w-3xl">
-                    Set the default fundraising amount and retail selling price. Use Apply to all to push the default retail price to every variation row.
+                    Set the default fundraising amount or retail selling price. Apply retail price to all rows is only processed when Check &amp; Apply Pricing is selected.
                   </p>
                 </div>
 
                 <label className="block min-w-[190px]">
                   <span className="label">Default fundraising</span>
                   <MoneyInput
-                    value={fundraisingAmount}
-                    min={0}
-                    onCommit={handleDefaultFundraisingChange}
+                    value={defaultFundraisingDraft}
+                    onChange={onDefaultFundraisingDraftChange}
                     ariaLabel="Default fundraising amount"
                   />
                 </label>
@@ -2003,13 +2124,14 @@ function VariationPricingMatrix({
                 <label className="block min-w-[190px]">
                   <span className="label">Default retail price</span>
                   <MoneyInput
-                    value={defaultRetailValue}
-                    min={defaultMinimum}
-                    onCommit={handleDefaultRetailChange}
+                    value={defaultRetailDraft}
+                    onChange={onDefaultRetailDraftChange}
                     ariaLabel="Default retail price"
                   />
                   <span className={defaultRetailTooLow ? "mt-1 block text-[10px] text-[#FFB4B0]" : "mt-1 block text-[10px] text-zinc-500"}>
-                    Minimum {money(defaultMinimum)}
+                    {defaultRetailTooLow
+                      ? `${money(defaultShortfall)} below minimum · Minimum ${money(defaultMinimum)}`
+                      : `Minimum ${money(defaultMinimum)}`}
                   </span>
                 </label>
 
@@ -2025,74 +2147,86 @@ function VariationPricingMatrix({
             </div>
 
             <div className="w-full overflow-x-auto border border-white/10 rounded-xl">
-            <table className="w-full min-w-[980px] text-xs">
-              <colgroup>
-                <col className="w-[280px]" />
-                <col className="w-[130px]" />
-                <col className="w-[140px]" />
-                <col className="w-[210px]" />
-                <col className="w-[260px]" />
-                <col className="w-[160px]" />
-              </colgroup>
-              <thead>
-                <tr className="text-left text-zinc-500 border-b border-white/10">
-                  <th className="py-3 px-4 sticky left-0 z-10 bg-[#080808] whitespace-nowrap">Variation</th>
-                  <th className="py-3 px-3 text-right whitespace-nowrap">Base</th>
-                  <th className="py-3 px-3 text-right whitespace-nowrap">Print cost</th>
-                  <th className="py-3 px-3 whitespace-nowrap">Fundraising amount</th>
-                  <th className="py-3 px-3 whitespace-nowrap">Retail selling price</th>
-                  <th className="py-3 px-4 text-right whitespace-nowrap">Minimum</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const retailTooLow = Number(row.retailPrice || 0) < Number(row.minimumRetail || 0);
-                  return (
-                    <tr key={row.key} className="border-b border-white/5 align-top">
-                      <td className="py-3 px-4 text-white sticky left-0 z-10 bg-[#080808]">
-                        <div className="font-bold leading-snug">{row.label}</div>
-                        <div className="text-[11px] text-zinc-500">{row.sublabel}</div>
-                      </td>
+              <table className="w-full min-w-[980px] text-xs">
+                <colgroup>
+                  <col className="w-[280px]" />
+                  <col className="w-[130px]" />
+                  <col className="w-[140px]" />
+                  <col className="w-[210px]" />
+                  <col className="w-[260px]" />
+                  <col className="w-[160px]" />
+                </colgroup>
+                <thead>
+                  <tr className="text-left text-zinc-500 border-b border-white/10">
+                    <th className="py-3 px-4 sticky left-0 z-10 bg-[#080808] whitespace-nowrap">Variation</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap">Base</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap">Print cost</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Fundraising amount</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Retail selling price</th>
+                    <th className="py-3 px-4 text-right whitespace-nowrap">Minimum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => {
+                    const draft = getRowDraft(row);
+                    const checkedRetail = Number(validatedRowRetail[row.key] ?? row.retailPrice ?? 0);
+                    const retailTooLow = checkedRetail < Number(row.minimumRetail || 0);
+                    const shortfall = Math.max(Number(row.minimumRetail || 0) - checkedRetail, 0);
+                    return (
+                      <tr key={row.key} className="border-b border-white/5 align-top">
+                        <td className="py-3 px-4 text-white sticky left-0 z-10 bg-[#080808]">
+                          <div className="font-bold leading-snug">{row.label}</div>
+                          <div className="text-[11px] text-zinc-500">{row.sublabel}</div>
+                        </td>
 
-                      <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.baseCost)}</td>
-                      <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.printCost)}</td>
+                        <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.baseCost)}</td>
+                        <td className="py-3 px-3 text-right text-zinc-400 whitespace-nowrap">{money(row.printCost)}</td>
 
-                      <td className="py-3 px-3">
-                        <MoneyInput
-                          className="input-base w-[160px] text-xs"
-                          value={Math.max(Number(row.creatorAmount || 0), 0)}
-                          min={0}
-                          onCommit={(value) => setRowFundraising(row, value)}
-                          ariaLabel={`${row.label} fundraising amount`}
-                        />
-                        <div className="text-[10px] text-zinc-500 mt-1">Saved through row selling price</div>
-                      </td>
+                        <td className="py-3 px-3">
+                          <MoneyInput
+                            className="input-base w-[160px] text-xs"
+                            value={draft.fundraising}
+                            onChange={(value) => updateRowDraft(row, "fundraising", value)}
+                            ariaLabel={`${row.label} fundraising amount`}
+                          />
+                          <div className="text-[10px] text-zinc-500 mt-1">Calculated with retail when pricing is applied</div>
+                        </td>
 
-                      <td className="py-3 px-3">
-                        <MoneyInput
-                          className="input-base w-[150px] text-xs"
-                          value={row.retailPrice}
-                          min={row.minimumRetail}
-                          onCommit={(value) => setRowRetail(row, value)}
-                          ariaLabel={`${row.label} retail selling price`}
-                        />
-                        <div className={retailTooLow ? "text-[10px] text-[#FFB4B0] mt-1" : "text-[10px] text-zinc-500 mt-1"}>
-                          Minimum {money(row.minimumRetail)}
-                        </div>
-                      </td>
+                        <td className="py-3 px-3">
+                          <MoneyInput
+                            className="input-base w-[150px] text-xs"
+                            value={draft.retail}
+                            onChange={(value) => updateRowDraft(row, "retail", value)}
+                            ariaLabel={`${row.label} retail selling price`}
+                          />
+                          <div className={retailTooLow ? "text-[10px] text-[#FFB4B0] mt-1" : "text-[10px] text-zinc-500 mt-1"}>
+                            {retailTooLow
+                              ? `${money(shortfall)} below minimum · Minimum ${money(row.minimumRetail)}`
+                              : `Minimum ${money(row.minimumRetail)}`}
+                          </div>
+                        </td>
 
-                      <td className="py-3 px-4 text-right font-bold text-white whitespace-nowrap">{money(row.minimumRetail)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        <td className="py-3 px-4 text-right font-bold text-white whitespace-nowrap">{money(row.minimumRetail)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-white/10 bg-black/25 p-4">
+              <div className={pricingDirty ? "text-sm text-amber-100" : "text-sm text-[#A7F3C4]"}>
+                {pricingDirty ? "Pricing changes not yet applied." : "Pricing calculations are applied."}
+              </div>
+              <button type="button" className="btn-primary sm:min-w-[220px]" onClick={applyPricingDrafts}>
+                Check &amp; Apply Pricing
+              </button>
+            </div>
           </>
         )}
 
         <p className="text-xs text-zinc-500 mt-3">
-          Retail prices cannot be lower than the amount needed to cover required costs. The final fee breakdown is shown on Review.
+          Retail prices below the required minimum remain visible for review; they are not silently replaced. The final fee breakdown is shown on Review.
         </p>
       </div>
     </section>
