@@ -118,6 +118,7 @@ import payout_launch_routes as payout_launch_routes_module
 from payout_launch_routes import payout_launch_router
 from payout_retry_guard import install_payout_retry_guard
 from builder_draft_routes import builder_drafts_router
+from creator_finance_routes import creator_finance_router
 from routes_production_operations import production_operations_router
 from routes_production_rules import production_rules_router
 from launch_integrity.routes import integrity_router
@@ -154,6 +155,7 @@ api_router.include_router(public_homepage_router)
 api_router.include_router(public_router)
 api_router.include_router(files_router)
 api_router.include_router(band_dash_router)
+api_router.include_router(creator_finance_router)
 api_router.include_router(printer_dash_router)
 api_router.include_router(categories_router)
 api_router.include_router(attributes_router)
