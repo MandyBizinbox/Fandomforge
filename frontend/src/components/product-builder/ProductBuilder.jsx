@@ -1880,7 +1880,7 @@ function VariationPricingMatrix({
   onSaveManualPricing,
 }) {
   const selectedVariations = asArray(variations);
-  const adminRows = asArray(pricingControl?.variations);
+  const adminRows = useMemo(() => asArray(pricingControl?.variations), [pricingControl?.variations]);
   const rate = Number(pricing.rate || 0);
   const safeRate = Math.max(0, Math.min(rate, 0.95));
   const [applyToAll, setApplyToAll] = useState(false);
