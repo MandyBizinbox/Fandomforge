@@ -5,7 +5,7 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -36,7 +36,8 @@ async def lifespan(app: FastAPI):
         from seed_production_operations import seed_production_operations
         from seed_production_rules import seed_production_rules
         from payout_launch_routes import ensure_payout_launch_indexes
-        from email_delivery import email_delivery_loop, ensure_email_delivery_indexes
+        from email_delivery import ensure_email_delivery_indexes
+        from email_settings_routes import dashboard_email_delivery_loop
         from launch_integrity.install import ensure_launch_integrity_indexes
         await seed_if_empty(app.state.db)
         await seed_production_operations(app.state.db)
@@ -49,7 +50,7 @@ async def lifespan(app: FastAPI):
             changed = await normalize_e2e_fixture_emails(app.state.db)
             logger.info("Normalized isolated E2E fixture email aliases: %s", changed)
         worker_id = f"api-{os.getpid()}"
-        email_task = asyncio.create_task(email_delivery_loop(app.state.db, worker_id), name=f"fandomforge-email-{worker_id}")
+        email_task = asyncio.create_task(dashboard_email_delivery_loop(app.state.db, worker_id), name=f"fandomforge-email-{worker_id}")
         app.state.email_delivery_task = email_task
         logger.info("Seed, launch-integrity indexes and email-delivery startup checks complete")
     except Exception as exc:
@@ -76,11 +77,11 @@ async def root():
 
 
 @api_router.get("/health")
-async def health():
-    from email_delivery import load_email_delivery_settings
+async def health(request: Request):
+    from email_settings_routes import email_delivery_status
     from launch_integrity import LAUNCH_INTEGRITY_VERSION
-    email = load_email_delivery_settings()
-    return {"status": "ok", "launch_integrity_version": LAUNCH_INTEGRITY_VERSION, "email_delivery": {"configured": email.configured, "provider": email.provider}}
+    email = await email_delivery_status(request.app.state.db)
+    return {"status": "ok", "launch_integrity_version": LAUNCH_INTEGRITY_VERSION, "email_delivery": email}
 
 
 from production_model_compat import install_production_model_compat
@@ -119,6 +120,7 @@ from payout_launch_routes import payout_launch_router
 from payout_retry_guard import install_payout_retry_guard
 from builder_draft_routes import builder_drafts_router
 from creator_finance_routes import creator_finance_router
+from email_settings_routes import email_settings_router
 from routes_production_operations import production_operations_router
 from routes_production_rules import production_rules_router
 from launch_integrity.routes import integrity_router
@@ -150,6 +152,7 @@ api_router.include_router(orders_router)
 api_router.include_router(payments_router)
 api_router.include_router(platform_billing_router)
 api_router.include_router(admin_router)
+api_router.include_router(email_settings_router)
 api_router.include_router(public_platform_router)
 api_router.include_router(public_homepage_router)
 api_router.include_router(public_router)
