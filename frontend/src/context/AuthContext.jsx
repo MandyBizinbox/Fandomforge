@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { http } from "../lib/api";
+import { AUTH_EXPIRED_EVENT, http } from "../lib/api";
 import { clearAuthToken, getAuthToken, setAuthToken } from "../lib/authToken";
 
 const AuthCtx = createContext(null);
@@ -18,8 +18,22 @@ export function AuthProvider({ children }) {
 
     http.get("/auth/me")
       .then((response) => setUser(response.data))
-      .catch(() => clearAuthToken())
+      .catch(() => {
+        clearAuthToken();
+        setUser(null);
+      })
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const handleExpiredSession = () => {
+      clearAuthToken();
+      setUser(null);
+      setLoading(false);
+    };
+
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleExpiredSession);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpiredSession);
   }, []);
 
   const login = useCallback(async (email, password) => {
