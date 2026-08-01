@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { http } from "../../lib/api";
 import { toast } from "sonner";
-import { Bell, CheckCheck, ExternalLink, Mail, RefreshCcw } from "lucide-react";
+import { Bell, CheckCheck, CheckCircle2, ExternalLink, Mail, RefreshCcw, TriangleAlert } from "lucide-react";
 
 function typeLabel(type) {
   if (type === "artwork") return "Artwork";
@@ -37,8 +37,10 @@ export default function NotificationList({ endpoint, title = "Notifications", su
   const [unreadCount, setUnreadCount] = useState(0);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [emailStatus, setEmailStatus] = useState(null);
 
   const base = endpoint.replace(/\/+$/, "");
+  const mayManageEmail = base.startsWith("/admin/");
 
   const load = async () => {
     setLoading(true);
@@ -58,6 +60,13 @@ export default function NotificationList({ endpoint, title = "Notifications", su
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint, filter]);
+
+  useEffect(() => {
+    if (!mayManageEmail) return;
+    http.get("/admin/smtp-settings/status")
+      .then((response) => setEmailStatus(response.data || null))
+      .catch(() => setEmailStatus(null));
+  }, [mayManageEmail]);
 
   const visibleItems = useMemo(() => {
     if (filter === "unread") return items.filter((item) => !item.read);
@@ -107,6 +116,27 @@ export default function NotificationList({ endpoint, title = "Notifications", su
           </button>
         </div>
       </div>
+
+      {emailStatus && (
+        <div className={`card flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 ${emailStatus.configured ? "border-[#34C759]/40" : "border-[var(--ff-primary)]/60"}`}>
+          <div className="flex items-start gap-3">
+            {emailStatus.configured
+              ? <CheckCircle2 size={18} className="mt-0.5 text-[#34C759] shrink-0" />
+              : <TriangleAlert size={18} className="mt-0.5 text-[var(--ff-primary)] shrink-0" />}
+            <div>
+              <p className="font-bold">{emailStatus.configured ? "Email delivery is active" : "Email delivery needs SMTP setup"}</p>
+              <p className="text-xs text-[var(--ff-muted-text)] mt-1">
+                {emailStatus.configured
+                  ? `Sending through ${emailStatus.provider || "SMTP"}. ${Number(emailStatus.queue?.queued || 0)} queued, ${Number(emailStatus.queue?.failed || 0)} failed.`
+                  : "Platform notifications are recorded, but outgoing email remains queued until an owner or administrator completes SMTP setup."}
+              </p>
+            </div>
+          </div>
+          <Link to="/admin/shop-settings" className="btn-secondary shrink-0">
+            <Mail size={14} /> Email / SMTP settings
+          </Link>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {["all", "unread"].map((tab) => (
@@ -165,13 +195,6 @@ export default function NotificationList({ endpoint, title = "Notifications", su
             ))}
           </div>
         )}
-      </div>
-
-      <div className="card text-xs text-[var(--ff-muted-text)] flex items-start gap-3">
-        <Mail size={16} className="mt-0.5 text-[var(--ff-muted-text)]" />
-        <p>
-          Email sending is queued in the backend notification log. SMTP/provider delivery can be connected later without changing the notification workflow.
-        </p>
       </div>
     </div>
   );
