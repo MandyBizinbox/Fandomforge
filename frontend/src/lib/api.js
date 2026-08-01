@@ -1,5 +1,5 @@
 import axios from "axios";
-import { getAuthToken } from "./authToken";
+import { clearAuthToken, getAuthToken } from "./authToken";
 
 function resolveApiBase() {
   const configured = process.env.REACT_APP_BACKEND_URL;
@@ -12,6 +12,7 @@ function resolveApiBase() {
 
 export const API_BASE = resolveApiBase();
 export const API = `${API_BASE}/api`;
+export const AUTH_EXPIRED_EVENT = "fandomforge:auth-expired";
 export const http = axios.create({ baseURL: API });
 
 http.interceptors.request.use((config) => {
@@ -36,6 +37,15 @@ function isInstanceSettingsUpdate(response) {
   const url = String(response?.config?.url || "");
   const method = String(response?.config?.method || "get").toLowerCase();
   return method === "patch" && (url === "/admin/instance-settings" || url.endsWith("/admin/instance-settings") || url === "/integrity/settings");
+}
+
+function isAuthenticationRequest(error) {
+  const url = String(error?.config?.url || "");
+  return [
+    "/auth/login",
+    "/auth/register",
+    "/auth/google/session",
+  ].some((path) => url.includes(path));
 }
 
 async function loadProductionMethodProfiles() {
@@ -72,6 +82,18 @@ http.interceptors.response.use(async (response) => {
   }
   return response;
 }, (error) => {
+  const status = Number(error?.response?.status || 0);
+  const activeToken = getAuthToken();
+
+  if (status === 401 && activeToken && !isAuthenticationRequest(error)) {
+    clearAuthToken();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT, {
+        detail: { requestUrl: String(error?.config?.url || "") },
+      }));
+    }
+  }
+
   const detail = error?.response?.data?.detail;
   const entitlement = detail?.code === "entitlement_denied"
     ? detail
