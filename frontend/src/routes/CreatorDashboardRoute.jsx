@@ -60,6 +60,13 @@ function updateCreatorFinanceNavigationLabel() {
   if (text && text.textContent !== "Earnings & Reports") text.textContent = "Earnings & Reports";
 }
 
+function creatorDashboardKey(pathname) {
+  const path = String(pathname || "").replace(/\/+$/, "");
+  return /^\/creator\/products\/(?:new|[^/]+)$/.test(path)
+    ? path
+    : "creator-dashboard";
+}
+
 export default function CreatorDashboardRoute() {
   const location = useLocation();
 
@@ -72,5 +79,5 @@ export default function CreatorDashboardRoute() {
 
   const path = location.pathname.replace(/\/+$/, "");
   if (path === "/creator/earnings") return <CreatorFinanceDashboard />;
-  return <BandDashboard />;
+  return <BandDashboard key={creatorDashboardKey(path)} />;
 }
