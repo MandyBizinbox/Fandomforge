@@ -136,12 +136,21 @@ function readiness(template = {}, globalPrintOptions = []) {
   const enabledVariations = safeArray(template.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
   const activeScreens = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted);
   const activeAreas = safeArray(template.print_areas).filter((area) => area.status !== "archived" && !area.archived && !area.deleted);
+  const hasTemplateImageFallback = Boolean(
+    activeScreens.some((screen) => screen.image_url)
+    || template.product_image_url
+    || template.mockup_url
+    || safeArray(template.mockup_images)[0]
+  );
   const pricingInfo = templatePricingInfo(template, globalPrintOptions);
   const activeMethods = activeV1Options(template, globalPrintOptions);
 
   const checks = {
     mainImage: Boolean(templateImage(template)),
-    variationImages: enabledVariations.length === 0 || enabledVariations.some(hasVariationImage),
+    variationImages:
+      enabledVariations.length === 0
+      || hasTemplateImageFallback
+      || enabledVariations.every(hasVariationImage),
     blankCost: blankCost(template) > 0,
     activePrintMethod: activeMethods.length > 0,
     printAreas: activeAreas.length > 0,

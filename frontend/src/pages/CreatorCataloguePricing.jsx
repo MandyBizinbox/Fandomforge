@@ -83,10 +83,19 @@ function readiness(template = {}, globalPrintOptions = []) {
   const bands = pricingBands(template, globalPrintOptions);
   const activeScreens = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted);
   const activeAreas = safeArray(template.print_areas).filter((area) => area.status !== "archived" && !area.archived && !area.deleted);
+  const hasTemplateImageFallback = Boolean(
+    activeScreens.some((screen) => screen.image_url)
+    || template.product_image_url
+    || template.mockup_url
+    || safeArray(template.mockup_images)[0]
+  );
 
   const checks = {
     mainImage: Boolean(templateImage(template)),
-    variationImages: enabledVariations.length === 0 || enabledVariations.some(hasVariationImage),
+    variationImages:
+      enabledVariations.length === 0
+      || hasTemplateImageFallback
+      || enabledVariations.every(hasVariationImage),
     blankCost: blankCost(template) > 0,
     activePrintMethod: pricingInfo.activeOptions.length > 0,
     printAreas: activeAreas.length > 0,
