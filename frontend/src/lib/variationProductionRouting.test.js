@@ -49,7 +49,7 @@ function configuredVariation(id, imageUrl, geometryType, widthMm) {
 }
 
 describe("variation production routing", () => {
-  test("uses the selected variation complete configuration instead of parent geometry", () => {
+  test("uses selected variation geometry while preserving parent runtime ids", () => {
     const circle = configuredVariation("circle", "/circle.png", "circle", 100);
     const square = configuredVariation("square", "/square.png", "rectangle", 95);
     const template = {
@@ -71,9 +71,14 @@ describe("variation production routing", () => {
     expect(circleSetup.canvasImageUrl).toBe("/circle.png");
     expect(circleSetup.printAreaOverride.geometry_type).toBe("circle");
     expect(circleSetup.printAreaOverride.width_mm).toBe(100);
+    expect(circleSetup.printAreaOverride.id).toBe("anchor-area");
+    expect(circleSetup.printAreaOverride.screen_id).toBe("anchor-screen");
+
     expect(squareSetup.canvasImageUrl).toBe("/square.png");
     expect(squareSetup.printAreaOverride.geometry_type).toBe("rectangle");
     expect(squareSetup.printAreaOverride.width_mm).toBe(95);
+    expect(squareSetup.printAreaOverride.id).toBe("anchor-area");
+    expect(squareSetup.printAreaOverride.screen_id).toBe("anchor-screen");
   });
 
   test("returns only the variation-owned print areas for readiness", () => {
