@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from starlette.responses import RedirectResponse
+from starlette.responses import RedirectResponse, Response
 
 from auth import create_token, get_current_user, hash_password, optional_user, require_role
 from models import (
@@ -116,6 +116,13 @@ from platform_modules.registry import (
     package_keys,
 )
 from storage import ALLOWED_ARTWORK, ALLOWED_IMAGE, save_upload
+from product_template_csv import (
+    apply_import_plan_to_documents,
+    build_import_plan,
+    export_product_template_zip,
+    parse_product_template_import,
+    remove_unset_fields,
+)
 
 
 # =============================================================================
@@ -7621,6 +7628,442 @@ async def admin_create_product_template(
     template = ProductTemplate(**data, created_at=now, updated_at=now)
     await db.product_templates.insert_one(iso_dates(template.model_dump()))
     return template
+
+
+
+PRODUCT_TEMPLATE_CSV_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+async def _read_product_template_csv_upload(
+    file: UploadFile,
+) -> bytes:
+    filename = str(file.filename or "").strip()
+
+    if not filename:
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded file has no filename.",
+        )
+
+    content = await file.read(
+        PRODUCT_TEMPLATE_CSV_MAX_UPLOAD_BYTES + 1
+    )
+
+    if len(content) > PRODUCT_TEMPLATE_CSV_MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="CSV import files may not exceed 10 MB.",
+        )
+
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded file is empty.",
+        )
+
+    return content
+
+
+def _product_template_csv_query(
+    status: Optional[str],
+    category: Optional[str],
+    template_ids: Optional[str],
+) -> Dict[str, Any]:
+    query: Dict[str, Any] = {}
+
+    if status:
+        query["status"] = status
+
+    if category:
+        query["category"] = category
+
+    if template_ids:
+        ids = sorted({
+            value.strip()
+            for value in template_ids.split(",")
+            if value.strip()
+        })
+
+        if ids:
+            query["id"] = {"$in": ids}
+
+    return query
+
+
+@admin_router.get("/product-templates/csv/export")
+async def admin_export_product_templates_csv(
+    request: Request,
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    template_ids: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    _require_manager_permission(
+        user,
+        "manage_product_templates",
+    )
+
+    db = request.app.state.db
+
+    query = _product_template_csv_query(
+        status=status,
+        category=category,
+        template_ids=template_ids,
+    )
+
+    documents = (
+        await db.product_templates
+        .find(query, {"_id": 0})
+        .sort("name", 1)
+        .to_list(1000)
+    )
+
+    payload = export_product_template_zip(documents)
+
+    timestamp = utcnow().strftime("%Y%m%d-%H%M%S")
+    filename = (
+        "fandomforge-product-templates-"
+        f"{timestamp}.zip"
+    )
+
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@admin_router.post("/product-templates/csv/preview")
+async def admin_preview_product_templates_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    _require_manager_permission(
+        user,
+        "manage_product_templates",
+    )
+
+    content = await _read_product_template_csv_upload(file)
+
+    try:
+        package = parse_product_template_import(
+            file.filename or "",
+            content,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    db = request.app.state.db
+
+    documents = await db.product_templates.find(
+        {},
+        {"_id": 0},
+    ).to_list(1000)
+
+    plan = build_import_plan(
+        documents,
+        package,
+    )
+
+    return {
+        "filename": file.filename,
+        **plan,
+    }
+
+
+@admin_router.post("/product-templates/csv/apply")
+async def admin_apply_product_templates_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    _require_manager_permission(
+        user,
+        "manage_product_templates",
+    )
+
+    content = await _read_product_template_csv_upload(file)
+
+    try:
+        package = parse_product_template_import(
+            file.filename or "",
+            content,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    db = request.app.state.db
+
+    current_documents = await db.product_templates.find(
+        {},
+        {"_id": 0},
+    ).to_list(1000)
+
+    current_by_id = {
+        str(document.get("id") or ""): document
+        for document in current_documents
+        if str(document.get("id") or "")
+    }
+
+    plan = build_import_plan(
+        current_documents,
+        package,
+    )
+
+    if plan["errors"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message":
+                    "CSV import contains validation errors.",
+                "preview": plan,
+            },
+        )
+
+    if not plan["can_apply"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message":
+                    "CSV import contains no applicable changes.",
+                "preview": plan,
+            },
+        )
+
+    touched_ids = plan["touched_template_ids"]
+
+    # Re-read touched documents immediately before mutation and compare
+    # their exact updated_at values to the preview source.
+    latest_documents = await db.product_templates.find(
+        {
+            "id": {
+                "$in": touched_ids,
+            },
+        },
+        {"_id": 0},
+    ).to_list(1000)
+
+    latest_by_id = {
+        str(document.get("id") or ""): document
+        for document in latest_documents
+        if str(document.get("id") or "")
+    }
+
+    concurrency_errors = []
+
+    for template_id in touched_ids:
+        original = current_by_id.get(template_id)
+        latest = latest_by_id.get(template_id)
+
+        if original is None or latest is None:
+            concurrency_errors.append({
+                "template_id": template_id,
+                "message":
+                    "Template disappeared before import apply.",
+            })
+            continue
+
+        if original.get("updated_at") != latest.get("updated_at"):
+            concurrency_errors.append({
+                "template_id": template_id,
+                "message":
+                    "Template changed during import preview.",
+            })
+
+    if concurrency_errors:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message":
+                    "Templates changed before the import could apply.",
+                "errors": concurrency_errors,
+            },
+        )
+
+    applied_at = utcnow().isoformat()
+
+    try:
+        prepared = apply_import_plan_to_documents(
+            latest_documents,
+            plan,
+            applied_at,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        ) from error
+
+    prepared_documents = prepared["documents"]
+    top_level_unsets = prepared["top_level_unsets"]
+
+    validated_documents = {}
+
+    for template_id, document in prepared_documents.items():
+        normalized = normalize_template_payload(document)
+        normalized["updated_at"] = applied_at
+
+        try:
+            ProductTemplate(**normalized)
+        except Exception as error:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message":
+                        "CSV changes produced an invalid template.",
+                    "template_id": template_id,
+                    "error": str(error),
+                },
+            ) from error
+
+        validated_documents[template_id] = remove_unset_fields(
+            normalized,
+            top_level_unsets.get(template_id, []),
+        )
+
+    timestamp = utcnow().strftime("%Y%m%d-%H%M%S")
+    backup_path = (
+        "/tmp/"
+        "fandomforge-product-template-csv-backup-"
+        f"{timestamp}.json"
+    )
+
+    backup_payload = {
+        "generated_at": utcnow().isoformat(),
+        "reason": "product_template_csv_import",
+        "filename": file.filename,
+        "summary": plan["summary"],
+        "template_ids": touched_ids,
+        "documents": [
+            latest_by_id[template_id]
+            for template_id in touched_ids
+        ],
+    }
+
+    with open(
+        backup_path,
+        "w",
+        encoding="utf-8",
+    ) as backup_file:
+        json.dump(
+            backup_payload,
+            backup_file,
+            indent=2,
+            default=str,
+        )
+
+    updated_count = 0
+
+    for template_id in touched_ids:
+        original = latest_by_id[template_id]
+        normalized = validated_documents[template_id]
+
+        concurrency_filter: Dict[str, Any] = {
+            "id": template_id,
+        }
+
+        if "updated_at" in original:
+            concurrency_filter["updated_at"] = (
+                original.get("updated_at")
+            )
+        else:
+            concurrency_filter["updated_at"] = {
+                "$exists": False,
+            }
+
+        update_document: Dict[str, Any] = {
+            "$set": normalized,
+        }
+
+        unset_fields = top_level_unsets.get(
+            template_id,
+            [],
+        )
+
+        if unset_fields:
+            update_document["$unset"] = {
+                field: ""
+                for field in unset_fields
+            }
+
+        result = await db.product_templates.update_one(
+            concurrency_filter,
+            update_document,
+        )
+
+        if result.matched_count != 1:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message":
+                        "A template changed during import apply. "
+                        "The backup path is included for recovery.",
+                    "template_id": template_id,
+                    "backup_path": backup_path,
+                    "templates_updated_before_conflict":
+                        updated_count,
+                },
+            )
+
+        updated_count += 1
+
+    report_path = (
+        "/tmp/"
+        "fandomforge-product-template-csv-import-"
+        f"{timestamp}.json"
+    )
+
+    import_report = {
+        "applied_at": applied_at,
+        "filename": file.filename,
+        "backup_path": backup_path,
+        "summary": plan["summary"],
+        "template_ids": touched_ids,
+        "templates_updated": updated_count,
+    }
+
+    with open(
+        report_path,
+        "w",
+        encoding="utf-8",
+    ) as report_file:
+        json.dump(
+            import_report,
+            report_file,
+            indent=2,
+            default=str,
+        )
+
+    updated_documents = await db.product_templates.find(
+        {
+            "id": {
+                "$in": touched_ids,
+            },
+        },
+        {"_id": 0},
+    ).sort("name", 1).to_list(1000)
+
+    return {
+        "status": "applied",
+        "filename": file.filename,
+        "summary": plan["summary"],
+        "templates_updated": updated_count,
+        "backup_path": backup_path,
+        "report_path": report_path,
+        "templates": updated_documents,
+    }
+
 
 
 @admin_router.get("/product-templates/{template_id}", response_model=ProductTemplate)
