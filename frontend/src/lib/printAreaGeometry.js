@@ -208,3 +208,70 @@ export function geometryClipStyle(area = {}) {
 
   return {};
 }
+
+export function traceCanvasPrintAreaPath(
+  context,
+  area = {},
+  x = 0,
+  y = 0,
+  width = 0,
+  height = 0
+) {
+  if (!context) return "rectangle";
+
+  const geometry = normalisePrintAreaGeometry(area);
+  const resolvedWidth = Math.max(0, Number(width || 0));
+  const resolvedHeight = Math.max(0, Number(height || 0));
+
+  context.beginPath();
+
+  if (geometry.geometry_type === "circle") {
+    const radius = Math.min(resolvedWidth, resolvedHeight) / 2;
+    context.arc(
+      Number(x || 0) + resolvedWidth / 2,
+      Number(y || 0) + resolvedHeight / 2,
+      radius,
+      0,
+      Math.PI * 2
+    );
+    context.closePath();
+    return geometry.geometry_type;
+  }
+
+  if (geometry.geometry_type === "ellipse") {
+    context.ellipse(
+      Number(x || 0) + resolvedWidth / 2,
+      Number(y || 0) + resolvedHeight / 2,
+      resolvedWidth / 2,
+      resolvedHeight / 2,
+      0,
+      0,
+      Math.PI * 2
+    );
+    context.closePath();
+    return geometry.geometry_type;
+  }
+
+  if (
+    geometry.geometry_type === "polygon"
+    && geometry.polygon_points.length >= 3
+  ) {
+    geometry.polygon_points.forEach((point, index) => {
+      const pointX = Number(x || 0) + (point.x_pct / 100) * resolvedWidth;
+      const pointY = Number(y || 0) + (point.y_pct / 100) * resolvedHeight;
+      if (index === 0) context.moveTo(pointX, pointY);
+      else context.lineTo(pointX, pointY);
+    });
+    context.closePath();
+    return geometry.geometry_type;
+  }
+
+  context.rect(
+    Number(x || 0),
+    Number(y || 0),
+    resolvedWidth,
+    resolvedHeight
+  );
+  context.closePath();
+  return geometry.geometry_type;
+}
