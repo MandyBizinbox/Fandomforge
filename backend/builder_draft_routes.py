@@ -59,13 +59,45 @@ def _template_match_score(template: dict, choice: str) -> int:
     return score
 
 
-async def _resolve_builder_template(db, payload: BuilderDraftProductPayload) -> dict:
+async def _resolve_builder_template(
+    db,
+    payload: BuilderDraftProductPayload,
+    include_hidden: bool = False,
+) -> dict:
+    from product_template_visibility import creator_template_query
+
     if payload.template_id:
-        doc = await db.product_templates.find_one({"id": payload.template_id}, {"_id": 0})
+        template_query = {
+            "id": payload.template_id,
+        }
+
+        if not include_hidden:
+            template_query = creator_template_query({
+                **template_query,
+                "status": "active",
+            })
+
+        doc = await db.product_templates.find_one(
+            template_query,
+            {"_id": 0},
+        )
+
         if doc:
             return doc
 
-    docs = await db.product_templates.find({"status": "active"}, {"_id": 0}).to_list(500)
+    template_query = {
+        "status": "active",
+    }
+
+    if not include_hidden:
+        template_query = creator_template_query(
+            template_query
+        )
+
+    docs = await db.product_templates.find(
+        template_query,
+        {"_id": 0},
+    ).to_list(500)
     if not docs:
         raise HTTPException(status_code=400, detail="No active product templates are available")
 
@@ -101,7 +133,16 @@ async def create_or_update_builder_draft_product(
     else:
         creator = await get_creator_account_for_user(db, user, permission="manage_products")
 
-    template = await _resolve_builder_template(db, payload)
+    template = await _resolve_builder_template(
+        db,
+        payload,
+        include_hidden=user.role in (
+            "owner",
+            "super_admin",
+            "admin",
+            "manager",
+        ),
+    )
 
     title = (payload.title or "").strip() or f"Draft - {template.get('name') or 'Product'}"
     base_data = {

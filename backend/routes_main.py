@@ -3165,7 +3165,11 @@ PUBLIC_TEMPLATE_INTERNAL_COST_KEYS = {
 
 
 def _creator_safe_product_template_doc(template: dict) -> dict:
-    row = dict(template or {})
+    from product_template_visibility import (
+        strip_template_visibility_controls,
+    )
+
+    row = strip_template_visibility_controls(template)
     costing = _resolve_blank_costing({}, row)
     creator_price = row.get("creator_blank_price") or costing["creator_blank_price"]
 
@@ -3928,8 +3932,12 @@ async def public_product_templates(
     category: Optional[str] = None,
     product_type_id: Optional[str] = None,
 ):
+    from product_template_visibility import creator_template_query
+
     db = request.app.state.db
-    q: Dict = {"status": "active"}
+    q: Dict = creator_template_query({
+        "status": "active",
+    })
 
     if category:
         q["category"] = category
@@ -3945,9 +3953,14 @@ async def public_product_template(
     template_id: str,
     request: Request,
 ):
+    from product_template_visibility import creator_template_query
+
     db = request.app.state.db
     doc = await db.product_templates.find_one(
-        {"id": template_id, "status": "active"},
+        creator_template_query({
+            "id": template_id,
+            "status": "active",
+        }),
         {"_id": 0},
     )
 
@@ -3973,6 +3986,32 @@ async def create_product(
 ):
     db = request.app.state.db
     creator = await get_creator_account_for_user(db, user, permission="manage_products")
+
+    from product_template_visibility import (
+        can_access_hidden_templates,
+        creator_template_query,
+    )
+
+    if (
+        payload.template_id
+        and not can_access_hidden_templates(user)
+    ):
+        available_template = await db.product_templates.find_one(
+            creator_template_query({
+                "id": payload.template_id,
+                "status": "active",
+            }),
+            {
+                "_id": 0,
+                "id": 1,
+            },
+        )
+
+        if not available_template:
+            raise HTTPException(
+                status_code=400,
+                detail="Product template is not available to creators",
+            )
 
     data = await normalize_template_product_payload(
         db=db,
