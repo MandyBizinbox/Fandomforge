@@ -1,0 +1,41 @@
+name: Apply Shared Template Readiness
+
+on:
+  push:
+    branches:
+      - feature/template-builder-production-geometry-v2
+    paths:
+      - "scripts/apply_shared_template_readiness_patch.py"
+      - ".github/workflows/apply-shared-template-readiness.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-readiness-patch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/template-builder-production-geometry-v2
+          fetch-depth: 0
+
+      - name: Apply guarded readiness patch
+        run: python3 scripts/apply_shared_template_readiness_patch.py
+
+      - name: Confirm both catalogues use the shared resolver
+        run: |
+          grep -q 'resolveTemplateReadiness' frontend/src/components/template-studio/ProductTemplatesPage.jsx
+          grep -q 'resolveTemplateReadiness' frontend/src/pages/CreatorCataloguePricing.jsx
+
+      - name: Commit generated changes and remove one-time patch machinery
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/template-studio/ProductTemplatesPage.jsx frontend/src/pages/CreatorCataloguePricing.jsx
+          git rm scripts/apply_shared_template_readiness_patch.py
+          git rm .github/workflows/apply-shared-template-readiness.yml
+          git commit -m "Use one shared template readiness resolver"
+          git push origin HEAD:feature/template-builder-production-geometry-v2
