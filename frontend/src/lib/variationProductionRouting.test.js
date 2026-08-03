@@ -3,7 +3,10 @@ import {
   resolveEffectiveProductionSetup,
   templatePrintAreaCoverage,
 } from "./templateProductionResolver";
-import { setVariationProductionConfiguration } from "./variationProductionConfig";
+import {
+  compileVariableTemplateProduction,
+  setVariationProductionConfiguration,
+} from "./variationProductionConfig";
 
 function configuredVariation(id, imageUrl, geometryType, widthMm) {
   return setVariationProductionConfiguration(
@@ -99,5 +102,57 @@ describe("variation production routing", () => {
     expect(coverage.total).toBe(1);
     expect(coverage.configured).toBe(1);
     expect(coverage.complete).toBe(true);
+  });
+
+  test("marks a parent compatibility area unavailable when the variation does not own it", () => {
+    const oneArea = configuredVariation("one", "/one.png", "circle", 100);
+    const twoAreaConfig = {
+      ...oneArea.print_area_overrides.__production_configuration__,
+      screens: [
+        ...oneArea.print_area_overrides.__production_configuration__.screens,
+        {
+          id: "back-screen",
+          name: "Back",
+          view: "back",
+          view_key: "back",
+          image_url: "/back.png",
+          status: "active",
+        },
+      ],
+      print_areas: [
+        ...oneArea.print_area_overrides.__production_configuration__.print_areas,
+        {
+          ...oneArea.print_area_overrides.__production_configuration__.print_areas[0],
+          id: "back-area",
+          screen_id: "back-screen",
+          name: "Back",
+          area_key: "back",
+          view_key: "back",
+          screen_view: "back",
+        },
+      ],
+    };
+    const twoAreas = setVariationProductionConfiguration(
+      { id: "two", enabled: true, status: "active" },
+      twoAreaConfig
+    );
+    const compiled = compileVariableTemplateProduction(
+      { product_image_url: "/fallback.png", variations: [oneArea, twoAreas] },
+      [oneArea, twoAreas]
+    );
+    const compiledOne = compiled.variations.find((variation) => variation.id === "one");
+    const backArea = compiled.print_areas.find((area) => area.area_key === "back");
+    const backScreen = compiled.mockup_screens.find((screen) => screen.id === backArea.screen_id);
+    const setup = resolveEffectiveProductionSetup(compiled, compiledOne, {
+      screen: backScreen,
+      area: backArea,
+    });
+
+    expect(setup.printAreaOverride.id).toBe(backArea.id);
+    expect(setup.printAreaOverride.status).toBe("archived");
+    expect(setup.printAreaOverride.disabled).toBe(true);
+    expect(setup.printAreaOverride.screen_id).toBe("__disabled__");
+    expect(setup.printAreaOverride.width).toBe(0);
+    expect(setup.sourceMap.printArea).toContain("unavailable");
   });
 });
