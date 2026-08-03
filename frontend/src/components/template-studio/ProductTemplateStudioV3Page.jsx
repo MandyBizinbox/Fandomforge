@@ -17,7 +17,6 @@ import {
 import {
   applyProductionConfigurationToVariations,
   blankProductionConfiguration,
-  cloneProductionConfiguration,
   compileVariableTemplateProduction,
   getVariationProductionConfiguration,
   normaliseProductionConfiguration,
@@ -57,12 +56,6 @@ function activeVariations(template = {}) {
   return safeArray(template.variations).filter((variation) => variation && variation.enabled !== false && variation.status !== "archived");
 }
 
-function sectionsFor(template = {}) {
-  return activeVariations(template).length
-    ? ["product", "variations", "gallery", "size-guide"]
-    : ["product", "production", "gallery", "size-guide"];
-}
-
 function templatePath(id, section) {
   return `/admin/product-templates/${id || "new"}/${section}`;
 }
@@ -71,10 +64,15 @@ function selectedAttributeObjects(attributes, template) {
   return safeArray(attributes).filter((attribute) => safeArray(template.attribute_ids).includes(attribute.id));
 }
 
+function comparableConfiguration(variation, template) {
+  const configuration = getVariationProductionConfiguration(variation, template);
+  return JSON.stringify({ ...configuration, configured_at: null });
+}
+
 function variationConfigurationsEqual(variations, template) {
   const rows = activeVariations({ variations });
   if (rows.length < 2) return true;
-  const serialised = rows.map((variation) => JSON.stringify(getVariationProductionConfiguration(variation, template)));
+  const serialised = rows.map((variation) => comparableConfiguration(variation, template));
   return serialised.every((value) => value === serialised[0]);
 }
 
@@ -165,14 +163,20 @@ export default function ProductTemplateStudioV3Page() {
   const [productTypes, setProductTypes] = useState([]);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [structureMode, setStructureMode] = useState("single");
   const [setupMode, setSetupMode] = useState("shared");
   const [sharedConfig, setSharedConfig] = useState(blankProductionConfiguration());
   const [selectedVariationId, setSelectedVariationId] = useState("");
   const [copyTargets, setCopyTargets] = useState([]);
 
   const variations = activeVariations(template);
-  const variableProduct = variations.length > 0;
-  const allowedSections = sectionsFor(template);
+  const variableProduct = structureMode === "variable";
+  const allowedSections = useMemo(
+    () => variableProduct
+      ? ["product", "variations", "gallery", "size-guide"]
+      : ["product", "production", "gallery", "size-guide"],
+    [variableProduct]
+  );
   const currentSection = allowedSections.includes(section) ? section : allowedSections[0];
   const baseId = isNew ? "new" : id;
 
@@ -216,10 +220,13 @@ export default function ProductTemplateStudioV3Page() {
           template_gallery: safeArray(data.template_gallery),
           artwork_modes: safeArray(data.artwork_modes),
         };
+        const nextVariations = activeVariations(next);
         setTemplate(next);
-        const firstVariation = activeVariations(next)[0];
-        if (firstVariation) {
+        setStructureMode(nextVariations.length ? "variable" : "single");
+        if (nextVariations.length) {
+          const firstVariation = nextVariations[0];
           setSelectedVariationId(firstVariation.id);
+          setCopyTargets(nextVariations.map((variation) => variation.id));
           setSharedConfig(getVariationProductionConfiguration(firstVariation, next));
           setSetupMode(variationConfigurationsEqual(next.variations, next) ? "shared" : "individual");
         }
@@ -229,9 +236,10 @@ export default function ProductTemplateStudioV3Page() {
   }, [id, isNew]);
 
   useEffect(() => {
+    if (loading) return;
     if (section && allowedSections.includes(section)) return;
     navigate(templatePath(baseId, allowedSections[0]), { replace: true });
-  }, [allowedSections, baseId, navigate, section]);
+  }, [allowedSections, baseId, loading, navigate, section]);
 
   useEffect(() => {
     if (!variations.length) {
@@ -246,9 +254,41 @@ export default function ProductTemplateStudioV3Page() {
   const updateTemplate = (patch) => setTemplate((current) => ({ ...current, ...patch }));
   const selectedVariation = variations.find((variation) => variation.id === selectedVariationId) || variations[0] || null;
   const selectedConfig = selectedVariation ? getVariationProductionConfiguration(selectedVariation, template) : blankProductionConfiguration();
-  const galleryPrintAreas = variableProduct
-    ? getVariationProductionConfiguration(variations[0] || {}, template).print_areas
+  const galleryPrintAreas = variableProduct && variations.length
+    ? getVariationProductionConfiguration(variations[0], template).print_areas
     : safeArray(template.print_areas);
+
+  const chooseStructure = (nextMode) => {
+    if (nextMode === structureMode) return;
+
+    if (nextMode === "single" && variations.length) {
+      const confirmed = window.confirm(
+        "Switch this template to a non-variable product?\n\nThe first variation production setup will become the single product setup and the variation records will be removed when you save."
+      );
+      if (!confirmed) return;
+      const firstConfiguration = getVariationProductionConfiguration(variations[0], template);
+      updateTemplate({
+        variations: [],
+        mockup_screens: firstConfiguration.screens,
+        print_areas: firstConfiguration.print_areas,
+        print_option_ids: firstConfiguration.print_option_ids,
+        print_options: firstConfiguration.print_options,
+      });
+      setSelectedVariationId("");
+      setCopyTargets([]);
+    }
+
+    if (nextMode === "variable" && !variations.length) {
+      setSharedConfig(normaliseProductionConfiguration({
+        screens: safeArray(template.mockup_screens),
+        print_areas: safeArray(template.print_areas),
+        print_option_ids: safeArray(template.print_option_ids),
+        print_options: safeArray(template.print_options),
+      }));
+    }
+
+    setStructureMode(nextMode);
+  };
 
   const applyBlueprint = (productTypeId) => {
     const productType = productTypes.find((item) => item.id === productTypeId);
@@ -348,6 +388,7 @@ export default function ProductTemplateStudioV3Page() {
         });
 
     updateTemplate({ variations: generated });
+    setStructureMode("variable");
     setSelectedVariationId(generated[0].id);
     setSharedConfig(initialConfig);
     setSetupMode("shared");
@@ -363,6 +404,7 @@ export default function ProductTemplateStudioV3Page() {
   };
 
   const updateSelectedVariationConfig = (configuration) => {
+    if (!selectedVariation) return;
     updateTemplate({
       variations: safeArray(template.variations).map((variation) => variation.id === selectedVariation.id
         ? setVariationProductionConfiguration(variation, configuration)
@@ -371,6 +413,10 @@ export default function ProductTemplateStudioV3Page() {
   };
 
   const applySharedToAll = () => {
+    if (!productionConfigurationComplete(sharedConfig)) {
+      toast.error("Complete the editor image, print areas, physical dimensions and print rules before applying this setup");
+      return;
+    }
     updateTemplate({ variations: applyProductionConfigurationToVariations(template.variations, sharedConfig) });
     setCopyTargets(variations.map((variation) => variation.id));
     toast.success(`Production configuration copied into all ${variations.length} variations`);
@@ -378,6 +424,10 @@ export default function ProductTemplateStudioV3Page() {
 
   const copySelectedConfiguration = () => {
     if (!selectedVariation) return;
+    if (!productionConfigurationComplete(selectedConfig)) {
+      toast.error("Complete this variation production setup before copying it");
+      return;
+    }
     const targets = copyTargets.length ? copyTargets : variations.map((variation) => variation.id);
     updateTemplate({
       variations: applyProductionConfigurationToVariations(template.variations, selectedConfig, targets),
@@ -408,6 +458,7 @@ export default function ProductTemplateStudioV3Page() {
       };
 
       if (variableProduct) {
+        if (!variations.length) throw new Error("Generate at least one variation before saving a variable product");
         const incomplete = variations.filter((variation) => !productionConfigurationComplete(getVariationProductionConfiguration(variation, template)));
         if (incomplete.length) {
           throw new Error(`${incomplete.length} variation production setup${incomplete.length === 1 ? " is" : "s are"} incomplete`);
@@ -422,8 +473,9 @@ export default function ProductTemplateStudioV3Page() {
         : await http.patch(`/admin/product-templates/${id}`, payload);
       const saved = { ...blankTemplate, ...response.data };
       setTemplate(saved);
+      setStructureMode(activeVariations(saved).length ? "variable" : "single");
       toast.success("Product template saved");
-      if (isNew) navigate(templatePath(saved.id, currentSection === "product" ? "product" : sectionsFor(saved)[0]), { replace: true });
+      if (isNew) navigate(templatePath(saved.id, "product"), { replace: true });
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Could not save template");
     } finally {
@@ -441,7 +493,7 @@ export default function ProductTemplateStudioV3Page() {
           <div>
             <div className="overline">Product template studio</div>
             <h1>{isNew ? "New product template" : template.name || "Product template"}</h1>
-            <p>{variableProduct ? `${variations.length} production-owned variations` : "Single product production configuration"}</p>
+            <p>{variableProduct ? `${variations.length || "No"} production-owned variation${variations.length === 1 ? "" : "s"}` : "Single product production configuration"}</p>
           </div>
         </div>
         <div className="v3-save-row">
@@ -466,6 +518,21 @@ export default function ProductTemplateStudioV3Page() {
         <div className="v3-layout-two">
           <section className="v3-card">
             <div className="v3-section-heading"><div><div className="overline">Product</div><h2>Blank product details</h2><p>Select the product type first, then define this supplier-specific blank.</p></div></div>
+
+            <div className="v3-structure-selector">
+              <div className="overline">Product structure</div>
+              <div className="v3-decision-grid">
+                <button type="button" className={!variableProduct ? "active" : ""} onClick={() => chooseStructure("single")}>
+                  <strong>Non-variable product</strong>
+                  <span>One sellable product owns one complete production setup.</span>
+                </button>
+                <button type="button" className={variableProduct ? "active" : ""} onClick={() => chooseStructure("variable")}>
+                  <strong>Variable product</strong>
+                  <span>Every generated variation owns its own complete production setup.</span>
+                </button>
+              </div>
+            </div>
+
             <div className="v3-form-grid v3-form-grid-two">
               <label className="v3-span-two"><span>Product type blueprint</span><select value={template.product_type_id || ""} onChange={(event) => applyBlueprint(event.target.value)}><option value="">Select product type</option>{productTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
               <label><span>Template name</span><input value={template.name || ""} onChange={(event) => updateTemplate({ name: event.target.value, slug: template.slug || slugify(event.target.value) })} /></label>
@@ -497,9 +564,9 @@ export default function ProductTemplateStudioV3Page() {
               {template.status === "active" && template.creator_visible === false && <div className="v3-warning">This template is active but hidden from Create Printable Product.</div>}
             </section>
             <section className="v3-card">
-              <div className="overline">Product structure</div>
+              <div className="overline">Current workflow</div>
               <strong className="v3-structure-label">{variableProduct ? "Variable product" : "Non-variable product"}</strong>
-              <p>{variableProduct ? "Every variation owns a complete production setup." : "The product owns one complete production setup."}</p>
+              <p>{variableProduct ? "Generate the variations next, then choose shared or individual production setup." : "Configure the complete product in Production Setup."}</p>
             </section>
           </aside>
         </div>
@@ -523,46 +590,56 @@ export default function ProductTemplateStudioV3Page() {
             {selectedAttributeObjects(attributes, template).map((attribute) => { const key = attribute.id || attribute.name || attribute.slug; const selected = new Set(safeArray(template.selected_attribute_values?.[key])); return <div className="v3-attribute-values" key={key}><strong>{attribute.name}</strong><div>{safeArray(attribute.values).map((value) => <label key={value}><input type="checkbox" checked={selected.has(value)} onChange={() => toggleAttributeValue(attribute, value)} />{value}</label>)}</div></div>; })}
           </section>
 
-          <section className="v3-card v3-decision-card">
-            <div className="overline">Production setup method</div>
-            <h2>How should these variations be configured?</h2>
-            <div className="v3-decision-grid">
-              <button type="button" className={setupMode === "shared" ? "active" : ""} onClick={() => { setSetupMode("shared"); setSharedConfig(getVariationProductionConfiguration(selectedVariation || variations[0], template)); }}><strong>Same setup for all variations</strong><span>Configure once, then copy a complete independent production configuration into every variation. Best for colour variants.</span></button>
-              <button type="button" className={setupMode === "individual" ? "active" : ""} onClick={() => setSetupMode("individual")}><strong>Configure each variation separately</strong><span>Each variation receives its own images, print areas, dimensions and print rules. Best for different shapes or sizes.</span></button>
-            </div>
-          </section>
-
-          {setupMode === "shared" ? (
-            <>
-              <ProductionConfigurationEditor value={sharedConfig} onChange={setSharedConfig} printOptions={printOptions} title="Shared production setup" subtitle={`This configuration will be copied into all ${variations.length} variations. Each variation remains independently editable afterwards.`} />
-              <div className="v3-sticky-action"><button type="button" className="v3-button v3-button-primary" onClick={applySharedToAll}><Check size={16} /> Apply this complete configuration to all {variations.length} variations</button></div>
-            </>
+          {!variations.length ? (
+            <section className="v3-card v3-empty-state">
+              <Wand2 size={34} />
+              <h2>Generate the product variations</h2>
+              <p>Select the relevant attributes and supplier values above. The shared-versus-individual production prompt appears immediately after generation.</p>
+            </section>
           ) : (
-            <div className="v3-individual-layout">
-              <aside className="v3-variation-list">
-                {variations.map((variation) => { const summary = variationProductionSummary(variation, template); return <button type="button" key={variation.id} className={variation.id === selectedVariation?.id ? "active" : ""} onClick={() => setSelectedVariationId(variation.id)}><strong>{getVariationLabel(variation)}</strong><span>{summary.screens} view(s) · {summary.printAreas} area(s) · {summary.printRules} rule(s)</span><em className={summary.complete ? "ready" : "incomplete"}>{summary.complete ? "Ready" : "Incomplete"}</em></button>; })}
-              </aside>
-              <div className="v3-variation-editor">
-                {selectedVariation && (
-                  <>
-                    <section className="v3-card">
-                      <div className="v3-section-heading"><div><div className="overline">Selected variation</div><h2>{getVariationLabel(selectedVariation)}</h2></div></div>
-                      <div className="v3-form-grid v3-form-grid-four">
-                        <label><span>SKU</span><input value={selectedVariation.sku || ""} onChange={(event) => patchVariation(selectedVariation.id, { sku: event.target.value })} /></label>
-                        <label><span>Supplier SKU</span><input value={selectedVariation.supplier_sku || ""} onChange={(event) => patchVariation(selectedVariation.id, { supplier_sku: event.target.value })} /></label>
-                        <label><span>Platform blank cost</span><input type="number" step="0.01" value={selectedVariation.platform_blank_cost ?? selectedVariation.base_blank_cost ?? 0} onChange={(event) => patchVariation(selectedVariation.id, { platform_blank_cost: Number(event.target.value || 0), base_blank_cost: Number(event.target.value || 0) })} /></label>
-                        <label><span>Creator blank price</span><input type="number" step="0.01" value={selectedVariation.creator_blank_price ?? 0} onChange={(event) => patchVariation(selectedVariation.id, { creator_blank_price: Number(event.target.value || 0) })} /></label>
-                      </div>
-                    </section>
-                    <ProductionConfigurationEditor value={selectedConfig} onChange={updateSelectedVariationConfig} printOptions={printOptions} title={`${getVariationLabel(selectedVariation)} production setup`} subtitle="This is the complete production record for this variation." onCopyRequested={() => {}} copyLabel="" />
-                    <section className="v3-card">
-                      <div className="v3-section-heading"><div><div className="overline">Copy production setup</div><h2>Apply to selected variations</h2><p>Copy this complete setup to matching colour, size or material variations without creating parent-level print areas.</p></div><button type="button" className="v3-button v3-button-primary" onClick={copySelectedConfiguration}><Copy size={15} /> Copy setup</button></div>
-                      <div className="v3-copy-targets">{variations.map((variation) => <label key={variation.id}><input type="checkbox" checked={copyTargets.includes(variation.id)} onChange={(event) => setCopyTargets((current) => event.target.checked ? Array.from(new Set([...current, variation.id])) : current.filter((item) => item !== variation.id))} />{getVariationLabel(variation)}</label>)}</div>
-                    </section>
-                  </>
-                )}
-              </div>
-            </div>
+            <>
+              <section className="v3-card v3-decision-card">
+                <div className="overline">Production setup method</div>
+                <h2>How should these variations be configured?</h2>
+                <div className="v3-decision-grid">
+                  <button type="button" className={setupMode === "shared" ? "active" : ""} onClick={() => { setSetupMode("shared"); setSharedConfig(getVariationProductionConfiguration(selectedVariation || variations[0], template)); }}><strong>Same setup for all variations</strong><span>Configure once, then copy a complete independent production configuration into every variation. Best for colour variants.</span></button>
+                  <button type="button" className={setupMode === "individual" ? "active" : ""} onClick={() => setSetupMode("individual")}><strong>Configure each variation separately</strong><span>Each variation receives its own images, print areas, dimensions and print rules. Best for different shapes or sizes.</span></button>
+                </div>
+              </section>
+
+              {setupMode === "shared" ? (
+                <>
+                  <ProductionConfigurationEditor value={sharedConfig} onChange={setSharedConfig} printOptions={printOptions} title="Shared production setup" subtitle={`This configuration will be copied into all ${variations.length} variations. Each variation remains independently editable afterwards.`} />
+                  <div className="v3-sticky-action"><button type="button" className="v3-button v3-button-primary" onClick={applySharedToAll}><Check size={16} /> Apply this complete configuration to all {variations.length} variations</button></div>
+                </>
+              ) : (
+                <div className="v3-individual-layout">
+                  <aside className="v3-variation-list">
+                    {variations.map((variation) => { const summary = variationProductionSummary(variation, template); return <button type="button" key={variation.id} className={variation.id === selectedVariation?.id ? "active" : ""} onClick={() => setSelectedVariationId(variation.id)}><strong>{getVariationLabel(variation)}</strong><span>{summary.screens} view(s) · {summary.printAreas} area(s) · {summary.printRules} rule(s)</span><em className={summary.complete ? "ready" : "incomplete"}>{summary.complete ? "Ready" : "Incomplete"}</em></button>; })}
+                  </aside>
+                  <div className="v3-variation-editor">
+                    {selectedVariation && (
+                      <>
+                        <section className="v3-card">
+                          <div className="v3-section-heading"><div><div className="overline">Selected variation</div><h2>{getVariationLabel(selectedVariation)}</h2></div></div>
+                          <div className="v3-form-grid v3-form-grid-four">
+                            <label><span>SKU</span><input value={selectedVariation.sku || ""} onChange={(event) => patchVariation(selectedVariation.id, { sku: event.target.value })} /></label>
+                            <label><span>Supplier SKU</span><input value={selectedVariation.supplier_sku || ""} onChange={(event) => patchVariation(selectedVariation.id, { supplier_sku: event.target.value })} /></label>
+                            <label><span>Platform blank cost</span><input type="number" step="0.01" value={selectedVariation.platform_blank_cost ?? selectedVariation.base_blank_cost ?? 0} onChange={(event) => patchVariation(selectedVariation.id, { platform_blank_cost: Number(event.target.value || 0), base_blank_cost: Number(event.target.value || 0) })} /></label>
+                            <label><span>Creator blank price</span><input type="number" step="0.01" value={selectedVariation.creator_blank_price ?? 0} onChange={(event) => patchVariation(selectedVariation.id, { creator_blank_price: Number(event.target.value || 0) })} /></label>
+                          </div>
+                        </section>
+                        <ProductionConfigurationEditor value={selectedConfig} onChange={updateSelectedVariationConfig} printOptions={printOptions} title={`${getVariationLabel(selectedVariation)} production setup`} subtitle="This is the complete production record for this variation." />
+                        <section className="v3-card">
+                          <div className="v3-section-heading"><div><div className="overline">Copy production setup</div><h2>Apply to selected variations</h2><p>Copy this complete setup to matching colour, size or material variations without creating parent-level production areas.</p></div><button type="button" className="v3-button v3-button-primary" onClick={copySelectedConfiguration}><Copy size={15} /> Copy setup</button></div>
+                          <div className="v3-copy-targets">{variations.map((variation) => <label key={variation.id}><input type="checkbox" checked={copyTargets.includes(variation.id)} onChange={(event) => setCopyTargets((current) => event.target.checked ? Array.from(new Set([...current, variation.id])) : current.filter((item) => item !== variation.id))} />{getVariationLabel(variation)}</label>)}</div>
+                        </section>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
