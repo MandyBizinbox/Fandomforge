@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Image as ImageIcon, Move, RefreshCw, RotateCcw, Trash2, Type } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
 import { resolveEffectiveProductionSetup } from "../../lib/templateProductionResolver";
+import { geometryClipStyle, normalisePrintAreaGeometry, traceCanvasPrintAreaPath } from "../../lib/printAreaGeometry";
 import "./productBuilderV2.css";
 import {
   asArray,
@@ -699,6 +700,47 @@ function ColourRestrictionBlock({ profile, slot, onChange }) {
   );
 }
 
+async function renderSlotIntoPrintAreaLayer(slot, area, targetWidth, targetHeight) {
+  const width = Math.max(1, Math.round(Number(targetWidth || 0)));
+  const height = Math.max(1, Math.round(Number(targetHeight || 0)));
+  const layer = document.createElement("canvas");
+  layer.width = width;
+  layer.height = height;
+  const context = layer.getContext("2d");
+  const geometry = normalisePrintAreaGeometry(area);
+  const placement = sanitizePlacement(slot.placement, area);
+  const artX = (Number(placement.x || 0) / 100) * width;
+  const artY = (Number(placement.y || 0) / 100) * height;
+  const artW = (Number(placement.width || 100) / 100) * width;
+  const artH = (Number(placement.height || 100) / 100) * height;
+  const rotation = (Number(placement.rotation || 0) * Math.PI) / 180;
+
+  context.save();
+  if (geometry.geometry_type !== "mask") {
+    traceCanvasPrintAreaPath(context, geometry, 0, 0, width, height);
+    context.clip();
+  }
+  context.translate(artX + artW / 2, artY + artH / 2);
+  context.rotate(rotation);
+  if (slot.text_layer) {
+    await drawTextLayer(context, slot, -artW / 2, -artH / 2, artW, artH);
+  } else {
+    const artworkImage = await loadImage(slot.original_url);
+    drawImageContain(context, artworkImage, -artW / 2, -artH / 2, artW, artH);
+  }
+  context.restore();
+
+  if (geometry.geometry_type === "mask" && geometry.mask_url) {
+    const maskImage = await loadImage(geometry.mask_url);
+    context.save();
+    context.globalCompositeOperation = "destination-in";
+    context.drawImage(maskImage, 0, 0, width, height);
+    context.restore();
+  }
+
+  return layer;
+}
+
 export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false }) {
   const [activeGroupId, setActiveGroupId] = useState(asArray(artworkGroups)[0]?.id || "");
   const [activeSlotId, setActiveSlotId] = useState("");
@@ -1219,24 +1261,8 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
         const areaY = (areaPct(area, "y") / 100) * canvas.height;
         const areaW = (areaPct(area, "width") / 100) * canvas.width;
         const areaH = (areaPct(area, "height") / 100) * canvas.height;
-        const placement = sanitizePlacement(slot.placement, area);
-        const artX = areaX + (Number(placement.x || 0) / 100) * areaW;
-        const artY = areaY + (Number(placement.y || 0) / 100) * areaH;
-        const artW = (Number(placement.width || 100) / 100) * areaW;
-        const artH = (Number(placement.height || 100) / 100) * areaH;
-        const rotation = (Number(placement.rotation || 0) * Math.PI) / 180;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(areaX, areaY, areaW, areaH);
-        ctx.clip();
-        ctx.translate(artX + artW / 2, artY + artH / 2);
-        ctx.rotate(rotation);
-        if (slot.text_layer) await drawTextLayer(ctx, slot, -artW / 2, -artH / 2, artW, artH);
-        else {
-          const artworkImage = await loadImage(slot.original_url);
-          drawImageContain(ctx, artworkImage, -artW / 2, -artH / 2, artW, artH);
-        }
-        ctx.restore();
+        const clippedLayer = await renderSlotIntoPrintAreaLayer(slot, area, areaW, areaH);
+        ctx.drawImage(clippedLayer, areaX, areaY, areaW, areaH);
       }
       const blob = await blobFromCanvas(canvas);
       if (!blob) throw new Error("Could not generate mockup image");
@@ -1354,8 +1380,16 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                 const areaSlots = currentScreenSlots.filter((slot) => slot.print_area_id === area.id);
                 const areaActive = activeArea?.id === area.id;
                 return (
-                  <div key={area.id} ref={(element) => { if (element) areaRefs.current[area.id] = element; }} className={`absolute border-2 ${areaActive ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-[#FF3B30]/50 bg-[#FF3B30]/5"} overflow-visible`} style={{ left: `${areaPct(area, "x")}%`, top: `${areaPct(area, "y")}%`, width: `${areaPct(area, "width")}%`, height: `${areaPct(area, "height")}%` }} onMouseDown={(event) => { event.stopPropagation(); setActivePrintAreaId(area.id); }}>
-                    <div className="absolute -top-8 left-0 z-30 bg-[#FF3B30] text-white text-[10px] uppercase tracking-widest px-2 py-1 whitespace-nowrap">{area.name} · {area.width_mm || 0}×{area.height_mm || 0}mm</div>
+                  <div key={area.id} ref={(element) => { if (element) areaRefs.current[area.id] = element; }} className="absolute overflow-visible" style={{ left: `${areaPct(area, "x")}%`, top: `${areaPct(area, "y")}%`, width: `${areaPct(area, "width")}%`, height: `${areaPct(area, "height")}%` }} onMouseDown={(event) => { event.stopPropagation(); setActivePrintAreaId(area.id); }}>
+                    <div
+                      className={`absolute inset-0 pointer-events-none border-2 ${areaActive ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-[#FF3B30]/50 bg-[#FF3B30]/5"}`}
+                      style={{
+                        ...geometryClipStyle(area),
+                        transform: `rotate(${Number(area.rotation_deg || 0)}deg)`,
+                        transformOrigin: "center",
+                      }}
+                    />
+                    <div className="absolute -top-8 left-0 z-30 bg-[#FF3B30] text-white text-[10px] uppercase tracking-widest px-2 py-1 whitespace-nowrap">{area.name} · {area.geometry_type || "rectangle"} · {area.width_mm || 0}×{area.height_mm || 0}mm</div>
                     {areaSlots.map((slot) => {
                       if (!slotHasArtwork(slot)) return null;
                       const placement = sanitizePlacement(previewPlacements[slot.id] || slot.placement, area);
