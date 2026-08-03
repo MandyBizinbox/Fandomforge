@@ -10,6 +10,11 @@ import {
   templatePrintOptions as resolveTemplatePrintOptions,
   templatePricingInfo,
 } from "../../lib/cataloguePricingUtils";
+import {
+  templateBlankCost as resolvedTemplateBlankCost,
+  templateImage as resolvedTemplateImage,
+  templateReadiness as resolveTemplateReadiness,
+} from "../../lib/templateReadiness";
 
 const INACTIVE_METHOD_KEYS = ["laser", "screen print", "screen printing", "screen_print", "embroidery"];
 
@@ -157,15 +162,7 @@ function firstVariationOverrideImage(variation = {}) {
 }
 
 function templateImage(template = {}) {
-  return firstTruthy(
-    template.creator_catalogue_thumbnail_url,
-    template.product_image_url,
-    template.mockup_url,
-    safeArray(template.mockup_images)[0],
-    safeArray(template.variations).find((variation) => variation.image_url)?.image_url,
-    safeArray(template.variations).map(firstVariationOverrideImage).find(Boolean),
-    safeArray(template.mockup_screens).find((screen) => screen.image_url)?.image_url
-  );
+  return resolvedTemplateImage(template);
 }
 
 function hasVariationImage(variation = {}) {
@@ -173,20 +170,7 @@ function hasVariationImage(variation = {}) {
 }
 
 function blankCost(template = {}) {
-  const enabledVariations = safeArray(template.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
-  const variationCosts = enabledVariations
-    .map((variation) => Number(variation.creator_blank_price ?? variation.base_blank_cost ?? variation.platform_blank_cost ?? variation.cost ?? 0))
-    .filter((value) => value > 0);
-
-  if (variationCosts.length) return Math.min(...variationCosts);
-
-  return Number(
-    template.creator_blank_price ??
-    template.base_blank_cost ??
-    template.base_price ??
-    template.platform_blank_cost ??
-    0
-  );
+  return resolvedTemplateBlankCost(template);
 }
 
 function templatePrintOptions(template = {}, globalPrintOptions = []) {
@@ -198,57 +182,7 @@ function activeV1Options(template = {}, globalPrintOptions = []) {
 }
 
 function readiness(template = {}, globalPrintOptions = []) {
-  const enabledVariations = safeArray(template.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
-  const activeScreens = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted);
-  const activeAreas = safeArray(template.print_areas).filter((area) => area.status !== "archived" && !area.archived && !area.deleted);
-  const hasTemplateImageFallback = Boolean(
-    activeScreens.some((screen) => screen.image_url)
-    || template.product_image_url
-    || template.mockup_url
-    || safeArray(template.mockup_images)[0]
-  );
-  const pricingInfo = templatePricingInfo(template, globalPrintOptions);
-  const activeMethods = activeV1Options(template, globalPrintOptions);
-
-  const checks = {
-    mainImage: Boolean(templateImage(template)),
-    variationImages:
-      enabledVariations.length === 0
-      || hasTemplateImageFallback
-      || enabledVariations.every(hasVariationImage),
-    blankCost: blankCost(template) > 0,
-    activePrintMethod: activeMethods.length > 0,
-    printAreas: activeAreas.length > 0,
-    printAreaViews: activeScreens.length > 0,
-    mockup: Boolean(template.mockup_url || safeArray(template.mockup_images)[0] || activeScreens.some((screen) => screen.image_url)),
-    creatorPricing: pricingInfo.hasPricing && blankCost(template) > 0,
-  };
-
-  const missing = [];
-  if (!checks.mainImage) missing.push("image");
-  if (!checks.variationImages) missing.push("variation images");
-  if (!checks.blankCost) missing.push("blank cost");
-  if (!checks.activePrintMethod) missing.push("V1 print method");
-  if (!checks.printAreas) missing.push("print areas");
-  if (!checks.printAreaViews) missing.push("print area views");
-  if (!checks.mockup) missing.push("mockups");
-  if (!checks.creatorPricing) missing.push("creator pricing");
-
-  const statusKey = normalise(template.status);
-  const pricingReady = checks.blankCost && checks.activePrintMethod && checks.creatorPricing;
-  const launchReady = statusKey === "launch ready" || statusKey === "launch_ready" || (statusKey === "active" && missing.length === 0);
-
-  let label = "Draft";
-  if (statusKey === "inactive" || statusKey === "archived") label = "Inactive";
-  else if (launchReady) label = "Launch ready";
-  else if (!checks.mainImage) label = "Needs images";
-  else if (!checks.variationImages) label = "Needs variation images";
-  else if (!checks.printAreas || !checks.printAreaViews) label = "Needs print areas";
-  else if (!checks.blankCost || !checks.creatorPricing) label = "Needs pricing";
-  else if (!checks.mockup) label = "Needs mockups";
-  else if (pricingReady) label = "Pricing ready";
-
-  return { checks, missing, pricingReady, launchReady, label, activeMethods, pricingInfo };
+  return resolveTemplateReadiness(template, globalPrintOptions);
 }
 
 function countWhere(templates, predicate, globalPrintOptions = []) {
