@@ -635,17 +635,50 @@ class ProductTemplateSizeChart(BaseModel):
     notes: Optional[str] = ""
 
 
+class ProductTemplateGalleryImage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(default_factory=uid)
+    name: Optional[str] = ""
+    image_url: str
+    role: Literal[
+        "catalogue_thumbnail",
+        "creator_selection",
+        "editor_background",
+        "front_mockup",
+        "back_mockup",
+        "side_mockup",
+        "angled_mockup",
+        "full_wrap_editor",
+        "size_guide",
+        "gallery",
+    ] = "gallery"
+    view_key: Optional[str] = None
+    source_print_area_id: Optional[str] = None
+    derived_from_artwork_mode: Optional[str] = None
+    crop: Dict[str, float] = Field(default_factory=dict)
+    sort_order: int = 0
+    is_primary: bool = False
+    status: Literal["active", "draft", "archived"] = "active"
+
+
 class ProductTemplateMockupScreen(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str = Field(default_factory=uid)
     name: str
     view: str = "front"
+    view_key: Optional[str] = None
+    role: Optional[str] = None
     image_url: Optional[str] = None
     width_px: Optional[float] = None
     height_px: Optional[float] = None
+    source_print_area_id: Optional[str] = None
+    derived_from_artwork_mode: Optional[str] = None
+    crop: Dict[str, float] = Field(default_factory=dict)
     sort_order: int = 0
     is_primary: bool = False
+    status: Literal["active", "draft", "archived"] = "active"
 
 
 class ProductTemplatePrintArea(BaseModel):
@@ -669,11 +702,26 @@ class ProductTemplatePrintArea(BaseModel):
     height_pct: Optional[float] = None
     width_mm: Optional[float] = None
     height_mm: Optional[float] = None
+
+    # V2 printable geometry. Percentage placement remains the bounding box;
+    # these fields define how creator artwork is clipped inside that box.
+    geometry_type: Literal["rectangle", "circle", "ellipse", "polygon", "mask"] = "rectangle"
+    shape_type: Optional[str] = None
+    clip_shape: Optional[str] = None
+    polygon_points: List[Dict[str, float]] = Field(default_factory=list)
+    mask_url: Optional[str] = None
+    clip_mask_url: Optional[str] = None
+    bleed_mm: float = 0
+    safe_margin_mm: float = 0
+    rotation_deg: float = 0
+    pricing_area_mode: Literal["bounding_box", "shape"] = "bounding_box"
+
     dpi: int = 300
     fit_mode: str = "contain"
     required: bool = False
     allowed_print_option_ids: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
+    status: Literal["active", "draft", "archived"] = "active"
 
 
 class ProductTemplatePrintOption(BaseModel):
@@ -733,6 +781,7 @@ class ProductTemplateVariation(BaseModel):
     supplier_sku: Optional[str] = None
     image_url: Optional[str] = None
     mockup_screen_overrides: Dict[str, str] = Field(default_factory=dict)
+    print_area_overrides: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     enabled: bool = True
     sort_order: int = 0
     status: Literal["active", "draft", "archived"] = "active"
@@ -751,6 +800,11 @@ class ProductTemplateBase(BaseModel):
     supplier_name: Optional[str] = ""
     supplier_url: Optional[str] = ""
     supplier_notes: Optional[str] = ""
+
+    # Status and catalogue visibility are independent controls.
+    creator_visible: bool = True
+    admin_visible: bool = True
+
     size_chart: ProductTemplateSizeChart = Field(default_factory=ProductTemplateSizeChart)
 
     # Legacy template-level fallback pricing.
@@ -773,6 +827,8 @@ class ProductTemplateBase(BaseModel):
     mockup_url: Optional[str] = None
     product_image_url: Optional[str] = None
     mockup_images: List[str] = Field(default_factory=list)
+    template_gallery: List[ProductTemplateGalleryImage] = Field(default_factory=list)
+    artwork_modes: List[Literal["single_area", "front_back", "full_wrap"]] = Field(default_factory=list)
     mockup_screens: List[ProductTemplateMockupScreen] = Field(default_factory=list)
 
     available_sizes: List[str] = Field(default_factory=list)
@@ -806,6 +862,8 @@ class ProductTemplateUpdate(BaseModel):
     supplier_name: Optional[str] = None
     supplier_url: Optional[str] = None
     supplier_notes: Optional[str] = None
+    creator_visible: Optional[bool] = None
+    admin_visible: Optional[bool] = None
     size_chart: Optional[ProductTemplateSizeChart] = None
 
     base_price: Optional[float] = None
@@ -825,6 +883,8 @@ class ProductTemplateUpdate(BaseModel):
     mockup_url: Optional[str] = None
     product_image_url: Optional[str] = None
     mockup_images: Optional[List[str]] = None
+    template_gallery: Optional[List[ProductTemplateGalleryImage]] = None
+    artwork_modes: Optional[List[Literal["single_area", "front_back", "full_wrap"]]] = None
     mockup_screens: Optional[List[ProductTemplateMockupScreen]] = None
 
     available_sizes: Optional[List[str]] = None
