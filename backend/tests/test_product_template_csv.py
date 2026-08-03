@@ -417,3 +417,152 @@ def test_csv_status_contract_matches_product_template_model():
         assert "unsupported status" in (
             plan["errors"][0]["message"]
         )
+
+
+
+def test_visibility_controls_cannot_be_cleared():
+    for field in (
+        "creator_visible",
+        "admin_visible",
+    ):
+        document = template_document()
+        document[field] = False
+
+        package = {
+            "templates": [
+                {
+                    "_source_file": "templates.csv",
+                    "_row_number": 2,
+                    "template_id": document["id"],
+                    "source_updated_at":
+                        document["updated_at"],
+                    field: CLEAR_TOKEN,
+                }
+            ],
+            "variations": [],
+            "print_areas": [],
+        }
+
+        plan = build_import_plan(
+            [document],
+            package,
+        )
+
+        assert plan["can_apply"] is False
+        assert plan["summary"]["error_count"] == 1
+        assert plan["errors"][0]["column"] == field
+        assert "may not be cleared" in (
+            plan["errors"][0]["message"]
+        )
+
+
+def test_normalised_nested_fields_cannot_be_cleared():
+    document = template_document()
+
+    cases = [
+        (
+            "variations",
+            {
+                "_source_file": "variations.csv",
+                "_row_number": 2,
+                "template_id": document["id"],
+                "source_updated_at":
+                    document["updated_at"],
+                "variation_id":
+                    "variation-red-small",
+                "platform_blank_cost":
+                    CLEAR_TOKEN,
+            },
+            "platform_blank_cost",
+        ),
+        (
+            "print_areas",
+            {
+                "_source_file": "print_areas.csv",
+                "_row_number": 2,
+                "template_id": document["id"],
+                "source_updated_at":
+                    document["updated_at"],
+                "print_area_id": "area-front",
+                "view_key": CLEAR_TOKEN,
+            },
+            "view_key",
+        ),
+    ]
+
+    for group, row, column in cases:
+        package = {
+            "templates": [],
+            "variations": [],
+            "print_areas": [],
+        }
+
+        package[group] = [row]
+
+        plan = build_import_plan(
+            [document],
+            package,
+        )
+
+        assert plan["can_apply"] is False
+        assert plan["summary"]["error_count"] == 1
+        assert plan["errors"][0]["column"] == column
+        assert "may not be cleared" in (
+            plan["errors"][0]["message"]
+        )
+
+
+def test_source_updated_at_is_required_for_versioned_templates():
+    document = template_document()
+
+    package = {
+        "templates": [
+            {
+                "_source_file": "templates.csv",
+                "_row_number": 2,
+                "template_id": document["id"],
+                "description":
+                    "Change without a timestamp",
+            }
+        ],
+        "variations": [],
+        "print_areas": [],
+    }
+
+    plan = build_import_plan(
+        [document],
+        package,
+    )
+
+    assert plan["can_apply"] is False
+    assert plan["summary"]["error_count"] == 1
+    assert "source_updated_at is required" in (
+        plan["errors"][0]["message"]
+    )
+
+
+def test_unversioned_legacy_template_can_still_be_updated():
+    document = template_document()
+    document.pop("updated_at")
+
+    package = {
+        "templates": [
+            {
+                "_source_file": "templates.csv",
+                "_row_number": 2,
+                "template_id": document["id"],
+                "description":
+                    "Updated legacy description",
+            }
+        ],
+        "variations": [],
+        "print_areas": [],
+    }
+
+    plan = build_import_plan(
+        [document],
+        package,
+    )
+
+    assert plan["errors"] == []
+    assert plan["can_apply"] is True

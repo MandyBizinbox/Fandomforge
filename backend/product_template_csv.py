@@ -117,11 +117,11 @@ TEMPLATE_SPECS = {
     "category_id": ("category_id", "text", True),
     "product_type_id": ("product_type_id", "text", True),
     "status": ("status", "status", False),
-    "creator_visible": ("creator_visible", "bool", True),
-    "admin_visible": ("admin_visible", "bool", True),
-    "platform_blank_cost": ("platform_blank_cost", "float", True),
-    "creator_blank_price": ("creator_blank_price", "float", True),
-    "base_blank_cost": ("base_blank_cost", "float", True),
+    "creator_visible": ("creator_visible", "bool", False),
+    "admin_visible": ("admin_visible", "bool", False),
+    "platform_blank_cost": ("platform_blank_cost", "float", False),
+    "creator_blank_price": ("creator_blank_price", "float", False),
+    "base_blank_cost": ("base_blank_cost", "float", False),
     "base_price": ("base_price", "float", True),
     "product_image_url": ("product_image_url", "text", True),
     "mockup_url": ("mockup_url", "text", True),
@@ -134,43 +134,43 @@ TEMPLATE_SPECS = {
 }
 
 VARIATION_SPECS = {
-    "enabled": ("enabled", "bool", True),
-    "status": ("status", "status", True),
+    "enabled": ("enabled", "bool", False),
+    "status": ("status", "status", False),
     "sku": ("sku", "text", True),
     "supplier_sku": ("supplier_sku", "text", True),
     "attributes_json": ("attributes", "json_object", False),
-    "platform_blank_cost": ("platform_blank_cost", "float", True),
-    "creator_blank_price": ("creator_blank_price", "float", True),
-    "base_blank_cost": ("base_blank_cost", "float", True),
-    "cost": ("cost", "float", True),
+    "platform_blank_cost": ("platform_blank_cost", "float", False),
+    "creator_blank_price": ("creator_blank_price", "float", False),
+    "base_blank_cost": ("base_blank_cost", "float", False),
+    "cost": ("cost", "float", False),
     "image_url": ("image_url", "text", True),
     "sort_order": ("sort_order", "int", True),
 }
 
 PRINT_AREA_SPECS = {
-    "name": ("name", "text", True),
-    "view_key": ("view_key", "text", True),
+    "name": ("name", "text", False),
+    "view_key": ("view_key", "text", False),
     "screen_id": ("screen_id", "text", True),
-    "screen_view": ("screen_view", "text", True),
-    "x_pct": ("x_pct", "float", True),
-    "y_pct": ("y_pct", "float", True),
-    "width_pct": ("width_pct", "float", True),
-    "height_pct": ("height_pct", "float", True),
-    "width_mm": ("width_mm", "float", True),
-    "height_mm": ("height_mm", "float", True),
-    "required": ("required", "bool", True),
+    "screen_view": ("screen_view", "text", False),
+    "x_pct": ("x_pct", "float", False),
+    "y_pct": ("y_pct", "float", False),
+    "width_pct": ("width_pct", "float", False),
+    "height_pct": ("height_pct", "float", False),
+    "width_mm": ("width_mm", "float", False),
+    "height_mm": ("height_mm", "float", False),
+    "required": ("required", "bool", False),
     "allowed_print_option_ids_json": (
         "allowed_print_option_ids",
         "json_list",
-        True,
+        False,
     ),
     "standard_print_size_key": (
         "standard_print_size_key",
         "text",
-        True,
+        False,
     ),
     "notes": ("notes", "text", True),
-    "status": ("status", "status", True),
+    "status": ("status", "status", False),
 }
 
 ALLOWED_STATUSES = {
@@ -516,12 +516,15 @@ Import rules
 ------------
 1. template_id, variation_id and print_area_id are immutable identifiers.
 2. Empty editable cells leave the stored value unchanged.
-3. Enter {CLEAR_TOKEN} to remove an optional field.
-4. Imports update existing records only.
-5. Imports never create templates, variations or print areas.
-6. source_updated_at prevents stale exports from overwriting newer changes.
-7. csv_readiness_notes is advisory and is not the authoritative launch gate.
-8. Image URLs may reference images already uploaded through FandomForge.
+3. Enter {CLEAR_TOKEN} only for fields that support true removal.
+4. Visibility controls, required fields and normalised/defaulted fields
+   must be changed explicitly and may not be cleared.
+5. Imports update existing records only.
+6. Imports never create templates, variations or print areas.
+7. source_updated_at is required when the stored template has a timestamp.
+8. source_updated_at prevents stale exports from overwriting newer changes.
+9. csv_readiness_notes is advisory and is not the authoritative launch gate.
+10. Image URLs may reference images already uploaded through FandomForge.
 """
 
     output = io.BytesIO()
@@ -948,6 +951,24 @@ def build_import_plan(
                     row,
                     "template_id does not exist; "
                     "CSV import cannot create templates",
+                )
+            )
+            return None
+
+        source_updated_at = _cell(
+            row,
+            "source_updated_at",
+        )
+        current_updated_at = _time_text(
+            current.get("updated_at")
+        )
+
+        if current_updated_at and not source_updated_at:
+            plan["errors"].append(
+                _contextual_error(
+                    row,
+                    "source_updated_at is required for "
+                    "templates that already have a version timestamp",
                 )
             )
             return None
