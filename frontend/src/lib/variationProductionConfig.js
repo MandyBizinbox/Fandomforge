@@ -19,7 +19,7 @@ function normaliseKey(value) {
 }
 
 function activeRows(rows) {
-  return safeArray(rows).filter((row) => row && row.status !== "archived" && !row.archived && !row.deleted);
+  return safeArray(rows).filter((row) => row && row.status !== "archived" && !row.archived && !row.deleted && row.disabled !== true);
 }
 
 function screenIdentity(screen = {}) {
@@ -200,6 +200,56 @@ function uniqueOptions(configurations = []) {
   return Array.from(byId.values());
 }
 
+function compiledVariationConfiguration(
+  config,
+  variation,
+  template,
+  screenAnchors,
+  areaAnchors
+) {
+  const configScreens = new Map(screenSlotRows(config).map((entry) => [entry.slotKey, entry.row]));
+  const configAreas = new Map(areaSlotRows(config).map((entry) => [entry.slotKey, entry.row]));
+
+  const screens = screenAnchors
+    .map((anchor) => {
+      const source = configScreens.get(anchor.production_slot_key);
+      if (!source) return null;
+      return {
+        ...clone(source),
+        id: anchor.id,
+        name: source.name || anchor.name,
+        view: source.view || anchor.view,
+        view_key: source.view_key || anchor.view_key,
+        image_url: source.image_url || variation.image_url || template.product_image_url || template.mockup_url || "",
+        sort_order: anchor.sort_order,
+        status: "active",
+      };
+    })
+    .filter(Boolean);
+
+  const screenIds = new Set(screens.map((screen) => screen.id));
+  const printAreas = areaAnchors
+    .map((anchor) => {
+      const source = configAreas.get(anchor.production_slot_key);
+      if (!source) return null;
+      return {
+        ...clone(source),
+        id: anchor.id,
+        screen_id: screenIds.has(anchor.screen_id) ? anchor.screen_id : screens[0]?.id || anchor.screen_id,
+        name: source.name || anchor.name,
+        status: "active",
+      };
+    })
+    .filter(Boolean);
+
+  return normaliseProductionConfiguration({
+    ...config,
+    screens,
+    print_areas: printAreas,
+    configured_at: config.configured_at || new Date().toISOString(),
+  });
+}
+
 export function compileVariableTemplateProduction(template = {}, variations = []) {
   const activeVariations = safeArray(variations).filter((variation) => variation && variation.enabled !== false && variation.status !== "archived");
   if (!activeVariations.length) {
@@ -253,28 +303,32 @@ export function compileVariableTemplateProduction(template = {}, variations = []
       status: "active",
     };
   });
-  const areaAnchorBySlot = new Map(areaAnchors.map((area) => [area.production_slot_key, area]));
 
   const compiledVariations = safeArray(variations).map((variation) => {
     if (!activeVariations.some((active) => active.id === variation.id)) return variation;
-    const config = getVariationProductionConfiguration(variation, template);
-    const configScreens = new Map(screenSlotRows(config).map((entry) => [entry.slotKey, entry.row]));
-    const configAreas = new Map(areaSlotRows(config).map((entry) => [entry.slotKey, entry.row]));
+
+    const sourceConfig = getVariationProductionConfiguration(variation, template);
+    const config = compiledVariationConfiguration(
+      sourceConfig,
+      variation,
+      template,
+      screenAnchors,
+      areaAnchors
+    );
+    const configScreensById = new Map(config.screens.map((screen) => [screen.id, screen]));
+    const configAreasById = new Map(config.print_areas.map((area) => [area.id, area]));
     const screenOverrides = {};
     const areaOverrides = {
-      [PRODUCTION_CONFIG_KEY]: {
-        ...clone(config),
-        configured_at: config.configured_at || new Date().toISOString(),
-      },
+      [PRODUCTION_CONFIG_KEY]: clone(config),
     };
 
     screenAnchors.forEach((anchor) => {
-      const screen = configScreens.get(anchor.production_slot_key);
+      const screen = configScreensById.get(anchor.id);
       screenOverrides[anchor.id] = screen?.image_url || variation.image_url || template.product_image_url || "";
     });
 
     areaAnchors.forEach((anchor) => {
-      const area = configAreas.get(anchor.production_slot_key);
+      const area = configAreasById.get(anchor.id);
       if (!area) {
         areaOverrides[anchor.id] = {
           id: anchor.id,
@@ -298,12 +352,7 @@ export function compileVariableTemplateProduction(template = {}, variations = []
         };
         return;
       }
-      areaOverrides[anchor.id] = {
-        ...clone(area),
-        id: anchor.id,
-        screen_id: anchor.screen_id,
-        status: area.status || "active",
-      };
+      areaOverrides[anchor.id] = clone(area);
     });
 
     return {
