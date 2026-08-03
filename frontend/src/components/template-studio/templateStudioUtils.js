@@ -1,3 +1,8 @@
+import {
+  PRINT_AREA_GEOMETRY_TYPES,
+  normalisePrintAreaGeometry,
+} from "../../lib/printAreaGeometry";
+
 const STANDARD_VIEW_OPTIONS = [
   { value: "front", label: "Front" },
   { value: "back", label: "Back" },
@@ -45,6 +50,8 @@ export const STANDARD_PRINT_SIZE_PRESETS = [
   { value: "sleeve_long_10x30_cm", label: "Sleeve Long — 10×30cm", width_mm: 100, height_mm: 300 },
   { value: "sleeve_large_20x30_cm", label: "Sleeve Large — 20×30cm", width_mm: 200, height_mm: 300 },
 ];
+
+export const PRINT_AREA_GEOMETRY_OPTIONS = PRINT_AREA_GEOMETRY_TYPES;
 
 export function getViewOption(value) {
   return VIEW_OPTIONS.find((option) => option.value === value) || VIEW_OPTIONS[0];
@@ -118,6 +125,8 @@ export const blankTemplate = {
   creator_blank_price: 0,
   platform_blank_profit: 0,
   platform_blank_margin_percent: 0,
+  creator_visible: true,
+  admin_visible: true,
   mockup_url: "",
   product_image_url: "",
   mockup_images: [],
@@ -130,6 +139,7 @@ export const blankTemplate = {
   print_option_ids: [],
   print_options: [],
   print_areas: [],
+  artwork_modes: [],
   status: "draft",
 };
 
@@ -226,6 +236,7 @@ export function buildVariationCombinations(
           supplier_sku: "",
           image_url: "",
           mockup_screen_overrides: {},
+          print_area_overrides: {},
           enabled: true,
           sort_order: 0,
           status: "active",
@@ -241,7 +252,11 @@ export function buildVariationCombinations(
     );
   };
 
-  return walk(0, {}).flat().map((variation, index) => ({ ...variation, sort_order: index }));
+  return walk(0, {}).flat().map((variation, index) => ({
+    ...variation,
+    print_area_overrides: variation.print_area_overrides || {},
+    sort_order: index,
+  }));
 }
 
 export function clampPercent(value, min = 0, max = 100) {
@@ -255,19 +270,20 @@ export function clampPercent(value, min = 0, max = 100) {
 }
 
 export function normalizeArea(area = {}) {
-  const width = clampPercent(area.width ?? area.width_pct ?? 30, 0, 100);
-  const height = clampPercent(area.height ?? area.height_pct ?? 30, 0, 100);
-  const x = clampPercent(area.x ?? area.x_pct ?? 30, 0, Math.max(0, 100 - width));
-  const y = clampPercent(area.y ?? area.y_pct ?? 25, 0, Math.max(0, 100 - height));
+  const geometry = normalisePrintAreaGeometry(area);
+  const width = clampPercent(geometry.width ?? geometry.width_pct ?? 30, 0, 100);
+  const height = clampPercent(geometry.height ?? geometry.height_pct ?? 30, 0, 100);
+  const x = clampPercent(geometry.x ?? geometry.x_pct ?? 30, 0, Math.max(0, 100 - width));
+  const y = clampPercent(geometry.y ?? geometry.y_pct ?? 25, 0, Math.max(0, 100 - height));
 
-  const viewKey = area.view_key || area.screen_view || area.view || "";
-  const areaKey = area.area_key || area.print_area_key || viewKey || "custom";
-  const printSizeKey = area.standard_print_size_key || area.print_size || "custom";
+  const viewKey = geometry.view_key || geometry.screen_view || geometry.view || "";
+  const areaKey = geometry.area_key || geometry.print_area_key || viewKey || "custom";
+  const printSizeKey = geometry.standard_print_size_key || geometry.print_size || "custom";
 
   return {
-    ...area,
-    id: area.id || newId("area"),
-    name: area.name || area.label || "Print Area",
+    ...geometry,
+    id: geometry.id || newId("area"),
+    name: geometry.name || geometry.label || "Print Area",
     x,
     y,
     width,
@@ -276,17 +292,17 @@ export function normalizeArea(area = {}) {
     y_pct: y,
     width_pct: width,
     height_pct: height,
-    screen_id: area.screen_id || area.mockup_screen_id || "",
-    screen_view: area.screen_view || viewKey,
+    screen_id: geometry.screen_id || geometry.mockup_screen_id || "",
+    screen_view: geometry.screen_view || viewKey,
     view_key: viewKey,
     area_key: areaKey,
     print_size: printSizeKey,
     standard_print_size_key: printSizeKey,
-    width_mm: area.width_mm ?? area.print_width_mm ?? null,
-    height_mm: area.height_mm ?? area.print_height_mm ?? null,
-    dpi: Number(area.dpi || 300),
-    fit_mode: area.fit_mode || "contain",
-    required: Boolean(area.required),
-    allowed_print_option_ids: safeArray(area.allowed_print_option_ids ?? area.print_option_ids ?? []),
+    width_mm: geometry.width_mm ?? geometry.print_width_mm ?? null,
+    height_mm: geometry.height_mm ?? geometry.print_height_mm ?? null,
+    dpi: Number(geometry.dpi || 300),
+    fit_mode: geometry.fit_mode || "contain",
+    required: Boolean(geometry.required),
+    allowed_print_option_ids: safeArray(geometry.allowed_print_option_ids ?? geometry.print_option_ids ?? []),
   };
 }
