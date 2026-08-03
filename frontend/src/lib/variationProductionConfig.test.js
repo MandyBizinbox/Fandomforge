@@ -66,7 +66,7 @@ describe("variation production configuration", () => {
     expect(copied[1].print_area_overrides[PRODUCTION_CONFIG_KEY].print_areas[0].width_mm).toBe(100);
   });
 
-  test("compiles compatibility anchors without losing variation ownership", () => {
+  test("compiles runtime anchors while keeping each variation configuration complete", () => {
     const circle = setVariationProductionConfiguration(
       { id: "circle", attributes: { Shape: "Circle" }, enabled: true },
       productionConfig({ shape: "circle", width: 100, viewImage: "/circle.png" })
@@ -89,16 +89,27 @@ describe("variation production configuration", () => {
     const anchorScreenId = compiled.mockup_screens[0].id;
     const compiledCircle = compiled.variations.find((variation) => variation.id === "circle");
     const compiledSquare = compiled.variations.find((variation) => variation.id === "square");
+    const circleConfig = getVariationProductionConfiguration(compiledCircle, compiled);
+    const squareConfig = getVariationProductionConfiguration(compiledSquare, compiled);
 
     expect(compiledCircle.mockup_screen_overrides[anchorScreenId]).toBe("/circle.png");
     expect(compiledSquare.mockup_screen_overrides[anchorScreenId]).toBe("/square.png");
     expect(compiledCircle.print_area_overrides[anchorAreaId].geometry_type).toBe("circle");
     expect(compiledSquare.print_area_overrides[anchorAreaId].geometry_type).toBe("rectangle");
-    expect(compiledCircle.print_area_overrides[PRODUCTION_CONFIG_KEY]).toBeTruthy();
-    expect(compiledSquare.print_area_overrides[PRODUCTION_CONFIG_KEY]).toBeTruthy();
+
+    expect(circleConfig.screens[0].id).toBe(anchorScreenId);
+    expect(squareConfig.screens[0].id).toBe(anchorScreenId);
+    expect(circleConfig.print_areas[0].id).toBe(anchorAreaId);
+    expect(squareConfig.print_areas[0].id).toBe(anchorAreaId);
+    expect(circleConfig.print_areas[0].screen_id).toBe(anchorScreenId);
+    expect(squareConfig.print_areas[0].screen_id).toBe(anchorScreenId);
+    expect(circleConfig.print_areas[0].geometry_type).toBe("circle");
+    expect(squareConfig.print_areas[0].geometry_type).toBe("rectangle");
+    expect(productionConfigurationComplete(circleConfig)).toBe(true);
+    expect(productionConfigurationComplete(squareConfig)).toBe(true);
   });
 
-  test("preserves different area counts with hidden compatibility placeholders", () => {
+  test("preserves different area counts with hidden compatibility placeholders only outside the owned config", () => {
     const oneArea = productionConfig();
     const twoAreas = productionConfig({ shape: "rectangle", viewImage: "/two.png" });
     twoAreas.print_areas.push({
@@ -118,7 +129,11 @@ describe("variation production configuration", () => {
     const firstCompiled = compiled.variations.find((variation) => variation.id === "one");
     const placeholder = Object.values(firstCompiled.print_area_overrides)
       .find((area) => area && area.disabled === true);
+    const firstConfig = getVariationProductionConfiguration(firstCompiled, compiled);
+
     expect(placeholder).toBeTruthy();
     expect(placeholder.status).toBe("archived");
+    expect(firstConfig.print_areas).toHaveLength(1);
+    expect(firstConfig.print_areas.every((area) => area.disabled !== true)).toBe(true);
   });
 });
