@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Plus, Trash2 } from "lucide-react";
+import { Circle, Copy, Plus, Trash2 } from "lucide-react";
 import { assetUrl } from "../../lib/api";
+import { geometryClipStyle } from "../../lib/printAreaGeometry";
 import {
   clampPercent,
   getPrintAreaOption,
@@ -71,6 +72,19 @@ function resizeAreaFromHandle(startArea, dx, dy, handle) {
   return areaBoxPatch({ x, y, width, height });
 }
 
+function areaGeometryLayerStyle(area, selected) {
+  return {
+    position: "absolute",
+    inset: 0,
+    pointerEvents: "none",
+    border: `2px dashed ${selected ? "#FF7A1A" : "rgba(255,255,255,0.7)"}`,
+    background: selected ? "rgba(255,122,26,0.18)" : "rgba(255,255,255,0.08)",
+    transform: `rotate(${Number(area.rotation_deg || 0)}deg)`,
+    transformOrigin: "center",
+    ...geometryClipStyle(area),
+  };
+}
+
 export default function PrintAreaCanvas({
   screen,
   printAreas,
@@ -100,7 +114,7 @@ export default function PrintAreaCanvas({
     );
   };
 
-  const addDefaultArea = (areaKey = "") => {
+  const addDefaultArea = (areaKey = "", geometryType = "rectangle") => {
     if (!screen) return;
 
     const screenView = screen.view_key || screen.view || "front";
@@ -108,13 +122,16 @@ export default function PrintAreaCanvas({
       ? getPrintAreaOption(areaKey)
       : PRINT_AREA_OPTIONS.find((option) => option.defaultView === screenView) || PRINT_AREA_OPTIONS[0];
     const preset = getPrintSizePreset(areaOption.defaultSize || "custom");
+    const isCircle = geometryType === "circle";
 
     const area = normalizeArea({
-      name: areaOption.label || `${screen.name || "View"} Print Area`,
+      name: isCircle ? `${areaOption.label || screen.name || "View"} Circle` : areaOption.label || `${screen.name || "View"} Print Area`,
       screen_id: screen.id,
       screen_view: screenView,
       view_key: screenView,
       area_key: areaOption.value,
+      geometry_type: geometryType,
+      shape_type: geometryType,
       print_size: preset.value,
       standard_print_size_key: preset.value,
       x: 30,
@@ -122,7 +139,7 @@ export default function PrintAreaCanvas({
       width: 30,
       height: 30,
       width_mm: preset.width_mm,
-      height_mm: preset.height_mm,
+      height_mm: isCircle ? preset.width_mm : preset.height_mm,
       dpi: 300,
       fit_mode: "contain",
       required: areaOption.value === "neck_label",
@@ -220,6 +237,8 @@ export default function PrintAreaCanvas({
         screen_view: screenView,
         view_key: screenView,
         area_key: areaOption.value,
+        geometry_type: "rectangle",
+        shape_type: "rectangle",
         print_size: preset.value,
         standard_print_size_key: preset.value,
         ...areaBoxPatch(draft),
@@ -296,7 +315,7 @@ export default function PrintAreaCanvas({
           <div className="overline mb-1">Production areas</div>
           <h2 className="font-display text-2xl uppercase">Base Print Areas</h2>
           <p className="text-xs text-zinc-500 mt-2 max-w-md">
-            Draw print areas on the selected base view. Colour-specific images inherit these same positions unless an override is added later.
+            Draw a template-level default, then override only the variations whose size, shape or placement differs.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -318,7 +337,10 @@ export default function PrintAreaCanvas({
             ))}
           </select>
           <button type="button" className="btn-secondary text-xs" onClick={() => addDefaultArea()}>
-            Add Box
+            Add Rectangle
+          </button>
+          <button type="button" className="btn-secondary text-xs" onClick={() => addDefaultArea("custom", "circle")}>
+            <Circle size={13} /> Add Circle
           </button>
           <button type="button" className="btn-secondary text-xs" onClick={duplicateSelected} disabled={!selectedAreaId}>
             <Copy size={13} /> Duplicate
@@ -357,17 +379,21 @@ export default function PrintAreaCanvas({
                 <div
                   key={area.id}
                   className={selected ? "print-area-box selected" : "print-area-box"}
+                  data-geometry={area.geometry_type || "rectangle"}
                   style={{
                     left: `${box.x}%`,
                     top: `${box.y}%`,
                     width: `${box.width}%`,
                     height: `${box.height}%`,
+                    background: "transparent",
+                    borderColor: "transparent",
                   }}
                   onPointerDown={(event) => beginAreaDrag(event, area, "move")}
                 >
-                  <span>{area.name}</span>
-                  <small className="block text-[10px] leading-tight opacity-80">
-                    {printSizeLabel(area.width_mm, area.height_mm, area.dpi || 300)}
+                  <div style={areaGeometryLayerStyle(area, selected)} />
+                  <span className="relative z-[2]">{area.name}</span>
+                  <small className="relative z-[2] block text-[10px] leading-tight opacity-80">
+                    {(area.geometry_type || "rectangle")} · {printSizeLabel(area.width_mm, area.height_mm, area.dpi || 300)}
                   </small>
 
                   {selected && ["nw", "ne", "sw", "se"].map((handle) => (

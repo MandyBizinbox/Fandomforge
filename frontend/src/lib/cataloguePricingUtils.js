@@ -1,3 +1,13 @@
+import {
+  activeTemplateVariations,
+  resolveEffectiveProductionSetup,
+  templatePrintAreaCoverage,
+} from "./templateProductionResolver";
+import {
+  normalisePrintAreaGeometry,
+  printAreaChargedAreaCm2,
+} from "./printAreaGeometry";
+
 export const ACTIVE_V1_METHODS = [
   "Sublimation",
   "DTF Transfers",
@@ -175,11 +185,26 @@ function methodCandidates(option = {}) {
 
 export function methodKey(option = {}) {
   const keys = methodCandidates(option).map(normaliseKey).filter(Boolean);
-  return keys.find((key) => ACTIVE_METHOD_KEYS.has(key)) || keys.find((key) => [...ACTIVE_METHOD_KEYS].some((active) => key.includes(active))) || keys[0] || "";
+  return (
+    keys.find((key) => ACTIVE_METHOD_KEYS.has(key))
+    || keys.find((key) =>
+      [...ACTIVE_METHOD_KEYS].some((active) => key.includes(active))
+    )
+    || keys[0]
+    || ""
+  );
 }
 
 export function methodRawLabel(option = {}) {
-  return option.print_method || option.method || option.method_key || option.rule_name || option.name || option.id || "Print method";
+  return (
+    option.print_method
+    || option.method
+    || option.method_key
+    || option.rule_name
+    || option.name
+    || option.id
+    || "Print method"
+  );
 }
 
 export function methodLabel(option = {}) {
@@ -189,25 +214,49 @@ export function methodLabel(option = {}) {
   if (key.includes("uv") && key.includes("dtf")) return "UV DTF";
   if (key.includes("dtf")) return "DTF Transfers";
   if (key.includes("htv") || key.includes("heat transfer")) return "HTV";
-  if (key.includes("adhesive") || key.includes("sticker") || key.includes("vinyl")) return "Adhesive Vinyl";
+  if (
+    key.includes("adhesive")
+    || key.includes("sticker")
+    || key.includes("vinyl")
+  ) return "Adhesive Vinyl";
 
   return methodRawLabel(option);
 }
 
 export function isActiveV1PrintOption(option = {}) {
-  if (!option || option.status === "inactive" || option.status === "archived") return false;
+  if (
+    !option
+    || option.status === "inactive"
+    || option.status === "archived"
+  ) return false;
 
   const keys = methodCandidates(option).map(normaliseKey).filter(Boolean);
   if (!keys.length) return false;
 
-  if (keys.some((key) => [...INACTIVE_METHOD_KEYS].some((inactive) => key.includes(inactive)))) return false;
+  if (
+    keys.some((key) =>
+      [...INACTIVE_METHOD_KEYS].some((inactive) => key.includes(inactive))
+    )
+  ) return false;
 
-  return keys.some((key) => ACTIVE_METHOD_KEYS.has(key) || [...ACTIVE_METHOD_KEYS].some((active) => key.includes(active)));
+  return keys.some(
+    (key) =>
+      ACTIVE_METHOD_KEYS.has(key)
+      || [...ACTIVE_METHOD_KEYS].some((active) => key.includes(active))
+  );
 }
 
-function copyPositiveNumericFallback(merged, globalOption, localOption, keys) {
+function copyPositiveNumericFallback(
+  merged,
+  globalOption,
+  localOption,
+  keys
+) {
   keys.forEach((key) => {
-    if (positiveNumber(localOption?.[key]) <= 0 && positiveNumber(globalOption?.[key]) > 0) {
+    if (
+      positiveNumber(localOption?.[key]) <= 0
+      && positiveNumber(globalOption?.[key]) > 0
+    ) {
       merged[key] = globalOption[key];
     }
   });
@@ -215,7 +264,9 @@ function copyPositiveNumericFallback(merged, globalOption, localOption, keys) {
 
 function mergeOption(globalOption = {}, localOption = {}, id = "") {
   const merged = { ...globalOption, ...localOption };
-  if (id || localOption.id || globalOption.id) merged.id = id || localOption.id || globalOption.id;
+  if (id || localOption.id || globalOption.id) {
+    merged.id = id || localOption.id || globalOption.id;
+  }
 
   copyPositiveNumericFallback(merged, globalOption, localOption, COST_KEYS);
   copyPositiveNumericFallback(merged, globalOption, localOption, RATE_KEYS);
@@ -264,89 +315,172 @@ export function templatePrintOptions(template = {}, globalPrintOptions = []) {
 
   const ids = new Set([
     ...safeArray(template.print_option_ids).map(String),
-    ...localOptions.map((option) => option?.id).filter(Boolean).map(String),
-    ...safeArray(template.print_areas).flatMap((area) => safeArray(area.allowed_print_option_ids)).filter(Boolean).map(String),
+    ...localOptions
+      .map((option) => option?.id)
+      .filter(Boolean)
+      .map(String),
+    ...safeArray(template.print_areas)
+      .flatMap((area) => safeArray(area.allowed_print_option_ids))
+      .filter(Boolean)
+      .map(String),
   ]);
 
   if (!ids.size) {
-    return localOptions.filter((option) => option?.id || option?.method || option?.print_method || option?.method_key || option?.rule_name);
+    return localOptions.filter(
+      (option) =>
+        option?.id
+        || option?.method
+        || option?.print_method
+        || option?.method_key
+        || option?.rule_name
+    );
   }
 
   return Array.from(ids)
-    .map((id) => mergeOption(globalById.get(id) || {}, localById.get(id) || {}, id))
-    .filter((option) => option?.id || option?.method || option?.print_method || option?.method_key || option?.rule_name);
+    .map((id) =>
+      mergeOption(
+        globalById.get(id) || {},
+        localById.get(id) || {},
+        id
+      )
+    )
+    .filter(
+      (option) =>
+        option?.id
+        || option?.method
+        || option?.print_method
+        || option?.method_key
+        || option?.rule_name
+    );
 }
 
 function optionArea(template = {}, option = {}) {
-  const areas = safeArray(template.print_areas);
+  const areas = safeArray(template.print_areas).filter(
+    (area) =>
+      area
+      && area.status !== "archived"
+      && !area.archived
+      && !area.deleted
+  );
   const optionId = option?.id ? String(option.id) : "";
-  const optionAreaId = option?.print_area_id ? String(option.print_area_id) : "";
-  const optionSizeKey = option?.standard_print_size_key || option?.print_size || "";
+  const optionAreaId = option?.print_area_id
+    ? String(option.print_area_id)
+    : "";
+  const optionSizeKey =
+    option?.standard_print_size_key || option?.print_size || "";
 
-  return (
-    areas.find((area) => optionAreaId && String(area.id) === optionAreaId) ||
-    areas.find((area) => optionId && safeArray(area.allowed_print_option_ids).map(String).includes(optionId)) ||
-    areas.find((area) => optionSizeKey && (area.standard_print_size_key === optionSizeKey || area.print_size === optionSizeKey)) ||
-    areas.find((area) => area.area_key === "full_wrap" || area.area_key === "full_surface" || area.view_key === "mug_wrap" || area.view_key === "full_wrap") ||
-    areas[0] ||
-    {}
+  return normalisePrintAreaGeometry(
+    areas.find(
+      (area) => optionAreaId && String(area.id) === optionAreaId
+    )
+    || areas.find(
+      (area) =>
+        optionId
+        && safeArray(area.allowed_print_option_ids)
+          .map(String)
+          .includes(optionId)
+    )
+    || areas.find(
+      (area) =>
+        optionSizeKey
+        && (
+          area.standard_print_size_key === optionSizeKey
+          || area.print_size === optionSizeKey
+        )
+    )
+    || areas.find(
+      (area) =>
+        area.area_key === "full_wrap"
+        || area.area_key === "full_surface"
+        || area.view_key === "mug_wrap"
+        || area.view_key === "full_wrap"
+    )
+    || areas[0]
+    || {}
   );
 }
 
 function optionDimensions(option = {}, area = {}) {
-  const widthMm = firstPositive(firstPositiveByKeys(option, WIDTH_KEYS), firstPositiveByKeys(area, WIDTH_KEYS));
-  const heightMm = firstPositive(firstPositiveByKeys(option, HEIGHT_KEYS), firstPositiveByKeys(area, HEIGHT_KEYS));
+  const widthMm = firstPositive(
+    firstPositiveByKeys(option, WIDTH_KEYS),
+    firstPositiveByKeys(area, WIDTH_KEYS)
+  );
+  const heightMm = firstPositive(
+    firstPositiveByKeys(option, HEIGHT_KEYS),
+    firstPositiveByKeys(area, HEIGHT_KEYS)
+  );
 
   return { widthMm, heightMm };
 }
 
 function applyWasteAndMarkup(cost, option = {}) {
   let resolved = Number(cost || 0);
-  const wastePercentage = firstPositive(option.waste_percentage, option.waste_percent);
-  const markupPercentage = firstPositive(option.markup_percentage, option.markup_percent);
+  const wastePercentage = firstPositive(
+    option.waste_percentage,
+    option.waste_percent
+  );
+  const markupPercentage = firstPositive(
+    option.markup_percentage,
+    option.markup_percent
+  );
 
-  if (wastePercentage > 0) resolved *= 1 + wastePercentage / 100;
-  if (markupPercentage > 0) resolved *= 1 + markupPercentage / 100;
+  if (wastePercentage > 0) {
+    resolved *= 1 + wastePercentage / 100;
+  }
+  if (markupPercentage > 0) {
+    resolved *= 1 + markupPercentage / 100;
+  }
 
   return resolved;
 }
 
 function optionTypeText(option = {}) {
-  return normaliseKey([
-    option.calculation_type,
-    option.pricing_model,
-    option.costing_model,
-    option.standard_print_size_key,
-    option.print_size,
-    option.size_band,
-    option.rule_name,
-  ].filter(isFilled).join(" "));
+  return normaliseKey(
+    [
+      option.calculation_type,
+      option.pricing_model,
+      option.costing_model,
+      option.standard_print_size_key,
+      option.print_size,
+      option.size_band,
+      option.rule_name,
+    ]
+      .filter(isFilled)
+      .join(" ")
+  );
 }
 
 function isDynamicAreaType(option = {}) {
   const type = optionTypeText(option);
   return (
-    type.includes("area fixed") ||
-    type.includes("area fixed rate") ||
-    type.includes("area_fixed") ||
-    type.includes("dynamic area") ||
-    type.includes("dynamic_area") ||
-    type.includes("dynamic area cm2") ||
-    type.includes("dynamic_area_cm2") ||
-    type.includes("cm2") ||
-    type.includes("cm²") ||
-    type.includes("per cm")
+    type.includes("area fixed")
+    || type.includes("area fixed rate")
+    || type.includes("area_fixed")
+    || type.includes("dynamic area")
+    || type.includes("dynamic_area")
+    || type.includes("dynamic area cm2")
+    || type.includes("dynamic_area_cm2")
+    || type.includes("cm2")
+    || type.includes("cm²")
+    || type.includes("per cm")
   );
 }
 
 function isAreaFromSheetType(option = {}) {
   const type = optionTypeText(option);
-  return type.includes("area from sheet") || type.includes("area_from_sheet");
+  return (
+    type.includes("area from sheet")
+    || type.includes("area_from_sheet")
+  );
 }
 
 function isFullSheetType(option = {}) {
   const type = optionTypeText(option);
-  return type === "sheet" || type.includes("full sheet") || type.includes("full_sheet");
+  return (
+    type === "sheet"
+    || type.includes("full sheet")
+    || type.includes("full_sheet")
+  );
 }
 
 export function optionPrice(option = {}, area = {}) {
@@ -365,29 +499,62 @@ export function optionPrice(option = {}, area = {}) {
     option.raw_print_cost
   );
 
-  if (explicit > 0 && !dynamicArea && !fromSheet && !fullSheet) return explicit;
+  if (explicit > 0 && !dynamicArea && !fromSheet && !fullSheet) {
+    return explicit;
+  }
 
-  const minimum = firstPositiveByKeys(option, ["minimum_print_cost", "min_print_cost", "minimum_cost", "minimum_price", "min_cost"]);
+  const minimum = firstPositiveByKeys(option, [
+    "minimum_print_cost",
+    "min_print_cost",
+    "minimum_cost",
+    "minimum_price",
+    "min_cost",
+  ]);
   const ratePerCm2 = firstPositiveByKeys(option, RATE_KEYS);
   const { widthMm, heightMm } = optionDimensions(option, area);
+  const effectiveArea = normalisePrintAreaGeometry({
+    ...area,
+    width_mm: widthMm || area.width_mm,
+    height_mm: heightMm || area.height_mm,
+  });
   const areaCm2 = firstPositive(
     firstPositiveByKeys(option, AREA_KEYS),
-    firstPositiveByKeys(area, AREA_KEYS),
-    widthMm && heightMm ? (widthMm * heightMm) / 100 : 0
+    printAreaChargedAreaCm2(effectiveArea)
   );
-  const areaMm2 = widthMm && heightMm ? widthMm * heightMm : areaCm2 * 100;
+  const areaMm2 = widthMm && heightMm
+    ? widthMm * heightMm
+    : areaCm2 * 100;
 
   let calculated = 0;
 
   if (dynamicArea) {
-    calculated = areaCm2 > 0 && ratePerCm2 > 0 ? areaCm2 * ratePerCm2 : 0;
+    calculated = areaCm2 > 0 && ratePerCm2 > 0
+      ? areaCm2 * ratePerCm2
+      : 0;
   } else if (fromSheet || fullSheet) {
-    const sheetWidth = firstPositive(option.sheet_width_mm, option.sheetWidthMm, option.sheet_width);
-    const sheetHeight = firstPositive(option.sheet_height_mm, option.sheetHeightMm, option.sheet_height);
+    const sheetWidth = firstPositive(
+      option.sheet_width_mm,
+      option.sheetWidthMm,
+      option.sheet_width
+    );
+    const sheetHeight = firstPositive(
+      option.sheet_height_mm,
+      option.sheetHeightMm,
+      option.sheet_height
+    );
     const sheetArea = sheetWidth * sheetHeight;
-    const sheetCost = firstPositive(option.sheet_cost, option.sheetCost, option.full_sheet_cost);
+    const sheetCost = firstPositive(
+      option.sheet_cost,
+      option.sheetCost,
+      option.full_sheet_cost
+    );
 
-    if (fromSheet && sheetCost > 0 && sheetArea > 0 && areaMm2 > 0) {
+    if (
+      fromSheet
+      && sheetCost > 0
+      && sheetArea > 0
+      && areaMm2 > 0
+    ) {
       calculated = (areaMm2 / sheetArea) * sheetCost;
     } else if (fullSheet && sheetCost > 0) {
       calculated = sheetCost;
@@ -401,45 +568,112 @@ export function optionPrice(option = {}, area = {}) {
 }
 
 function optionSizeText(option = {}) {
-  return String(option.standard_print_size_key || option.print_size || option.size_band || option.name || option.rule_name || "");
+  return String(
+    option.standard_print_size_key
+    || option.print_size
+    || option.size_band
+    || option.name
+    || option.rule_name
+    || ""
+  );
 }
 
 export function sizeBand(option = {}) {
   const text = normaliseKey(optionSizeText(option));
-  const width = positiveNumber(option.width_mm || option.print_width_mm || option.print_area_width_mm || option.max_width_mm);
-  const height = positiveNumber(option.height_mm || option.print_height_mm || option.print_area_height_mm || option.max_height_mm);
+  const width = positiveNumber(
+    option.width_mm
+    || option.widthMm
+    || option.print_width_mm
+    || option.print_area_width_mm
+    || option.max_width_mm
+  );
+  const height = positiveNumber(
+    option.height_mm
+    || option.heightMm
+    || option.print_height_mm
+    || option.print_area_height_mm
+    || option.max_height_mm
+  );
   const longest = Math.max(width, height);
 
-  if (text.includes("full") || text.includes("wrap") || text.includes("front full") || text.includes("back full") || longest >= 280) {
-    return "Full front/back where applicable";
+  if (
+    text.includes("full")
+    || text.includes("wrap")
+    || text.includes("front full")
+    || text.includes("back full")
+    || longest >= 280
+  ) return "Full front/back where applicable";
+
+  if (text.includes("large") || text.includes("a4") || longest >= 200) {
+    return "Large print";
   }
-  if (text.includes("large") || text.includes("a4") || longest >= 200) return "Large print";
-  if (text.includes("medium") || text.includes("a5") || longest >= 120) return "Medium print";
+  if (text.includes("medium") || text.includes("a5") || longest >= 120) {
+    return "Medium print";
+  }
   return "Small print";
 }
 
+export function effectiveOptionPricingRows(template = {}, option = {}) {
+  const defaultArea = optionArea(template, option);
+  const variations = activeTemplateVariations(template);
+  const rows = variations.length ? variations : [{}];
+
+  return rows.map((variation) => {
+    const setup = resolveEffectiveProductionSetup(
+      template,
+      variation,
+      {
+        area: defaultArea,
+        defaultPrintArea: defaultArea,
+      }
+    );
+    const area = setup.printAreaOverride;
+    const cost = optionPrice(option, area);
+
+    return {
+      variation,
+      variation_id: variation.id || null,
+      area,
+      cost,
+      source: setup.sourceMap.printArea,
+    };
+  });
+}
+
 export function pricingBands(template = {}, globalPrintOptions = []) {
-  const options = templatePrintOptions(template, globalPrintOptions).filter(isActiveV1PrintOption);
+  const options = templatePrintOptions(
+    template,
+    globalPrintOptions
+  ).filter(isActiveV1PrintOption);
   const byBand = new Map();
 
   options.forEach((option) => {
-    const area = optionArea(template, option);
-    const cost = optionPrice(option, area);
-    if (cost <= 0) return;
+    effectiveOptionPricingRows(template, option).forEach((row) => {
+      if (row.cost <= 0) return;
 
-    const band = sizeBand({ ...option, ...optionDimensions(option, area) });
-    const existing = byBand.get(band);
-    if (!existing || cost < existing.estimated_print_cost) {
-      byBand.set(band, {
-        size_band: band,
-        method: methodLabel(option),
-        estimated_print_cost: cost,
-      });
-    }
+      const dimensions = optionDimensions(option, row.area);
+      const band = sizeBand({ ...option, ...dimensions });
+      const existing = byBand.get(band);
+
+      if (!existing || row.cost < existing.estimated_print_cost) {
+        byBand.set(band, {
+          size_band: band,
+          method: methodLabel(option),
+          estimated_print_cost: row.cost,
+          variation_id: row.variation_id,
+          pricing_source: row.source,
+        });
+      }
+    });
   });
 
   return Array.from(byBand.values()).sort((a, b) => {
-    const order = ["Small print", "Medium print", "Large print", "Full front/back where applicable"];
+    const order = [
+      "Small print",
+      "Medium print",
+      "Large print",
+      "Full front/back where applicable",
+    ];
     return order.indexOf(a.size_band) - order.indexOf(b.size_band);
   });
 }
@@ -447,14 +681,30 @@ export function pricingBands(template = {}, globalPrintOptions = []) {
 export function templatePricingInfo(template = {}, globalPrintOptions = []) {
   const allOptions = templatePrintOptions(template, globalPrintOptions);
   const activeOptions = allOptions.filter(isActiveV1PrintOption);
-  const pricedOptions = activeOptions.filter((option) => optionPrice(option, optionArea(template, option)) > 0);
+  const pricingRows = activeOptions.flatMap((option) =>
+    effectiveOptionPricingRows(template, option).map((row) => ({
+      ...row,
+      option,
+    }))
+  );
+  const pricedOptionIds = new Set(
+    pricingRows
+      .filter((row) => row.cost > 0)
+      .map((row) => row.option.id || methodKey(row.option))
+  );
+  const pricedOptions = activeOptions.filter((option) =>
+    pricedOptionIds.has(option.id || methodKey(option))
+  );
   const bands = pricingBands(template, globalPrintOptions);
+  const printAreaCoverage = templatePrintAreaCoverage(template);
 
   return {
     allOptions,
     activeOptions,
     pricedOptions,
+    pricingRows,
     bands,
+    printAreaCoverage,
     hasActiveMethods: activeOptions.length > 0,
     hasPricing: pricedOptions.length > 0 || bands.length > 0,
   };

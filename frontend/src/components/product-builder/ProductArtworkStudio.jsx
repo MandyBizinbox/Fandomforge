@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import { Image as ImageIcon, Move, RefreshCw, RotateCcw, Trash2, Type } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
 import { resolveEffectiveProductionSetup } from "../../lib/templateProductionResolver";
+import { geometryClipStyle, normalisePrintAreaGeometry, traceCanvasPrintAreaPath } from "../../lib/printAreaGeometry";
+import { renderDerivedMockupCanvas } from "../../lib/derivedMockupRenderer";
 import "./productBuilderV2.css";
 import {
   asArray,
@@ -699,6 +701,82 @@ function ColourRestrictionBlock({ profile, slot, onChange }) {
   );
 }
 
+async function renderSlotIntoPrintAreaLayer(slot, area, targetWidth, targetHeight) {
+  const width = Math.max(1, Math.round(Number(targetWidth || 0)));
+  const height = Math.max(1, Math.round(Number(targetHeight || 0)));
+  const layer = document.createElement("canvas");
+  layer.width = width;
+  layer.height = height;
+  const context = layer.getContext("2d");
+  const geometry = normalisePrintAreaGeometry(area);
+  const placement = sanitizePlacement(slot.placement, area);
+  const artX = (Number(placement.x || 0) / 100) * width;
+  const artY = (Number(placement.y || 0) / 100) * height;
+  const artW = (Number(placement.width || 100) / 100) * width;
+  const artH = (Number(placement.height || 100) / 100) * height;
+  const rotation = (Number(placement.rotation || 0) * Math.PI) / 180;
+
+  context.save();
+  if (geometry.geometry_type !== "mask") {
+    traceCanvasPrintAreaPath(context, geometry, 0, 0, width, height);
+    context.clip();
+  }
+  context.translate(artX + artW / 2, artY + artH / 2);
+  context.rotate(rotation);
+  if (slot.text_layer) {
+    await drawTextLayer(context, slot, -artW / 2, -artH / 2, artW, artH);
+  } else {
+    const artworkImage = await loadImage(slot.original_url);
+    drawImageContain(context, artworkImage, -artW / 2, -artH / 2, artW, artH);
+  }
+  context.restore();
+
+  if (geometry.geometry_type === "mask" && geometry.mask_url) {
+    const maskImage = await loadImage(geometry.mask_url);
+    context.save();
+    context.globalCompositeOperation = "destination-in";
+    context.drawImage(maskImage, 0, 0, width, height);
+    context.restore();
+  }
+
+  return layer;
+}
+
+async function composePrintAreaArtworkCanvas(slots, area, width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(Number(width || 0)));
+  canvas.height = Math.max(1, Math.round(Number(height || 0)));
+  const context = canvas.getContext("2d");
+
+  for (const slot of asArray(slots)) {
+    if (!slotHasArtwork(slot)) continue;
+    const layer = await renderSlotIntoPrintAreaLayer(
+      slot,
+      area,
+      canvas.width,
+      canvas.height
+    );
+    context.drawImage(layer, 0, 0, canvas.width, canvas.height);
+  }
+
+  return canvas;
+}
+
+async function uploadGeneratedCanvas(canvas, fileName) {
+  const blob = await blobFromCanvas(canvas);
+  if (!blob) throw new Error("Could not generate mockup image");
+  const formData = new FormData();
+  formData.append(
+    "file",
+    new File([blob], fileName, { type: "image/png" })
+  );
+  formData.append("subdir", "product-mockups");
+  const response = await http.post("/files/image", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data.url;
+}
+
 export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false }) {
   const [activeGroupId, setActiveGroupId] = useState(asArray(artworkGroups)[0]?.id || "");
   const [activeSlotId, setActiveSlotId] = useState("");
@@ -1219,34 +1297,103 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
         const areaY = (areaPct(area, "y") / 100) * canvas.height;
         const areaW = (areaPct(area, "width") / 100) * canvas.width;
         const areaH = (areaPct(area, "height") / 100) * canvas.height;
-        const placement = sanitizePlacement(slot.placement, area);
-        const artX = areaX + (Number(placement.x || 0) / 100) * areaW;
-        const artY = areaY + (Number(placement.y || 0) / 100) * areaH;
-        const artW = (Number(placement.width || 100) / 100) * areaW;
-        const artH = (Number(placement.height || 100) / 100) * areaH;
-        const rotation = (Number(placement.rotation || 0) * Math.PI) / 180;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(areaX, areaY, areaW, areaH);
-        ctx.clip();
-        ctx.translate(artX + artW / 2, artY + artH / 2);
-        ctx.rotate(rotation);
-        if (slot.text_layer) await drawTextLayer(ctx, slot, -artW / 2, -artH / 2, artW, artH);
-        else {
-          const artworkImage = await loadImage(slot.original_url);
-          drawImageContain(ctx, artworkImage, -artW / 2, -artH / 2, artW, artH);
-        }
-        ctx.restore();
+        const clippedLayer = await renderSlotIntoPrintAreaLayer(slot, area, areaW, areaH);
+        ctx.drawImage(clippedLayer, areaX, areaY, areaW, areaH);
       }
-      const blob = await blobFromCanvas(canvas);
-      if (!blob) throw new Error("Could not generate mockup image");
-      const fd = new FormData();
       const safeName = `${activeGroup?.label || "group"}-${screenLabel(activeScreen)}`.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      fd.append("file", new File([blob], `mockup-${safeName}.png`, { type: "image/png" }));
-      fd.append("subdir", "product-mockups");
-      const response = await http.post("/files/image", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      setGroupSlots(activeGroup.id, slots.map((slot) => (slot.screen_id === currentScreenId ? { ...slot, mockup_image_url: response.data.url } : slot)));
-      toast.success(`${screenLabel(activeScreen)} mockup generated`);
+      const primaryMockupUrl = await uploadGeneratedCanvas(
+        canvas,
+        `mockup-${safeName}.png`
+      );
+
+      const updatedSlots = slots.map((slot) => (
+        slot.screen_id === currentScreenId
+          ? { ...slot, mockup_image_url: primaryMockupUrl }
+          : slot
+      ));
+      const derivedMockupImages = [];
+      const fullWrapArea = areasForScreen.find((area) => {
+        const key = compact(
+          area.area_key
+          || area.view_key
+          || area.screen_view
+          || area.name
+        ).toLowerCase();
+        return key.includes("wrap");
+      });
+      const derivedGalleryRows = asArray(template?.template_gallery).filter(
+        (row) =>
+          row?.image_url
+          && row.status !== "archived"
+          && row.derived_from_artwork_mode === "full_wrap"
+          && [
+            "front_mockup",
+            "back_mockup",
+            "side_mockup",
+            "angled_mockup",
+          ].includes(row.role)
+          && (!row.source_print_area_id || row.source_print_area_id === fullWrapArea?.id)
+      );
+
+      if (fullWrapArea && derivedGalleryRows.length) {
+        const wrapSlots = drawableSlots.filter(
+          (slot) => slot.print_area_id === fullWrapArea.id
+        );
+        const physicalRatio =
+          Number(fullWrapArea.width_mm || 0) > 0
+          && Number(fullWrapArea.height_mm || 0) > 0
+            ? Number(fullWrapArea.width_mm) / Number(fullWrapArea.height_mm)
+            : Math.max(0.1, areaPct(fullWrapArea, "width") / Math.max(1, areaPct(fullWrapArea, "height")));
+        const sourceWidth = 1800;
+        const sourceHeight = Math.max(1, Math.round(sourceWidth / physicalRatio));
+        const wrapArtworkCanvas = await composePrintAreaArtworkCanvas(
+          wrapSlots,
+          fullWrapArea,
+          sourceWidth,
+          sourceHeight
+        );
+
+        for (const galleryRow of derivedGalleryRows) {
+          const derivedCanvas = await renderDerivedMockupCanvas({
+            baseImageUrl: galleryRow.image_url,
+            sourceArtworkCanvas: wrapArtworkCanvas,
+            crop: galleryRow.crop || {},
+            role: galleryRow.role,
+          });
+          const derivedName = `${safeName}-${galleryRow.role || galleryRow.view_key || "derived"}`
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-");
+          const imageUrl = await uploadGeneratedCanvas(
+            derivedCanvas,
+            `mockup-${derivedName}.png`
+          );
+          derivedMockupImages.push({
+            id: makeId("derived-mockup"),
+            gallery_image_id: galleryRow.id,
+            role: galleryRow.role,
+            view_key: galleryRow.view_key || galleryRow.role,
+            image_url: imageUrl,
+            source_print_area_id: fullWrapArea.id,
+            artwork_mode: "full_wrap",
+          });
+        }
+      }
+
+      const nextGroups = patchGroup(groups, activeGroup.id, (group) => ({
+        ...group,
+        artworks: updatedSlots.map((slot, index) => ({
+          ...slot,
+          sort_order: index,
+        })),
+        primary_mockup_image_url: primaryMockupUrl,
+        derived_mockup_images: derivedMockupImages,
+      }));
+      setGroups(nextGroups);
+      toast.success(
+        derivedMockupImages.length
+          ? `${screenLabel(activeScreen)} mockup and ${derivedMockupImages.length} derived view(s) generated`
+          : `${screenLabel(activeScreen)} mockup generated`
+      );
     } catch (error) {
       toast.error(error.message || "Could not generate mockup");
     } finally {
@@ -1344,6 +1491,19 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
           </div>
           <button type="button" className="btn-primary w-full mt-4" disabled={generating || !canGenerateMockup} onClick={generateMockup}><RefreshCw size={14} /> {generating ? "Generating…" : `Generate ${screenLabel(activeScreen)} Mockup`}</button>
           {activeSlot?.mockup_image_url && <div className="mt-3 border border-white/10 p-2"><div className="overline mb-2">Generated mockup</div><img src={assetUrl(activeSlot.mockup_image_url)} alt="Generated mockup" className="w-full max-h-40 object-contain" /></div>}
+          {asArray(activeGroup?.derived_mockup_images).length > 0 && (
+            <div className="mt-3 border border-white/10 p-2">
+              <div className="overline mb-2">Derived sellable views</div>
+              <div className="grid grid-cols-2 gap-2">
+                {asArray(activeGroup.derived_mockup_images).map((mockup) => (
+                  <div key={mockup.id || mockup.image_url} className="border border-white/10 bg-black/30 p-1">
+                    <img src={assetUrl(mockup.image_url)} alt={mockup.view_key || mockup.role || "Derived mockup"} className="w-full aspect-square object-contain" />
+                    <div className="text-[9px] uppercase tracking-widest text-zinc-500 mt-1 truncate">{mockup.view_key || mockup.role}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </aside>
 
         <main className="border border-white/10 bg-black min-h-[680px] flex items-center justify-center overflow-hidden rounded-xl p-4">
@@ -1354,8 +1514,16 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                 const areaSlots = currentScreenSlots.filter((slot) => slot.print_area_id === area.id);
                 const areaActive = activeArea?.id === area.id;
                 return (
-                  <div key={area.id} ref={(element) => { if (element) areaRefs.current[area.id] = element; }} className={`absolute border-2 ${areaActive ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-[#FF3B30]/50 bg-[#FF3B30]/5"} overflow-visible`} style={{ left: `${areaPct(area, "x")}%`, top: `${areaPct(area, "y")}%`, width: `${areaPct(area, "width")}%`, height: `${areaPct(area, "height")}%` }} onMouseDown={(event) => { event.stopPropagation(); setActivePrintAreaId(area.id); }}>
-                    <div className="absolute -top-8 left-0 z-30 bg-[#FF3B30] text-white text-[10px] uppercase tracking-widest px-2 py-1 whitespace-nowrap">{area.name} · {area.width_mm || 0}×{area.height_mm || 0}mm</div>
+                  <div key={area.id} ref={(element) => { if (element) areaRefs.current[area.id] = element; }} className="absolute overflow-visible" style={{ left: `${areaPct(area, "x")}%`, top: `${areaPct(area, "y")}%`, width: `${areaPct(area, "width")}%`, height: `${areaPct(area, "height")}%` }} onMouseDown={(event) => { event.stopPropagation(); setActivePrintAreaId(area.id); }}>
+                    <div
+                      className={`absolute inset-0 pointer-events-none border-2 ${areaActive ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-[#FF3B30]/50 bg-[#FF3B30]/5"}`}
+                      style={{
+                        ...geometryClipStyle(area),
+                        transform: `rotate(${Number(area.rotation_deg || 0)}deg)`,
+                        transformOrigin: "center",
+                      }}
+                    />
+                    <div className="absolute -top-8 left-0 z-30 bg-[#FF3B30] text-white text-[10px] uppercase tracking-widest px-2 py-1 whitespace-nowrap">{area.name} · {area.geometry_type || "rectangle"} · {area.width_mm || 0}×{area.height_mm || 0}mm</div>
                     {areaSlots.map((slot) => {
                       if (!slotHasArtwork(slot)) return null;
                       const placement = sanitizePlacement(previewPlacements[slot.id] || slot.placement, area);
