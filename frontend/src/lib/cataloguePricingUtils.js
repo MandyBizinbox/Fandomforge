@@ -582,12 +582,14 @@ export function sizeBand(option = {}) {
   const text = normaliseKey(optionSizeText(option));
   const width = positiveNumber(
     option.width_mm
+    || option.widthMm
     || option.print_width_mm
     || option.print_area_width_mm
     || option.max_width_mm
   );
   const height = positiveNumber(
     option.height_mm
+    || option.heightMm
     || option.print_height_mm
     || option.print_area_height_mm
     || option.max_height_mm
