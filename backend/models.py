@@ -1059,6 +1059,7 @@ class ProductArtworkGroup(BaseModel):
     inherits_from: Optional[str] = None
     artworks: List[ProductArtworkSlot] = Field(default_factory=list)
     primary_mockup_image_url: Optional[str] = None
+    derived_mockup_images: List[Dict[str, Any]] = Field(default_factory=list)
     sort_order: int = 0
 
 class ProductBase(BaseModel):
