@@ -203,28 +203,59 @@ function matchingConfigurationArea(configuration = {}, wanted = {}, option = {})
   const wantedKeys = [wanted.id, wanted.area_key, wanted.view_key, wanted.screen_view, wanted.name]
     .filter(Boolean)
     .map(normaliseProductionKey);
+  const optionMatch = areas.find(
+    (area) => optionId && safeArray(area.allowed_print_option_ids).map(String).includes(optionId)
+  );
+  if (optionMatch) return optionMatch;
 
-  return areas.find((area) => optionId && safeArray(area.allowed_print_option_ids).map(String).includes(optionId))
-    || areas.find((area) => {
-      const areaKeys = [area.id, area.area_key, area.view_key, area.screen_view, area.name]
-        .filter(Boolean)
-        .map(normaliseProductionKey);
-      return wantedKeys.some((key) => areaKeys.includes(key));
-    })
-    || areas[0]
-    || {};
+  const semanticMatch = areas.find((area) => {
+    const areaKeys = [area.id, area.area_key, area.view_key, area.screen_view, area.name]
+      .filter(Boolean)
+      .map(normaliseProductionKey);
+    return wantedKeys.some((key) => areaKeys.includes(key));
+  });
+  if (semanticMatch) return semanticMatch;
+
+  return wantedKeys.length ? null : areas[0] || null;
+}
+
+function disabledRuntimeArea(defaultArea = {}) {
+  return normalisePrintAreaGeometry({
+    id: defaultArea.id || "disabled-variation-area",
+    name: defaultArea.name || "Unavailable for this variation",
+    area_key: defaultArea.area_key || "disabled",
+    view_key: defaultArea.view_key || defaultArea.screen_view || "",
+    screen_view: defaultArea.screen_view || defaultArea.view_key || "",
+    screen_id: "__disabled__",
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    x_pct: 0,
+    y_pct: 0,
+    width_pct: 0,
+    height_pct: 0,
+    width_mm: 0,
+    height_mm: 0,
+    allowed_print_option_ids: [],
+    status: "archived",
+    archived: true,
+    disabled: true,
+  });
 }
 
 function resolveStoredVariationConfiguration(template = {}, variation = {}, options = {}) {
   const configuration = getVariationProductionConfiguration(variation, template);
   const defaultArea = options.area || options.defaultPrintArea || {};
   const configuredArea = matchingConfigurationArea(configuration, defaultArea, options.printOption || options.option || {});
-  const configuredScreen = matchingConfigurationScreen(configuration, options.screen || {}, configuredArea);
-  const printAreaOverride = normalisePrintAreaGeometry({
-    ...configuredArea,
-    id: defaultArea.id || configuredArea.id,
-    screen_id: defaultArea.screen_id || configuredArea.screen_id,
-  });
+  const configuredScreen = matchingConfigurationScreen(configuration, options.screen || {}, configuredArea || defaultArea);
+  const printAreaOverride = configuredArea
+    ? normalisePrintAreaGeometry({
+        ...configuredArea,
+        id: defaultArea.id || configuredArea.id,
+        screen_id: defaultArea.screen_id || configuredArea.screen_id,
+      })
+    : disabledRuntimeArea(defaultArea);
   const imageUrl = firstTruthy(
     configuredScreen.image_url,
     variation.image_url,
@@ -262,7 +293,7 @@ function resolveStoredVariationConfiguration(template = {}, variation = {}, opti
     sourceMap: {
       image: "variation production configuration",
       viewImage: "variation production configuration",
-      printArea: "variation production configuration",
+      printArea: configuredArea ? "variation production configuration" : "variation production configuration: unavailable",
       blankCost: "exact variation",
       creatorBlankPrice: "exact variation",
     },
