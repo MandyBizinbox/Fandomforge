@@ -220,7 +220,11 @@ function resolveStoredVariationConfiguration(template = {}, variation = {}, opti
   const defaultArea = options.area || options.defaultPrintArea || {};
   const configuredArea = matchingConfigurationArea(configuration, defaultArea, options.printOption || options.option || {});
   const configuredScreen = matchingConfigurationScreen(configuration, options.screen || {}, configuredArea);
-  const printAreaOverride = normalisePrintAreaGeometry(configuredArea);
+  const printAreaOverride = normalisePrintAreaGeometry({
+    ...configuredArea,
+    id: defaultArea.id || configuredArea.id,
+    screen_id: defaultArea.screen_id || configuredArea.screen_id,
+  });
   const imageUrl = firstTruthy(
     configuredScreen.image_url,
     variation.image_url,
@@ -434,7 +438,6 @@ export function resolveEffectiveProductionSetup(
 export function resolveEffectivePrintAreas(template = {}, variation = {}) {
   if (hasStoredProductionConfiguration(variation)) {
     const configuration = getVariationProductionConfiguration(variation, template);
-    const screens = activeRows(configuration.screens);
     return activeRows(configuration.print_areas).map((area) => {
       const screen = matchingConfigurationScreen(configuration, {}, area);
       return {
