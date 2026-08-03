@@ -1,0 +1,42 @@
+name: Apply Template Builder V2 Studio
+
+on:
+  push:
+    branches:
+      - feature/template-builder-production-geometry-v2
+    paths:
+      - "scripts/apply_template_builder_v2_studio_patch.py"
+      - ".github/workflows/apply-template-builder-v2-studio.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-studio-patch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/template-builder-production-geometry-v2
+          fetch-depth: 0
+
+      - name: Apply guarded Studio patch
+        run: python3 scripts/apply_template_builder_v2_studio_patch.py
+
+      - name: Confirm generated source contains required integration
+        run: |
+          grep -q 'TemplateGalleryManager' frontend/src/components/template-studio/ProductTemplateStudioPage.jsx
+          grep -q 'Visible to creators' frontend/src/components/template-studio/ProductTemplateStudioPage.jsx
+          grep -q '6. Gallery & Mockups' frontend/src/components/template-studio/ProductTemplateStudioPage.jsx
+
+      - name: Commit generated Studio change and remove one-time patch machinery
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/template-studio/ProductTemplateStudioPage.jsx
+          git rm scripts/apply_template_builder_v2_studio_patch.py
+          git rm .github/workflows/apply-template-builder-v2-studio.yml
+          git commit -m "Integrate Template Builder V2 workflow and gallery"
+          git push origin HEAD:feature/template-builder-production-geometry-v2
