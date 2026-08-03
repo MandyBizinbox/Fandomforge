@@ -77,7 +77,7 @@ export default function ProductionConfigurationEditor({
             {complete ? <CheckCircle2 size={16} /> : <CircleAlert size={16} />}
             {complete ? "Production ready" : "Setup incomplete"}
           </div>
-          {onCopyRequested && (
+          {onCopyRequested && copyLabel && (
             <button type="button" className="v3-button v3-button-secondary" onClick={() => onCopyRequested(configuration)}>
               <Copy size={15} /> {copyLabel}
             </button>
