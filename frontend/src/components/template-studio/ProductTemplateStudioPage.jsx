@@ -7,6 +7,7 @@ import TemplateVariationMatrix from "./TemplateVariationMatrix";
 import TemplateViewManager from "./TemplateViewManager";
 import PrintAreaCanvas from "./PrintAreaCanvas";
 import PrintAreaInspector from "./PrintAreaInspector";
+import TemplateGalleryManager from "./TemplateGalleryManager";
 import { blankTemplate, newId, safeArray, slugify } from "./templateStudioUtils";
 
 function moneyRound(value) {
@@ -156,6 +157,10 @@ export default function ProductTemplateStudioPage() {
         },
         mockup_screens: safeArray(template.mockup_screens),
         print_areas: safeArray(template.print_areas),
+        template_gallery: safeArray(template.template_gallery),
+        artwork_modes: safeArray(template.artwork_modes),
+        creator_visible: template.creator_visible !== false,
+        admin_visible: template.admin_visible !== false,
       };
 
       const response = isNew
@@ -179,7 +184,27 @@ export default function ProductTemplateStudioPage() {
       formData.append("file", file);
       formData.append("subdir", "product-template-primary");
       const response = await http.post("/files/image", formData, { headers: { "Content-Type": "multipart/form-data" } });
-      updateTemplate({ product_image_url: response.data.url, mockup_url: response.data.url });
+      const primaryGalleryImage = {
+        id: newId("gallery"),
+        name: file.name.replace(/\.[^.]+$/, ""),
+        image_url: response.data.url,
+        role: "catalogue_thumbnail",
+        view_key: "front",
+        source_print_area_id: "",
+        derived_from_artwork_mode: "",
+        crop: {},
+        sort_order: 0,
+        is_primary: true,
+        status: "active",
+      };
+      const gallery = safeArray(template.template_gallery)
+        .filter((row) => row.role !== "catalogue_thumbnail")
+        .map((row) => ({ ...row, is_primary: false }));
+      updateTemplate({
+        product_image_url: response.data.url,
+        mockup_url: response.data.url,
+        template_gallery: [primaryGalleryImage, ...gallery],
+      });
       toast.success("Primary image uploaded");
     } catch (error) {
       toast.error(error.response?.data?.detail || "Image upload failed");
@@ -369,12 +394,13 @@ export default function ProductTemplateStudioPage() {
 
       <div className="studio-tabs">
         {[
-          ["setup", "Setup"],
-          ["views", "Base Views"],
-          ["print-rules", "Print Rules"],
-          ["print-areas", "Print Areas"],
-          ["variations", "Variations"],
-          ["size-guide", "Size Guide"],
+          ["setup", "1. Product"],
+          ["variations", "2. Variations"],
+          ["views", "3. Editor Views"],
+          ["print-areas", "4. Print Areas"],
+          ["print-rules", "5. Print Rules"],
+          ["gallery", "6. Gallery & Mockups"],
+          ["size-guide", "7. Size Guide"],
         ].map(([tab, label]) => (
           <button key={tab} type="button" className={activeTab === tab ? "studio-tab active" : "studio-tab"} onClick={() => setActiveTab(tab)}>
             {label}
@@ -413,26 +439,38 @@ export default function ProductTemplateStudioPage() {
 
               <div className="md:col-span-2 border border-white/10 bg-white/[0.03] rounded-xl p-4 text-xs text-zinc-300">
                 <div className="font-bold uppercase tracking-widest text-zinc-100 mb-3">Template setup checklist</div>
-                <div className="grid md:grid-cols-5 gap-3">
+                <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
                   <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                    <span className="block text-[#FF7A1A] font-bold mb-1">1. Blueprint</span>
-                    Choose the production skeleton.
+                    <span className="block text-[#FF7A1A] font-bold mb-1">1. Product type</span>
+                    Choose the reusable production blueprint.
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                    <span className="block text-[#FF7A1A] font-bold mb-1">2. Supplier blank</span>
-                    Add supplier, brand and blank SKU.
+                    <span className="block text-[#FF7A1A] font-bold mb-1">2. Template</span>
+                    Add the supplier blank, costs and catalogue details.
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                    <span className="block text-[#FF7A1A] font-bold mb-1">3. Save</span>
-                    Save the supplier template.
+                    <span className="block text-[#FF7A1A] font-bold mb-1">3. Variations</span>
+                    Generate or select colours, sizes, shapes and SKUs.
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                    <span className="block text-[#FF7A1A] font-bold mb-1">4. Variations</span>
-                    Configure colours, sizes, costs and SKUs.
+                    <span className="block text-[#FF7A1A] font-bold mb-1">4. Editor views</span>
+                    Upload the base image used to place artwork.
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                    <span className="block text-[#FF7A1A] font-bold mb-1">5. Overrides</span>
-                    Upload colour-specific image overrides.
+                    <span className="block text-[#FF7A1A] font-bold mb-1">5. Print areas</span>
+                    Set defaults, then override only differing variations.
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                    <span className="block text-[#FF7A1A] font-bold mb-1">6. Print rules</span>
+                    Assign supported manufacturing and pricing rules.
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                    <span className="block text-[#FF7A1A] font-bold mb-1">7. Gallery</span>
+                    Add catalogue, front, back, angled and wrap images.
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                    <span className="block text-[#FF7A1A] font-bold mb-1">8. Publish</span>
+                    Review visibility and activate the completed template.
                   </div>
                 </div>
                 <p className="mt-3 text-zinc-500">
@@ -523,12 +561,51 @@ export default function ProductTemplateStudioPage() {
               <label className="md:col-span-2"><span className="label">Supplier notes</span><textarea className="input-base" rows={3} value={template.supplier_notes || ""} onChange={(e) => updateTemplate({ supplier_notes: e.target.value })} /></label>
             </div>
           </div>
-          <div className="studio-panel">
-            <div className="overline mb-2">Primary Image</div>
-            <div className="aspect-square bg-black border border-white/15 flex items-center justify-center overflow-hidden mb-4">
-              {template.product_image_url || template.mockup_url ? <img src={assetUrl(template.product_image_url || template.mockup_url)} alt="Primary" className="w-full h-full object-contain" /> : <span className="text-zinc-600 text-sm">No primary image</span>}
+          <div className="space-y-5">
+            <div className="studio-panel">
+              <div className="overline mb-2">Primary Image</div>
+              <div className="aspect-square bg-black border border-white/15 flex items-center justify-center overflow-hidden mb-4">
+                {template.product_image_url || template.mockup_url ? <img src={assetUrl(template.product_image_url || template.mockup_url)} alt="Primary" className="w-full h-full object-contain" /> : <span className="text-zinc-600 text-sm">No primary image</span>}
+              </div>
+              <label className="studio-file-button w-full justify-center">Upload Primary Image<input type="file" className="hidden" accept="image/*" onChange={(e) => uploadProductImage(e.target.files?.[0])} /></label>
+              <p className="text-xs text-zinc-500 mt-3">This also becomes the catalogue-thumbnail role in Gallery & Mockups.</p>
             </div>
-            <label className="studio-file-button w-full justify-center">Upload Primary Image<input type="file" className="hidden" accept="image/*" onChange={(e) => uploadProductImage(e.target.files?.[0])} /></label>
+
+            <div className="studio-panel">
+              <div className="overline mb-2">Catalogue visibility</div>
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={template.creator_visible !== false}
+                    onChange={(event) => updateTemplate({ creator_visible: event.target.checked })}
+                  />
+                  <span>
+                    <strong className="block">Visible to creators</strong>
+                    <span className="text-xs text-zinc-500">Required for Create Printable Product.</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={template.admin_visible !== false}
+                    onChange={(event) => updateTemplate({ admin_visible: event.target.checked })}
+                  />
+                  <span>
+                    <strong className="block">Visible in admin catalogue</strong>
+                    <span className="text-xs text-zinc-500">Keep enabled unless deliberately archived from normal admin use.</span>
+                  </span>
+                </label>
+              </div>
+
+              {template.status === "active" && template.creator_visible === false && (
+                <div className="mt-4 rounded-lg border border-[#FFB020]/40 bg-[#FFB020]/10 p-3 text-xs text-[#FFD27A]">
+                  This template is Active but hidden from creators. It will not appear in Create Printable Product.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -578,6 +655,25 @@ export default function ProductTemplateStudioPage() {
           selectedRules={selectedTemplatePrintRules()}
           selectedRuleIds={selectedTemplatePrintRuleIds()}
           onToggleRule={toggleTemplatePrintRule}
+        />
+      )}
+
+      {activeTab === "gallery" && (
+        <TemplateGalleryManager
+          gallery={safeArray(template.template_gallery)}
+          artworkModes={safeArray(template.artwork_modes)}
+          printAreas={safeArray(template.print_areas)}
+          onGalleryChange={(template_gallery) => {
+            const primary = safeArray(template_gallery).find((row) => row.is_primary)
+              || safeArray(template_gallery).find((row) => row.role === "catalogue_thumbnail");
+            updateTemplate({
+              template_gallery,
+              product_image_url: primary?.image_url || template.product_image_url || "",
+              mockup_url: primary?.image_url || template.mockup_url || "",
+              mockup_images: safeArray(template_gallery).map((row) => row.image_url).filter(Boolean),
+            });
+          }}
+          onArtworkModesChange={(artwork_modes) => updateTemplate({ artwork_modes })}
         />
       )}
 
