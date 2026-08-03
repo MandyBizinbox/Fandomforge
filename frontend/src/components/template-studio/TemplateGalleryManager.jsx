@@ -72,6 +72,17 @@ export default function TemplateGalleryManager({
     commit(rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   };
 
+  const patchCrop = (id, key, value) => {
+    const row = rows.find((item) => item.id === id);
+    if (!row) return;
+    patchRow(id, {
+      crop: {
+        ...(row.crop || {}),
+        [key]: Number(value || 0),
+      },
+    });
+  };
+
   const removeRow = (id) => {
     commit(rows.filter((row) => row.id !== id));
   };
@@ -267,6 +278,42 @@ export default function TemplateGalleryManager({
                       ))}
                     </select>
                   </label>
+
+                  {row.derived_from_artwork_mode === "full_wrap" && (
+                    <div className="border border-[#FF7A1A]/30 bg-[#FF7A1A]/5 rounded-lg p-3 space-y-3">
+                      <div>
+                        <div className="overline mb-1 text-[#FFB066]">Full-wrap projection</div>
+                        <p className="text-[11px] text-zinc-500">Choose which section of the panoramic artwork is projected onto this sellable mockup and where it lands on the blank product image.</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          ["source_x_pct", "Source X %", row.role === "back_mockup" ? 50 : row.role === "angled_mockup" ? 15 : 0],
+                          ["source_y_pct", "Source Y %", 0],
+                          ["source_width_pct", "Source width %", row.role === "angled_mockup" ? 70 : 50],
+                          ["source_height_pct", "Source height %", 100],
+                          ["target_x_pct", "Target X %", 25],
+                          ["target_y_pct", "Target Y %", 25],
+                          ["target_width_pct", "Target width %", 50],
+                          ["target_height_pct", "Target height %", 50],
+                          ["rotation_deg", "Rotation °", 0],
+                          ["curve_strength", "Curve 0–1", 0],
+                          ["opacity", "Opacity 0–1", 1],
+                        ].map(([key, label, fallback]) => (
+                          <label key={key}>
+                            <span className="label text-[10px]">{label}</span>
+                            <input
+                              className="input-base"
+                              type="number"
+                              step={key === "curve_strength" || key === "opacity" ? "0.05" : "1"}
+                              value={row.crop?.[key] ?? fallback}
+                              onChange={(event) => patchCrop(row.id, key, event.target.value)}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
