@@ -1,0 +1,39 @@
+name: Apply Template Builder V2 Models
+
+on:
+  push:
+    branches:
+      - feature/template-builder-production-geometry-v2
+    paths:
+      - "scripts/apply_template_builder_v2_models_patch.py"
+      - ".github/workflows/apply-template-builder-v2-models.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-model-patch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/template-builder-production-geometry-v2
+          fetch-depth: 0
+
+      - name: Apply guarded model patch
+        run: python3 scripts/apply_template_builder_v2_models_patch.py
+
+      - name: Validate model module compiles
+        run: python3 -m py_compile backend/models.py
+
+      - name: Commit generated model change and remove one-time patch machinery
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/models.py
+          git rm scripts/apply_template_builder_v2_models_patch.py
+          git rm .github/workflows/apply-template-builder-v2-models.yml
+          git commit -m "Persist Template Builder V2 production fields"
+          git push origin HEAD:feature/template-builder-production-geometry-v2
