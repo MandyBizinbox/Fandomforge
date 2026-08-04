@@ -77,8 +77,11 @@ function areaGeometryLayerStyle(area, selected) {
     position: "absolute",
     inset: 0,
     pointerEvents: "none",
-    border: `2px dashed ${selected ? "#FF7A1A" : "rgba(255,255,255,0.7)"}`,
-    background: selected ? "rgba(255,122,26,0.18)" : "rgba(255,255,255,0.08)",
+    border: `2px dashed ${selected ? "var(--ff-primary, #FF3B30)" : "rgba(15, 23, 42, 0.82)"}`,
+    background: selected
+      ? "color-mix(in srgb, var(--ff-primary, #FF3B30) 18%, transparent)"
+      : "rgba(255, 255, 255, 0.16)",
+    filter: "drop-shadow(0 0 1px rgba(255, 255, 255, 0.95))",
     transform: `rotate(${Number(area.rotation_deg || 0)}deg)`,
     transformOrigin: "center",
     ...geometryClipStyle(area),
@@ -312,10 +315,10 @@ export default function PrintAreaCanvas({
     <div className="studio-panel h-full">
       <div className="studio-panel-header">
         <div>
-          <div className="overline mb-1">Production areas</div>
-          <h2 className="font-display text-2xl uppercase">Base Print Areas</h2>
+          <div className="overline mb-1">Printable boundaries</div>
+          <h2 className="font-display text-2xl uppercase">Print areas</h2>
           <p className="text-xs text-zinc-500 mt-2 max-w-md">
-            Draw a template-level default, then override only the variations whose size, shape or placement differs.
+            Draw the exact printable boundary for the selected product view. Geometry, physical size and manufacturing rules are saved with this production setup.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -324,28 +327,28 @@ export default function PrintAreaCanvas({
             className={mode === "draw" ? "btn-primary text-xs" : "btn-secondary text-xs"}
             onClick={() => setMode(mode === "draw" ? "select" : "draw")}
           >
-            <Plus size={13} /> Draw
+            <Plus size={13} /> Draw area
           </button>
           <select
             className="input-base text-xs max-w-[220px]"
             value=""
             onChange={(event) => event.target.value && addDefaultArea(event.target.value)}
           >
-            <option value="">Add standard print area</option>
+            <option value="">Add standard area</option>
             {PRINT_AREA_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
           <button type="button" className="btn-secondary text-xs" onClick={() => addDefaultArea()}>
-            Add Rectangle
+            Add rectangle
           </button>
           <button type="button" className="btn-secondary text-xs" onClick={() => addDefaultArea("custom", "circle")}>
-            <Circle size={13} /> Add Circle
+            <Circle size={13} /> Add circle
           </button>
           <button type="button" className="btn-secondary text-xs" onClick={duplicateSelected} disabled={!selectedAreaId}>
             <Copy size={13} /> Duplicate
           </button>
-          <button type="button" className="studio-danger-button" onClick={deleteSelected} disabled={!selectedAreaId}>
+          <button type="button" className="studio-danger-button" onClick={deleteSelected} disabled={!selectedAreaId} aria-label="Delete selected print area">
             <Trash2 size={13} />
           </button>
         </div>
@@ -353,11 +356,11 @@ export default function PrintAreaCanvas({
 
       {!screen ? (
         <div className="dropzone h-[520px] flex items-center justify-center text-zinc-500">
-          Select a base perspective view first.
+          Select a product view first.
         </div>
       ) : !screen.image_url ? (
         <div className="dropzone h-[520px] flex items-center justify-center text-center text-zinc-500">
-          Upload a base image for this perspective view before drawing print areas.
+          Upload an editor image for this product view before drawing print areas.
         </div>
       ) : (
         <div className={mode === "draw" ? "print-canvas drawing" : "print-canvas"}>
@@ -391,8 +394,8 @@ export default function PrintAreaCanvas({
                   onPointerDown={(event) => beginAreaDrag(event, area, "move")}
                 >
                   <div style={areaGeometryLayerStyle(area, selected)} />
-                  <span className="relative z-[2]">{area.name}</span>
-                  <small className="relative z-[2] block text-[10px] leading-tight opacity-80">
+                  <span className="print-area-label relative z-[2]">{area.name}</span>
+                  <small className="print-area-meta relative z-[2] block text-[10px] leading-tight">
                     {(area.geometry_type || "rectangle")} · {printSizeLabel(area.width_mm, area.height_mm, area.dpi || 300)}
                   </small>
 
