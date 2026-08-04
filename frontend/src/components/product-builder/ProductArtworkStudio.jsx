@@ -641,9 +641,17 @@ function TextLayerPreview({ slot }) {
   );
 }
 
-function ResizeHandle({ position, onPointerDown }) {
+function ResizeHandle({ position, onStart }) {
   const positionClasses = { nw: "-left-2 -top-2 cursor-nwse-resize", ne: "-right-2 -top-2 cursor-nesw-resize", sw: "-left-2 -bottom-2 cursor-nesw-resize", se: "-right-2 -bottom-2 cursor-nwse-resize" };
-  return <button type="button" aria-label={`Resize ${position}`} className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`} onPointerDown={onPointerDown} />;
+  return (
+    <button
+      type="button"
+      aria-label={`Resize ${position}`}
+      className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`}
+      onPointerDown={onStart}
+      onMouseDown={onStart}
+    />
+  );
 }
 
 function NumericControl({ label, value, onChange }) {
@@ -792,8 +800,8 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const pendingReplaceSlotIdRef = useRef("");
   const areaRefs = useRef({});
   const dragRef = useRef(null);
-  const dragRafRef = useRef(null);
   const dragLatestRef = useRef(null);
+  const dragCleanupRef = useRef(null);
 
   const groups = asArray(artworkGroups);
   const variations = asArray(selectedVariations);
@@ -1196,87 +1204,242 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   }, [activeSlot?.id, removeSlot]);
 
   const startDrag = (event, slot, type, handle = "") => {
-    const area = printAreas.find((item) => item.id === slot?.print_area_id);
+    if (dragRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    if (
+      event.button !== undefined
+      && event.button !== null
+      && event.button !== 0
+    ) {
+      return;
+    }
+
+    const area = printAreas.find(
+      (item) => item.id === slot?.print_area_id
+    );
     const areaElement = areaRefs.current[area?.id];
+
     if (!slot || !area || !areaElement) return;
+
     event.preventDefault();
     event.stopPropagation();
+
     setActiveSlotId(slot.id);
     setActivePrintAreaId(area.id);
-    const layerElement = event.currentTarget?.closest?.("[data-artwork-layer-id]") || null;
-    try {
-      event.currentTarget?.setPointerCapture?.(event.pointerId);
-    } catch (error) {
-      // Window-level pointer listeners keep the drag active when pointer capture is unavailable.
-    }
-    dragRef.current = { slotId: slot.id, type, handle, startX: event.clientX, startY: event.clientY, startPlacement: sanitizePlacement(slot.placement, area), areaId: area.id, layerElement };
-  };
 
-  useEffect(() => {
-    const handleMove = (event) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      const slot = slots.find((item) => item.id === drag.slotId);
-      const area = printAreas.find((item) => item.id === drag.areaId);
-      const areaElement = areaRefs.current[drag.areaId];
-      if (!slot || !area || !areaElement) return;
-      event.preventDefault();
-      const rect = areaElement.getBoundingClientRect();
-      const dx = ((event.clientX - drag.startX) / rect.width) * 100;
-      const dy = ((event.clientY - drag.startY) / rect.height) * 100;
-      const start = drag.startPlacement;
+    const eventFamily = String(event.type || "").startsWith("pointer")
+      ? "pointer"
+      : "mouse";
+
+    const moveEventName = eventFamily === "pointer"
+      ? "pointermove"
+      : "mousemove";
+
+    const upEventName = eventFamily === "pointer"
+      ? "pointerup"
+      : "mouseup";
+
+    const cancelEventName = eventFamily === "pointer"
+      ? "pointercancel"
+      : null;
+
+    const startPlacement = sanitizePlacement(
+      previewPlacements[slot.id] || slot.placement,
+      area
+    );
+
+    const drag = {
+      slotId: slot.id,
+      slot,
+      type,
+      handle,
+      startX: Number(event.clientX || 0),
+      startY: Number(event.clientY || 0),
+      startPlacement,
+      area,
+      areaElement,
+      moveEventName,
+      upEventName,
+      cancelEventName,
+    };
+
+    dragRef.current = drag;
+    dragLatestRef.current = startPlacement;
+
+    function cleanupListeners() {
+      window.removeEventListener(moveEventName, handleMove);
+      window.removeEventListener(upEventName, handleUp);
+
+      if (cancelEventName) {
+        window.removeEventListener(cancelEventName, handleUp);
+      }
+
+      if (dragCleanupRef.current === cleanupListeners) {
+        dragCleanupRef.current = null;
+      }
+    }
+
+    function handleMove(moveEvent) {
+      const activeDrag = dragRef.current;
+
+      if (!activeDrag || activeDrag.slotId !== slot.id) return;
+
+      moveEvent.preventDefault();
+
+      const rect = activeDrag.areaElement.getBoundingClientRect();
+
+      if (!rect.width || !rect.height) return;
+
+      const dx = (
+        (Number(moveEvent.clientX || 0) - activeDrag.startX)
+        / rect.width
+      ) * 100;
+
+      const dy = (
+        (Number(moveEvent.clientY || 0) - activeDrag.startY)
+        / rect.height
+      ) * 100;
+
+      const start = activeDrag.startPlacement;
       let next = { ...start };
-      if (drag.type === "move") { next.x = start.x + dx; next.y = start.y + dy; }
-      if (drag.type === "resize") {
-        if (drag.handle.includes("e")) next.width = start.width + dx;
-        if (drag.handle.includes("s")) next.height = start.height + dy;
-        if (drag.handle.includes("w")) { next.x = start.x + dx; next.width = start.width - dx; }
-        if (drag.handle.includes("n")) { next.y = start.y + dy; next.height = start.height - dy; }
-        if (slot.lock_aspect_ratio !== false && Number(slot.artwork_aspect_ratio || 0) > 0) {
+
+      if (activeDrag.type === "move") {
+        next.x = start.x + dx;
+        next.y = start.y + dy;
+      }
+
+      if (activeDrag.type === "resize") {
+        if (activeDrag.handle.includes("e")) {
+          next.width = start.width + dx;
+        }
+
+        if (activeDrag.handle.includes("s")) {
+          next.height = start.height + dy;
+        }
+
+        if (activeDrag.handle.includes("w")) {
+          next.x = start.x + dx;
+          next.width = start.width - dx;
+        }
+
+        if (activeDrag.handle.includes("n")) {
+          next.y = start.y + dy;
+          next.height = start.height - dy;
+        }
+
+        if (
+          activeDrag.slot.lock_aspect_ratio !== false
+          && Number(activeDrag.slot.artwork_aspect_ratio || 0) > 0
+        ) {
           const areaRatio = rect.width / Math.max(1, rect.height);
-          const layerRatio = Number(slot.artwork_aspect_ratio || 1);
-          if (Math.abs(dx) >= Math.abs(dy)) next.height = next.width * (areaRatio / layerRatio);
-          else next.width = next.height * (layerRatio / areaRatio);
+          const layerRatio = Number(
+            activeDrag.slot.artwork_aspect_ratio || 1
+          );
+
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            next.height = next.width * (areaRatio / layerRatio);
+          } else {
+            next.width = next.height * (layerRatio / areaRatio);
+          }
+
+          if (activeDrag.handle.includes("w")) {
+            next.x = start.x + (start.width - next.width);
+          }
+
+          if (activeDrag.handle.includes("n")) {
+            next.y = start.y + (start.height - next.height);
+          }
         }
       }
-      if (drag.type === "rotate") {
-        const cx = rect.left + ((start.x + start.width / 2) / 100) * rect.width;
-        const cy = rect.top + ((start.y + start.height / 2) / 100) * rect.height;
-        next.rotation = Math.atan2(event.clientY - cy, event.clientX - cx) * (180 / Math.PI) + 90;
+
+      if (activeDrag.type === "rotate") {
+        const centerX = rect.left
+          + ((start.x + start.width / 2) / 100) * rect.width;
+
+        const centerY = rect.top
+          + ((start.y + start.height / 2) / 100) * rect.height;
+
+        next.rotation = (
+          Math.atan2(
+            Number(moveEvent.clientY || 0) - centerY,
+            Number(moveEvent.clientX || 0) - centerX
+          )
+          * (180 / Math.PI)
+        ) + 90;
       }
-      const cleaned = sanitizePlacement(next, area);
+
+      const cleaned = sanitizePlacement(next, activeDrag.area);
+
       dragLatestRef.current = cleaned;
-      if (!dragRafRef.current) {
-        dragRafRef.current = window.requestAnimationFrame(() => {
-          dragRafRef.current = null;
-          const placement = dragLatestRef.current;
-          const element = dragRef.current?.layerElement;
-          if (!element || !placement) return;
-          element.style.left = `${placement.x}%`;
-          element.style.top = `${placement.y}%`;
-          element.style.width = `${placement.width}%`;
-          element.style.height = `${placement.height}%`;
-          element.style.transform = `rotate(${placement.rotation}deg)`;
-        });
-      }
-    };
-    const handleUp = () => {
-      const drag = dragRef.current;
-      if (drag && dragLatestRef.current) patchPlacement(drag.slotId, dragLatestRef.current);
+
+      setPreviewPlacements((current) => ({
+        ...current,
+        [activeDrag.slotId]: cleaned,
+      }));
+    }
+
+    function handleUp(upEvent) {
+      upEvent?.preventDefault?.();
+
+      const activeDrag = dragRef.current;
+      const finalPlacement = dragLatestRef.current;
+
+      cleanupListeners();
+
       dragRef.current = null;
       dragLatestRef.current = null;
-      setPreviewPlacements({});
-    };
-    window.addEventListener("pointermove", handleMove, { passive: false });
-    window.addEventListener("pointerup", handleUp);
-    window.addEventListener("pointercancel", handleUp);
-    return () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-      window.removeEventListener("pointercancel", handleUp);
-      if (dragRafRef.current) window.cancelAnimationFrame(dragRafRef.current);
-    };
-  }, [slots, printAreas, profileCatalog]);
+
+      if (activeDrag?.slotId && finalPlacement) {
+        patchPlacement(activeDrag.slotId, finalPlacement);
+      }
+
+      window.requestAnimationFrame(() => {
+        setPreviewPlacements((current) => {
+          if (!activeDrag?.slotId || !current[activeDrag.slotId]) {
+            return current;
+          }
+
+          const next = { ...current };
+          delete next[activeDrag.slotId];
+          return next;
+        });
+      });
+    }
+
+    dragCleanupRef.current?.();
+    dragCleanupRef.current = cleanupListeners;
+
+    window.addEventListener(
+      moveEventName,
+      handleMove,
+      { passive: false }
+    );
+
+    window.addEventListener(
+      upEventName,
+      handleUp,
+      { passive: false }
+    );
+
+    if (cancelEventName) {
+      window.addEventListener(
+        cancelEventName,
+        handleUp,
+        { passive: false }
+      );
+    }
+  };
+
+  useEffect(() => () => {
+    dragCleanupRef.current?.();
+    dragCleanupRef.current = null;
+    dragRef.current = null;
+    dragLatestRef.current = null;
+  }, []);
 
   const generateMockup = async () => {
     const drawableSlots = currentScreenSlots.filter((slot) => slotHasArtwork(slot) && slot.print_option_id);
@@ -1529,9 +1692,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                       const placement = sanitizePlacement(previewPlacements[slot.id] || slot.placement, area);
                       const active = activeSlot?.id === slot.id;
                       return (
-                        <div key={slot.id} data-artwork-layer-id={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center", touchAction: "none", willChange: "left, top, width, height, transform" }} onPointerDown={(event) => startDrag(event, slot, "move")}>
+                        <div key={slot.id} data-artwork-layer-id={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center", touchAction: "none", willChange: "left, top, width, height, transform" }} onPointerDown={(event) => startDrag(event, slot, "move")} onMouseDown={(event) => startDrag(event, slot, "move")}>
                           {slot.text_layer ? <TextLayerPreview slot={slot} /> : <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-fill pointer-events-none" draggable="false" />}
-                          {active && <><ResizeHandle position="nw" onPointerDown={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onPointerDown={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onPointerDown={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onPointerDown={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onPointerDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
+                          {active && <><ResizeHandle position="nw" onStart={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onStart={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onStart={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onStart={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onPointerDown={(event) => startDrag(event, slot, "rotate")} onMouseDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
                         </div>
                       );
                     })}
