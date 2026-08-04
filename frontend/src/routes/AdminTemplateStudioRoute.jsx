@@ -14,6 +14,7 @@ import {
 import DashboardLayout from "../components/DashboardLayout";
 import ProductTemplateStudioV3Page from "../components/template-studio/ProductTemplateStudioV3Page";
 import "../components/template-studio/templateStudioV3Compatibility.css";
+import "../components/template-studio/templateStudioV3DarkContrast.css";
 
 const links = [
   { type: "section", label: "Command" },
