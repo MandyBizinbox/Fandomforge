@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import DashboardLayout from "../components/DashboardLayout";
 import ProductTemplateStudioV3Page from "../components/template-studio/ProductTemplateStudioV3Page";
+import "../components/template-studio/templateStudioV3Compatibility.css";
 
 const links = [
   { type: "section", label: "Command" },
