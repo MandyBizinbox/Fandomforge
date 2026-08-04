@@ -9,9 +9,18 @@ on:
       - feature/template-builder-production-geometry-v2
     paths:
       - "frontend/src/components/template-studio/**"
+      - "frontend/src/components/product-builder/**"
+      - "frontend/src/components/product/**"
+      - "frontend/src/components/orders/ManualOrderBuilder.jsx"
       - "frontend/src/lib/**"
       - "frontend/src/routes/AdminDashboardRoute.jsx"
       - "frontend/src/routes/AdminTemplateStudioRoute.jsx"
+      - "backend/platform_fee_pricing.py"
+      - "backend/routes_main.py"
+      - "backend/production_rules_engine.py"
+      - "backend/production_operation_pricing.py"
+      - "backend/launch_integrity/pricing.py"
+      - "backend/tests/test_platform_fee_pricing.py"
       - ".github/workflows/template-production-routing-v3-ci.yml"
 
 permissions:
@@ -20,9 +29,6 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
 
     steps:
       - name: Checkout
@@ -35,10 +41,17 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
         run: npm ci
 
-      - name: Run template production tests
+      - name: Run frontend production tests
+        working-directory: frontend
         env:
           CI: "true"
         run: >-
@@ -50,8 +63,24 @@ jobs:
           cataloguePricingUtils.test.js
           templateReadiness.test.js
           derivedMockupRenderer.test.js
+          productBuilderPricingGallery.test.js
+
+      - name: Run backend platform fee tests
+        working-directory: backend
+        run: PYTHONPATH=. python tests/test_platform_fee_pricing.py
+
+      - name: Compile changed backend modules
+        working-directory: backend
+        run: >-
+          python -m py_compile
+          platform_fee_pricing.py
+          routes_main.py
+          production_rules_engine.py
+          production_operation_pricing.py
+          launch_integrity/pricing.py
 
       - name: Build frontend
+        working-directory: frontend
         env:
           CI: "false"
         run: npm run build

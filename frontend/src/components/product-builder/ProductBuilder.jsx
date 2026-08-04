@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { toast } from "sonner";
-import { ArrowLeft, Bold, Check, Heading2, List, ListOrdered, Package, Save } from "lucide-react";
+import { ArrowLeft, Bold, Check, Heading2, Image as ImageIcon, List, ListOrdered, Package, Save, Star } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
 import {
   canPublishCreatorProduct,
@@ -30,7 +30,7 @@ import {
   getTemplateImage,
   getTemplateShortDescription,
   getUniquePrintCostFromGroups,
-  estimateProductionOperationCostFromGroups,
+  getProductBuilderStorefrontGalleryCandidates,
   getCreatorBlankPrice,
   getVariationCost,
   resolveCreatorCommissionRate,
@@ -47,8 +47,9 @@ const steps = [
   { key: "variations", label: "4 Variations" },
   { key: "scope", label: "5 Artwork Scope" },
   { key: "artwork", label: "6 Artwork" },
-  { key: "pricing", label: "7 Pricing" },
-  { key: "review", label: "8 Review" },
+  { key: "gallery", label: "7 Storefront Gallery" },
+  { key: "pricing", label: "8 Pricing" },
+  { key: "review", label: "9 Review" },
 ];
 
 const SELECTED_CARD_CLASS = "border-emerald-400/90 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(52,211,153,0.55),0_18px_45px_rgba(16,185,129,0.08)]";
@@ -161,7 +162,6 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const [productTypes, setProductTypes] = useState([]);
   const [selectedProductTypeId, setSelectedProductTypeId] = useState("");
   const [printOptions, setPrintOptions] = useState([]);
-  const [productionOperations, setProductionOperations] = useState([]);
   const [product, setProduct] = useState(null);
   const [submittedProduct, setSubmittedProduct] = useState(null);
   const [publishing, setPublishing] = useState(false);
@@ -233,16 +233,6 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     [form.artwork_groups, printOptions, selectedTemplate]
   );
 
-  const productionOperationEstimate = useMemo(
-    () => estimateProductionOperationCostFromGroups(form.artwork_groups, printOptions, productionOperations, selectedTemplate),
-    [form.artwork_groups, printOptions, productionOperations, selectedTemplate]
-  );
-
-  const creatorVisiblePrintCost = useMemo(
-    () => Math.round((Number(printCost || 0) + Number(productionOperationEstimate.creatorCost || 0)) * 100) / 100,
-    [printCost, productionOperationEstimate.creatorCost]
-  );
-
   const commissionRate = useMemo(() => {
     const source = selectedCreatorAccount?.id ? selectedCreatorAccount : product;
     return resolveCreatorCommissionRate(source);
@@ -263,7 +253,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const pricing = calculatePricing({
     sellingPrice: primaryManualPricingRow?.effective_selling_price ?? form.selling_price,
     blankCost: primaryManualPricingRow?.effective_base_product_cost ?? blankCost,
-    printCost: primaryManualPricingRow?.effective_print_cost ?? creatorVisiblePrintCost,
+    printCost: primaryManualPricingRow?.effective_print_cost ?? printCost,
     commissionRate,
     commissionSource,
     pricingOverrideApproved: Boolean(product?.pricing_override_approved),
@@ -271,10 +261,21 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
 
   const readyArtworkSlots = getReadyArtworkSlots(form.artwork_groups);
   const generatedMockups = getGeneratedMockups(form.artwork_groups);
+  const storefrontGalleryCandidates = useMemo(
+    () => getProductBuilderStorefrontGalleryCandidates(
+      selectedTemplate,
+      form.artwork_groups
+    ),
+    [selectedTemplate, form.artwork_groups]
+  );
   const uploadedArtworkSlots = form.artwork_groups.flatMap((group) => asArray(group.artworks)).filter((slot) => slot.original_url);
   const uploadedWithoutPrintMethod = uploadedArtworkSlots.filter((slot) => !slot.print_option_id);
   const primaryArtwork = firstReadyArtwork(form.artwork_groups);
-  const productPrimaryMockup = getPrimaryMockupFromGroups(form.artwork_groups) || form.primary_mockup_image_url || form.mockup_image_url || "";
+  const productPrimaryMockup =
+    form.primary_mockup_image_url
+    || form.mockup_image_url
+    || getPrimaryMockupFromGroups(form.artwork_groups)
+    || "";
 
   useEffect(() => {
     if (isAdmin) return;
@@ -288,7 +289,6 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         const requests = [
           http.get(isAdmin ? "/admin/product-templates" : "/product-templates"),
           http.get("/print-options"),
-          http.get("/production-operations").catch(() => ({ data: [] })),
         ];
 
         requests.push(http.get("/public/product-types?status=active"));
@@ -298,9 +298,8 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         const responses = await Promise.all(requests);
         setTemplates(asArray(responses[0].data));
         setPrintOptions(asArray(responses[1].data));
-        setProductionOperations(asArray(responses[2].data));
 
-        let cursor = 3;
+        let cursor = 2;
         setProductTypes(asArray(responses[cursor].data));
         cursor += 1;
         if (isAdmin) {
@@ -495,29 +494,46 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const setArtworkGroups = (groups) => {
     const flattened = flattenArtworkGroups(groups);
     const primary = flattened.find((slot) => slot.original_url) || flattened[0] || null;
-    const mockups = getGeneratedMockups(groups);
     const primaryMockup = getPrimaryMockupFromGroups(groups);
+    const availableImages = getProductBuilderStorefrontGalleryCandidates(
+      selectedTemplate,
+      groups
+    ).map((candidate) => candidate.url);
 
-    setForm((current) => ({
-      ...current,
-      artwork_groups: groups,
-      artworks: flattened,
-      selected_print_area_id: primary?.print_area_id || current.selected_print_area_id || "",
-      selected_print_option_id: primary?.print_option_id || current.selected_print_option_id || "",
-      artwork: primary?.original_url
-        ? {
-            original_url: primary.original_url,
-            file_name: primary.file_name || "artwork",
-            mime_type: primary.mime_type || "",
-            status: primary.status || (isAdmin ? "approved" : "pending_review"),
-            notes: primary.notes || "",
-          }
-        : current.artwork,
-      placement: primary?.placement || current.placement,
-      mockup_images: mockups,
-      mockup_image_url: primaryMockup || current.mockup_image_url || "",
-      primary_mockup_image_url: primaryMockup || current.primary_mockup_image_url || "",
-    }));
+    setForm((current) => {
+      const retainedSelection = asArray(current.mockup_images)
+        .filter((url) => availableImages.includes(url));
+      const selectedImages = retainedSelection.length
+        ? retainedSelection
+        : availableImages;
+      const selectedPrimary = [
+        current.primary_mockup_image_url,
+        current.mockup_image_url,
+        primaryMockup,
+        selectedImages[0],
+      ].find((url) => url && selectedImages.includes(url)) || selectedImages[0] || "";
+
+      return {
+        ...current,
+        artwork_groups: groups,
+        artworks: flattened,
+        selected_print_area_id: primary?.print_area_id || current.selected_print_area_id || "",
+        selected_print_option_id: primary?.print_option_id || current.selected_print_option_id || "",
+        artwork: primary?.original_url
+          ? {
+              original_url: primary.original_url,
+              file_name: primary.file_name || "artwork",
+              mime_type: primary.mime_type || "",
+              status: primary.status || (isAdmin ? "approved" : "pending_review"),
+              notes: primary.notes || "",
+            }
+          : current.artwork,
+        placement: primary?.placement || current.placement,
+        mockup_images: selectedImages,
+        mockup_image_url: selectedPrimary,
+        primary_mockup_image_url: selectedPrimary,
+      };
+    });
   };
 
   const validate = () => {
@@ -528,6 +544,8 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     if (!form.artwork_groups.length) return "Create at least one artwork group.";
     if (!readyArtworkSlots.length) return "Add at least one artwork file and print method.";
     if (!generatedMockups.length) return "Generate at least one mockup.";
+    if (!asArray(form.mockup_images).length) return "Choose at least one storefront gallery image.";
+    if (!form.primary_mockup_image_url) return "Choose the primary storefront image.";
     if (Number(form.selling_price || 0) <= 0) return "Enter a selling price.";
     if (form.published && !pricing.canPublishWithOverride) return "Selling price is below the minimum price needed to cover production and platform costs.";
     return null;
@@ -548,8 +566,19 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         form.variation_price_overrides
       )
       : [buildStandardProductVariation(selectedTemplate)];
-    const mockupImages = generatedMockups;
-    const primaryMockup = productPrimaryMockup || mockupImages[0] || "";
+    const selectedGalleryImages = asArray(form.mockup_images).filter(Boolean);
+    const primaryMockup = (
+      form.primary_mockup_image_url
+      && selectedGalleryImages.includes(form.primary_mockup_image_url)
+    )
+      ? form.primary_mockup_image_url
+      : selectedGalleryImages[0] || productPrimaryMockup || "";
+    const mockupImages = primaryMockup
+      ? [
+          primaryMockup,
+          ...selectedGalleryImages.filter((image) => image !== primaryMockup),
+        ]
+      : selectedGalleryImages;
     const legacyArtwork = primary?.original_url
       ? {
           original_url: primary.original_url,
@@ -569,7 +598,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
       category: selectedTemplate?.category || "",
       selling_price: Number(form.selling_price || 0),
       print_cost: pricing.print,
-      mockup_images: primaryMockup ? [primaryMockup, ...mockupImages.filter((image) => image !== primaryMockup)] : mockupImages,
+      mockup_images: mockupImages,
       mockup_image_url: primaryMockup,
       primary_mockup_image_url: primaryMockup,
       variations,
@@ -711,7 +740,10 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
   const canContinueDetails = Boolean(selectedTemplate && form.title.trim() && (!isAdmin || form.band_id));
   const stepIndex = steps.findIndex((step) => step.key === activeStep);
   const pricingWorkspace = activeStep === "pricing";
-  const wideWorkspace = activeStep === "artwork" || activeStep === "review" || pricingWorkspace;
+  const wideWorkspace = activeStep === "artwork"
+    || activeStep === "gallery"
+    || activeStep === "review"
+    || pricingWorkspace;
 
   const getStepGateError = (stepKey) => {
     if (stepKey === "product_type" && !canContinueProductType) return "Select a product type.";
@@ -725,6 +757,10 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     if (stepKey === "artwork") {
       if (!readyArtworkSlots.length) return "Add at least one artwork file and print method.";
       if (!generatedMockups.length) return "Generate at least one mockup.";
+    }
+    if (stepKey === "gallery") {
+      if (!asArray(form.mockup_images).length) return "Choose at least one storefront gallery image.";
+      if (!form.primary_mockup_image_url) return "Choose the primary storefront image.";
     }
     if (stepKey === "pricing" && Number(form.selling_price || 0) <= 0) return "Enter a selling price.";
     return null;
@@ -887,6 +923,22 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
             />
           )}
 
+          {activeStep === "gallery" && selectedTemplate && (
+            <StorefrontGalleryStep
+              candidates={storefrontGalleryCandidates}
+              selectedImages={form.mockup_images}
+              primaryImage={form.primary_mockup_image_url}
+              onChange={({ images, primaryImage }) => {
+                setForm((current) => ({
+                  ...current,
+                  mockup_images: images,
+                  mockup_image_url: primaryImage,
+                  primary_mockup_image_url: primaryImage,
+                }));
+              }}
+            />
+          )}
+
           {activeStep === "pricing" && (
             <PricingStep
               form={form}
@@ -917,6 +969,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               readyArtworkSlots={readyArtworkSlots}
               uploadedWithoutPrintMethod={uploadedWithoutPrintMethod}
               generatedMockups={generatedMockups}
+              selectedStorefrontImages={form.mockup_images}
               pricing={pricing}
               product={product}
               isAdmin={isAdmin}
@@ -1006,11 +1059,11 @@ function BuilderSidebar({ pricing, productPrimaryMockup }) {
         <table className="w-full text-sm">
           <tbody>
             <tr>
-              <td className="text-zinc-400">Estimated production cost</td>
+              <td className="text-zinc-400">Cost to produce incl. platform fee</td>
               <td className="text-right">{pricing.print > 0 ? money(pricing.production) : "Pending"}</td>
             </tr>
             <tr>
-              <td className="text-zinc-400">Estimated selling price</td>
+              <td className="text-zinc-400">Minimum selling price</td>
               <td className="text-right">{money(pricing.minimumSellingPrice || 0)}</td>
             </tr>
             <tr className="border-t border-white/15">
@@ -1019,7 +1072,7 @@ function BuilderSidebar({ pricing, productPrimaryMockup }) {
             </tr>
           </tbody>
         </table>
-        <p className="text-xs text-zinc-500 mt-3">Printing includes print cost plus production labour estimate.</p>
+        <p className="text-xs text-zinc-500 mt-3">The platform fee is calculated on blank product plus printing—not on the retail selling price.</p>
       </section>
 
     </>
@@ -1330,6 +1383,160 @@ function MoneyInput({
 }
 
 
+function StorefrontGalleryStep({
+  candidates = [],
+  selectedImages = [],
+  primaryImage = "",
+  onChange,
+}) {
+  const rows = asArray(candidates);
+  const selected = asArray(selectedImages).filter(Boolean);
+  const selectedSet = new Set(selected);
+
+  const commit = (nextImages, requestedPrimary = primaryImage) => {
+    const uniqueImages = Array.from(new Set(asArray(nextImages).filter(Boolean)));
+    const nextPrimary = (
+      requestedPrimary
+      && uniqueImages.includes(requestedPrimary)
+    )
+      ? requestedPrimary
+      : uniqueImages[0] || "";
+
+    onChange?.({
+      images: uniqueImages,
+      primaryImage: nextPrimary,
+    });
+  };
+
+  const toggleImage = (url) => {
+    if (selectedSet.has(url)) {
+      commit(
+        selected.filter((image) => image !== url),
+        primaryImage === url ? "" : primaryImage
+      );
+      return;
+    }
+
+    commit([...selected, url], primaryImage || url);
+  };
+
+  const choosePrimary = (url) => {
+    const nextImages = selectedSet.has(url)
+      ? selected
+      : [...selected, url];
+
+    commit(nextImages, url);
+  };
+
+  return (
+    <div className="space-y-6" data-testid="storefront-gallery-step">
+      <div>
+        <div className="overline mb-1">Storefront gallery</div>
+        <h2 className="font-display text-4xl uppercase">
+          Choose shop images
+        </h2>
+        <p className="text-sm text-zinc-500 mt-2 max-w-3xl">
+          Choose which template gallery images and generated mockups appear
+          on the public product page. The starred image appears first.
+        </p>
+      </div>
+
+      <section className="card">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
+          <div>
+            <div className="overline mb-1">Available images</div>
+            <div className="text-sm text-zinc-400">
+              {selected.length} of {rows.length} selected
+            </div>
+          </div>
+
+          {primaryImage && (
+            <div className="inline-flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+              <Star size={14} fill="currentColor" />
+              Primary image selected
+            </div>
+          )}
+        </div>
+
+        {!rows.length ? (
+          <div className="min-h-[260px] border border-dashed border-white/15 rounded-xl flex flex-col items-center justify-center text-center p-6 text-zinc-500">
+            <ImageIcon size={42} className="mb-3" />
+            <div className="font-bold text-white">
+              No storefront images available
+            </div>
+            <p className="text-xs mt-2 max-w-lg">
+              Generate a mockup in Artwork or add storefront images to the
+              product template gallery.
+            </p>
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+            {rows.map((candidate) => {
+              const isSelected = selectedSet.has(candidate.url);
+              const isPrimary = primaryImage === candidate.url;
+
+              return (
+                <article
+                  key={candidate.url}
+                  className={`rounded-xl border overflow-hidden ${
+                    isSelected
+                      ? "border-[#34C759] bg-[#34C759]/5"
+                      : "border-white/10 bg-black/20"
+                  }`}
+                >
+                  <div className="aspect-square bg-black flex items-center justify-center overflow-hidden">
+                    <img
+                      src={assetUrl(candidate.url)}
+                      alt={candidate.label || "Storefront candidate"}
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+
+                  <div className="p-4 space-y-3">
+                    <div>
+                      <div className="font-bold text-sm text-white">
+                        {candidate.label}
+                      </div>
+                      <div className="text-[11px] text-zinc-500 mt-1">
+                        {candidate.source}
+                        {candidate.role
+                          ? ` · ${String(candidate.role).replace(/_/g, " ")}`
+                          : ""}
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleImage(candidate.url)}
+                      />
+                      Show on storefront
+                    </label>
+
+                    <button
+                      type="button"
+                      className={isPrimary ? "btn-primary w-full" : "btn-secondary w-full"}
+                      onClick={() => choosePrimary(candidate.url)}
+                    >
+                      <Star
+                        size={14}
+                        fill={isPrimary ? "currentColor" : "none"}
+                      />
+                      {isPrimary ? "Primary image" : "Make primary"}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+
 function PricingSummaryPanel({
   pricing = {},
   sellingPrice = 0,
@@ -1343,15 +1550,15 @@ function PricingSummaryPanel({
 }) {
   const fundraisingAmount = Number(fundraisingValue || Math.max(Number(pricing.profit || 0), 0) || 0);
   const rate = Number(pricing.rate || 0);
-  const minimumSellingPrice = rate >= 1
-    ? Number(pricing.production || 0) + fundraisingAmount
-    : Math.ceil(((Number(pricing.production || 0) + fundraisingAmount) / (1 - rate)) * 100) / 100;
+  const minimumSellingPrice = Math.round((
+    Number(pricing.minimumSellingPrice || pricing.production || 0)
+    + fundraisingAmount
+  ) * 100) / 100;
   const actualSellingPrice = Number(sellingPrice || 0);
-  const platformFeeAmount = Math.round(actualSellingPrice * rate * 100) / 100;
+  const platformFeeAmount = Number(pricing.commission || pricing.platformFee || 0);
   const profitAfterFundraising = Math.round((
     actualSellingPrice
     - Number(pricing.production || 0)
-    - platformFeeAmount
     - fundraisingAmount
   ) * 100) / 100;
   const reviewMessages = getPricingReviewMessages(product, isAdmin, pricing);
@@ -1390,9 +1597,21 @@ function PricingSummaryPanel({
 
       <div className={`grid md:grid-cols-2 ${showPlatformFee ? "xl:grid-cols-5" : "xl:grid-cols-4"} gap-4 text-sm`}>
         <PricingSummaryGroup title="Total product cost">
-          <PricingSummaryMetric label="Blank product + printing" value={pricing.print > 0 ? money(pricing.production) : "Pending print method"} />
+          <PricingSummaryMetric
+            label="Blank product + printing"
+            value={pricing.print > 0 ? money(pricing.productionSubtotal) : "Pending print method"}
+          />
+          <PricingSummaryMetric
+            label={`Platform fee ${Number(rate * 100).toFixed(2)}%`}
+            value={pricing.print > 0 ? money(platformFeeAmount) : "Pending"}
+          />
+          <PricingSummaryMetric
+            label="Cost to produce"
+            value={pricing.print > 0 ? money(pricing.production) : "Pending"}
+          />
           <div className="text-[11px] leading-relaxed text-zinc-500">
-            The complete estimated production cost for one item.
+            The platform fee is fixed from production cost and does not rise
+            when the retail selling price increases.
           </div>
         </PricingSummaryGroup>
 
@@ -1433,7 +1652,7 @@ function PricingSummaryPanel({
           <PricingSummaryGroup title="Platform fee">
             <PricingSummaryMetric label={`Platform fee ${Number(rate * 100).toFixed(2)}%`} value={money(platformFeeAmount)} />
             <div className="text-[11px] leading-relaxed text-zinc-500">
-              Confirmed here during final review.
+              Calculated from blank product plus printing.
             </div>
           </PricingSummaryGroup>
         )}
@@ -1637,6 +1856,7 @@ function ReviewStep({
   readyArtworkSlots = [],
   uploadedWithoutPrintMethod = [],
   generatedMockups = [],
+  selectedStorefrontImages = [],
   pricing = {},
   product = {},
   isAdmin = false,
@@ -1649,6 +1869,7 @@ function ReviewStep({
   const artworkGroups = asArray(form.artwork_groups);
   const safeReadyArtworkSlots = asArray(readyArtworkSlots);
   const safeGeneratedMockups = asArray(generatedMockups);
+  const safeStorefrontImages = asArray(selectedStorefrontImages);
   const safeSelectedVariations = asArray(selectedVariations);
   const safeUploadedWithoutPrintMethod = asArray(uploadedWithoutPrintMethod);
   const variationStatus = hasTemplateVariations ? `${safeSelectedVariations.length} selected variation(s)` : "Standard product";
@@ -1665,6 +1886,7 @@ function ReviewStep({
     (!hasTemplateVariations || safeSelectedVariations.length) &&
     safeReadyArtworkSlots.length &&
     safeGeneratedMockups.length &&
+    safeStorefrontImages.length &&
     pricing?.canPublishWithOverride
   );
 
@@ -1692,6 +1914,7 @@ function ReviewStep({
               <ChecklistItem done={artworkGroups.length > 0} label={`Artwork groups: ${artworkGroups.length}`} />
               <ChecklistItem done={safeReadyArtworkSlots.length > 0} label={`Ready artwork slots: ${safeReadyArtworkSlots.length}`} />
               <ChecklistItem done={safeGeneratedMockups.length > 0} label={`Mockups generated: ${safeGeneratedMockups.length}`} />
+              <ChecklistItem done={safeStorefrontImages.length > 0} label={`Storefront images selected: ${safeStorefrontImages.length}`} />
               <ChecklistItem done={Boolean(pricing?.canPublishWithOverride)} label={`Pricing: ${pricingStatus.toLowerCase()}`} />
             </div>
 
@@ -1888,23 +2111,30 @@ function VariationPricingMatrix({
   const [validatedDefaultRetail, setValidatedDefaultRetail] = useState(() => Math.max(Number(defaultSellingPrice || 0), 0));
   const [validatedRowRetail, setValidatedRowRetail] = useState({});
 
-  const noProfitMinimum = (baseCost, printCost) => {
-    const production = Number(baseCost || 0) + Number(printCost || 0);
-    return safeRate >= 1 ? production : Math.ceil((production / (1 - safeRate)) * 100) / 100;
+  const costToProduce = (baseCost, printCost) => {
+    const productionSubtotal = Number(baseCost || 0) + Number(printCost || 0);
+    const platformFee = productionSubtotal * safeRate;
+    return Math.round((productionSubtotal + platformFee) * 100) / 100;
   };
 
+  const noProfitMinimum = (baseCost, printCost) => (
+    costToProduce(baseCost, printCost)
+  );
+
   const retailForFundraising = (baseCost, printCost, desiredFundraising) => {
-    const production = Number(baseCost || 0) + Number(printCost || 0);
     const desired = Math.max(Number(desiredFundraising || 0), 0);
-    return safeRate >= 1
-      ? Math.ceil((production + desired) * 100) / 100
-      : Math.ceil(((production + desired) / (1 - safeRate)) * 100) / 100;
+    return Math.ceil((
+      costToProduce(baseCost, printCost)
+      + desired
+    ) * 100) / 100;
   };
 
   const creatorAmountForRetail = (retailPrice, baseCost, printCost) => {
     const price = Number(retailPrice || 0);
-    const commission = price * safeRate;
-    return Math.round((price - Number(baseCost || 0) - Number(printCost || 0) - commission) * 100) / 100;
+    return Math.round((
+      price
+      - costToProduce(baseCost, printCost)
+    ) * 100) / 100;
   };
 
   const resolvePricingPair = (source, fundraisingValue, retailValue, baseCost, printCost) => {

@@ -583,15 +583,36 @@ export function effectivePricingStatusLabel(product = {}, pricing = {}) {
 }
 
 export function calculatePricing({ sellingPrice = 0, blankCost = 0, printCost = 0, commissionRate = DEFAULT_PLATFORM_COMMISSION_RATE, commissionSource = "default", pricingOverrideApproved = false }) {
-  const price = Number(sellingPrice || 0);
-  const blankPayout = Math.round(Number(blankCost || 0) * 100) / 100;
-  const printPayout = Math.round(Number(printCost || 0) * 100) / 100;
-  const production = Math.round((blankPayout + printPayout) * 100) / 100;
-  const rate = Number(commissionRate || 0);
-  const commission = Math.round(price * rate * 100) / 100;
-  const profit = Math.round((price - production - commission) * 100) / 100;
-  const minimumSellingPrice = rate >= 1 ? production : Math.ceil((production / (1 - rate)) * 100) / 100;
-  return { price, blank: blankPayout, blankSupplierCost: blankPayout, print: printPayout, platformPrintCost: printPayout, production, rate, commissionSource, commission, profit, minimumSellingPrice, pricingOverrideApproved: Boolean(pricingOverrideApproved), canPublishProfitably: price > 0 && profit >= 0, canPublishWithOverride: price > 0 && (profit >= 0 || pricingOverrideApproved) };
+  const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
+  const price = roundMoney(sellingPrice);
+  const blankPayout = roundMoney(blankCost);
+  const printPayout = roundMoney(printCost);
+  const productionSubtotal = roundMoney(blankPayout + printPayout);
+  const rawRate = Number(commissionRate || 0);
+  const rate = Math.max(0, Math.min(rawRate > 1 ? rawRate / 100 : rawRate, 1));
+  const commission = roundMoney(productionSubtotal * rate);
+  const production = roundMoney(productionSubtotal + commission);
+  const profit = roundMoney(price - production);
+  const minimumSellingPrice = production;
+
+  return {
+    price,
+    blank: blankPayout,
+    blankSupplierCost: blankPayout,
+    print: printPayout,
+    platformPrintCost: printPayout,
+    productionSubtotal,
+    platformFee: commission,
+    production,
+    rate,
+    commissionSource,
+    commission,
+    profit,
+    minimumSellingPrice,
+    pricingOverrideApproved: Boolean(pricingOverrideApproved),
+    canPublishProfitably: price > 0 && profit >= 0,
+    canPublishWithOverride: price > 0 && (profit >= 0 || pricingOverrideApproved),
+  };
 }
 
 export function buildProductVariations(template, selectedIds, priceOverrides = {}) {
@@ -648,6 +669,99 @@ export function flattenArtworkGroups(groups) {
   });
   return out;
 }
+const STOREFRONT_TEMPLATE_GALLERY_ROLES = new Set([
+  "catalogue_thumbnail",
+  "front_mockup",
+  "back_mockup",
+  "side_mockup",
+  "angled_mockup",
+  "gallery",
+]);
+
+export function getProductBuilderStorefrontGalleryCandidates(
+  template = {},
+  groups = []
+) {
+  const candidates = [];
+  const seen = new Set();
+
+  const addCandidate = ({
+    url,
+    label,
+    source,
+    role = "",
+  }) => {
+    const normalizedUrl = String(url || "").trim();
+
+    if (!normalizedUrl || seen.has(normalizedUrl)) return;
+
+    seen.add(normalizedUrl);
+    candidates.push({
+      id: `storefront-${candidates.length + 1}`,
+      url: normalizedUrl,
+      label: label || `Storefront image ${candidates.length + 1}`,
+      source: source || "Product",
+      role,
+    });
+  };
+
+  asArray(template?.template_gallery)
+    .filter(
+      (row) =>
+        row
+        && row.status !== "archived"
+        && row.status !== "inactive"
+        && STOREFRONT_TEMPLATE_GALLERY_ROLES.has(row.role || "gallery")
+    )
+    .sort(
+      (left, right) =>
+        Number(left?.sort_order || 0) - Number(right?.sort_order || 0)
+    )
+    .forEach((row) => {
+      addCandidate({
+        url: row.image_url || row.url,
+        label: row.name || String(row.role || "Template gallery").replace(/_/g, " "),
+        source: "Template gallery",
+        role: row.role || "gallery",
+      });
+    });
+
+  asArray(groups).forEach((group, groupIndex) => {
+    addCandidate({
+      url: group?.primary_mockup_image_url,
+      label: `${group?.label || `Artwork group ${groupIndex + 1}`} primary mockup`,
+      source: "Generated mockup",
+      role: "generated_mockup",
+    });
+
+    asArray(group?.artworks).forEach((artwork, artworkIndex) => {
+      addCandidate({
+        url: artwork?.mockup_image_url,
+        label:
+          artwork?.area_key
+          || artwork?.screen_view
+          || `Generated mockup ${artworkIndex + 1}`,
+        source: "Generated mockup",
+        role: "generated_mockup",
+      });
+    });
+
+    asArray(group?.derived_mockup_images).forEach((mockup, mockupIndex) => {
+      addCandidate({
+        url: mockup?.image_url || mockup?.mockup_image_url || mockup?.url,
+        label:
+          mockup?.name
+          || mockup?.view_key
+          || `Derived mockup ${mockupIndex + 1}`,
+        source: "Derived mockup",
+        role: mockup?.role || "derived_mockup",
+      });
+    });
+  });
+
+  return candidates;
+}
+
 export function getPrimaryMockupFromGroups(groups) {
   for (const group of asArray(groups)) {
     if (group.primary_mockup_image_url) return group.primary_mockup_image_url;

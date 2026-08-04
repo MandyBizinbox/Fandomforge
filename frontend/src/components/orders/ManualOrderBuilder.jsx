@@ -97,8 +97,22 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
         const sale = Number(product.selling_price || 0) * quantity;
         const printCost = Number(product.print_cost || product.estimated_print_cost || 0) * quantity;
         const commissionRate = Number(product.commission_rate || 0.15);
-        const commission = Number(product.estimated_commission || Number(product.selling_price || 0) * commissionRate) * quantity;
-        const creatorProfit = Number(product.estimated_creator_profit || (Number(product.selling_price || 0) - Number(product.print_cost || 0) - Number(product.selling_price || 0) * commissionRate)) * quantity;
+        const productionSubtotal = (
+          Number(product.estimated_blank_cost || product.creator_blank_price || 0)
+          + Number(product.estimated_print_cost || product.print_cost || 0)
+        );
+        const fallbackPlatformFee = productionSubtotal * commissionRate;
+        const commission = Number(
+          product.estimated_commission ?? fallbackPlatformFee
+        ) * quantity;
+        const creatorProfit = Number(
+          product.estimated_creator_profit
+          ?? (
+            Number(product.selling_price || 0)
+            - productionSubtotal
+            - fallbackPlatformFee
+          )
+        ) * quantity;
 
         summary.subtotal += sale;
         summary.printCost += printCost;
