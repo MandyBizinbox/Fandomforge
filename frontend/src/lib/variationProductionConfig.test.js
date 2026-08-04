@@ -1,9 +1,12 @@
 import {
   PRODUCTION_CONFIG_KEY,
   applyProductionConfigurationToVariations,
+  attributeProfileKey,
   compileVariableTemplateProduction,
   getVariationProductionConfiguration,
+  initialiseAttributeProductionProfiles,
   productionConfigurationComplete,
+  resolveVariationProductionConfiguration,
   setVariationProductionConfiguration,
 } from "./variationProductionConfig";
 
@@ -136,4 +139,170 @@ describe("variation production configuration", () => {
     expect(firstConfig.print_areas).toHaveLength(1);
     expect(firstConfig.print_areas.every((area) => area.disabled !== true)).toBe(true);
   });
+
+  test("resolves images by Colour and print geometry by Size", () => {
+    const smallWhite = setVariationProductionConfiguration(
+      {
+        id: "small-white",
+        attributes: { Size: "Small", Colour: "White" },
+        enabled: true,
+      },
+      productionConfig({
+        width: 100,
+        viewImage: "/source-white-small.png",
+      })
+    );
+
+    const smallBlack = setVariationProductionConfiguration(
+      {
+        id: "small-black",
+        attributes: { Size: "Small", Colour: "Black" },
+        enabled: true,
+      },
+      productionConfig({
+        width: 100,
+        viewImage: "/source-black-small.png",
+      })
+    );
+
+    const mediumWhite = setVariationProductionConfiguration(
+      {
+        id: "medium-white",
+        attributes: { Size: "Medium", Colour: "White" },
+        enabled: true,
+      },
+      productionConfig({
+        width: 120,
+        viewImage: "/source-white-medium.png",
+      })
+    );
+
+    const mediumBlack = setVariationProductionConfiguration(
+      {
+        id: "medium-black",
+        attributes: { Size: "Medium", Colour: "Black" },
+        enabled: true,
+      },
+      productionConfig({
+        width: 120,
+        viewImage: "/source-black-medium.png",
+      })
+    );
+
+    const variations = [
+      smallWhite,
+      smallBlack,
+      mediumWhite,
+      mediumBlack,
+    ];
+
+    let template = {
+      variations,
+    };
+
+    template = {
+      ...template,
+      ...initialiseAttributeProductionProfiles(
+        template,
+        variations,
+        "Colour",
+        "Size"
+      ),
+    };
+
+    template.attribute_image_profiles[
+      attributeProfileKey("White")
+    ].configuration.screens[0].image_url = "/white-shared.png";
+
+    template.attribute_image_profiles[
+      attributeProfileKey("Black")
+    ].configuration.screens[0].image_url = "/black-shared.png";
+
+    template.attribute_production_profiles[
+      attributeProfileKey("Small")
+    ].configuration.print_areas[0].width_mm = 95;
+
+    template.attribute_production_profiles[
+      attributeProfileKey("Medium")
+    ].configuration.print_areas[0].width_mm = 125;
+
+    const resolvedSmallWhite = (
+      resolveVariationProductionConfiguration(
+        smallWhite,
+        template
+      )
+    );
+
+    const resolvedSmallBlack = (
+      resolveVariationProductionConfiguration(
+        smallBlack,
+        template
+      )
+    );
+
+    const resolvedMediumWhite = (
+      resolveVariationProductionConfiguration(
+        mediumWhite,
+        template
+      )
+    );
+
+    expect(
+      resolvedSmallWhite.screens[0].image_url
+    ).toBe("/white-shared.png");
+
+    expect(
+      resolvedMediumWhite.screens[0].image_url
+    ).toBe("/white-shared.png");
+
+    expect(
+      resolvedSmallBlack.screens[0].image_url
+    ).toBe("/black-shared.png");
+
+    expect(
+      resolvedSmallWhite.print_areas[0].width_mm
+    ).toBe(95);
+
+    expect(
+      resolvedSmallBlack.print_areas[0].width_mm
+    ).toBe(95);
+
+    expect(
+      resolvedMediumWhite.print_areas[0].width_mm
+    ).toBe(125);
+
+    expect(
+      resolvedSmallWhite.print_areas[0].screen_id
+    ).toBe(resolvedSmallWhite.screens[0].id);
+
+    const compiled = compileVariableTemplateProduction(
+      template,
+      variations
+    );
+
+    const compiledSmallWhite = compiled.variations.find(
+      (variation) => variation.id === "small-white"
+    );
+
+    const compiledConfiguration = (
+      getVariationProductionConfiguration(
+        compiledSmallWhite,
+        compiled
+      )
+    );
+
+    expect(
+      compiledConfiguration.screens[0].image_url
+    ).toBe("/white-shared.png");
+
+    expect(
+      compiledConfiguration.print_areas[0].width_mm
+    ).toBe(95);
+
+    expect(
+      productionConfigurationComplete(compiledConfiguration)
+    ).toBe(true);
+  });
+
+
 });

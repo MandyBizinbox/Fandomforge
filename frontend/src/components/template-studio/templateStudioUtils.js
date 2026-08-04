@@ -135,6 +135,13 @@ export const blankTemplate = {
   available_colors: [],
   attribute_ids: [],
   selected_attribute_values: {},
+  variation_inheritance: {
+    mode: "shared",
+    image_attribute: "",
+    production_attribute: "",
+  },
+  attribute_image_profiles: {},
+  attribute_production_profiles: {},
   variations: [],
   print_option_ids: [],
   print_options: [],

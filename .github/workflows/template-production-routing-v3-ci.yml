@@ -16,6 +16,7 @@ on:
       - "frontend/src/routes/AdminDashboardRoute.jsx"
       - "frontend/src/routes/AdminTemplateStudioRoute.jsx"
       - "backend/platform_fee_pricing.py"
+      - "backend/models.py"
       - "backend/routes_main.py"
       - "backend/production_rules_engine.py"
       - "backend/production_operation_pricing.py"
@@ -74,6 +75,7 @@ jobs:
         run: >-
           python -m py_compile
           platform_fee_pricing.py
+          models.py
           routes_main.py
           production_rules_engine.py
           production_operation_pricing.py

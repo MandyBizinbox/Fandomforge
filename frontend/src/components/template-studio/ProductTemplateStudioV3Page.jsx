@@ -4,6 +4,7 @@ import { ArrowLeft, Check, Copy, ImagePlus, Save, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { assetUrl, http } from "../../lib/api";
 import ProductionConfigurationEditor from "./ProductionConfigurationEditor";
+import AttributeProductionProfileEditor from "./AttributeProductionProfileEditor";
 import TemplateGalleryManager from "./TemplateGalleryManager";
 import {
   blankTemplate,
@@ -19,6 +20,7 @@ import {
   blankProductionConfiguration,
   compileVariableTemplateProduction,
   getVariationProductionConfiguration,
+  resolveVariationProductionConfiguration,
   normaliseProductionConfiguration,
   productionConfigurationComplete,
   setVariationProductionConfiguration,
@@ -228,7 +230,16 @@ export default function ProductTemplateStudioV3Page() {
           setSelectedVariationId(firstVariation.id);
           setCopyTargets(nextVariations.map((variation) => variation.id));
           setSharedConfig(getVariationProductionConfiguration(firstVariation, next));
-          setSetupMode(variationConfigurationsEqual(next.variations, next) ? "shared" : "individual");
+          const storedMode = next.variation_inheritance?.mode;
+          setSetupMode(
+            storedMode === "attribute"
+              ? "attribute"
+              : storedMode === "individual"
+                ? "individual"
+                : variationConfigurationsEqual(next.variations, next)
+                  ? "shared"
+                  : "individual"
+          );
         }
       })
       .catch((error) => toast.error(error.response?.data?.detail || "Could not load template"))
@@ -253,9 +264,15 @@ export default function ProductTemplateStudioV3Page() {
 
   const updateTemplate = (patch) => setTemplate((current) => ({ ...current, ...patch }));
   const selectedVariation = variations.find((variation) => variation.id === selectedVariationId) || variations[0] || null;
-  const selectedConfig = selectedVariation ? getVariationProductionConfiguration(selectedVariation, template) : blankProductionConfiguration();
+  const selectedConfig = selectedVariation
+    ? getVariationProductionConfiguration(selectedVariation, template)
+    : blankProductionConfiguration();
+
   const galleryPrintAreas = variableProduct && variations.length
-    ? getVariationProductionConfiguration(variations[0], template).print_areas
+    ? resolveVariationProductionConfiguration(
+        variations[0],
+        template
+      ).print_areas
     : safeArray(template.print_areas);
 
   const chooseStructure = (nextMode) => {
@@ -387,14 +404,20 @@ export default function ProductTemplateStudioV3Page() {
           print_options: safeArray(template.print_options),
         });
 
-    updateTemplate({ variations: generated });
+    updateTemplate({
+      variations: generated,
+      variation_inheritance: {
+        ...(template.variation_inheritance || {}),
+        mode: "shared",
+      },
+    });
     setStructureMode("variable");
     setSelectedVariationId(generated[0].id);
     setSharedConfig(initialConfig);
     setSetupMode("shared");
     setCopyTargets(generated.map((variation) => variation.id));
     navigate(templatePath(baseId, "variations"));
-    toast.success(`${generated.length} variations generated. Choose shared or individual production setup.`);
+    toast.success(`${generated.length} variations generated. Choose shared, attribute-owned or individual production setup.`);
   };
 
   const patchVariation = (variationId, patch) => {
@@ -417,7 +440,16 @@ export default function ProductTemplateStudioV3Page() {
       toast.error("Complete the editor image, print areas, physical dimensions and print rules before applying this setup");
       return;
     }
-    updateTemplate({ variations: applyProductionConfigurationToVariations(template.variations, sharedConfig) });
+    updateTemplate({
+      variations: applyProductionConfigurationToVariations(
+        template.variations,
+        sharedConfig
+      ),
+      variation_inheritance: {
+        ...(template.variation_inheritance || {}),
+        mode: "shared",
+      },
+    });
     setCopyTargets(variations.map((variation) => variation.id));
     toast.success(`Production configuration copied into all ${variations.length} variations`);
   };
@@ -459,7 +491,14 @@ export default function ProductTemplateStudioV3Page() {
 
       if (variableProduct) {
         if (!variations.length) throw new Error("Generate at least one variation before saving a variable product");
-        const incomplete = variations.filter((variation) => !productionConfigurationComplete(getVariationProductionConfiguration(variation, template)));
+        const incomplete = variations.filter(
+          (variation) => !productionConfigurationComplete(
+            resolveVariationProductionConfiguration(
+              variation,
+              payload
+            )
+          )
+        );
         if (incomplete.length) {
           throw new Error(`${incomplete.length} variation production setup${incomplete.length === 1 ? " is" : "s are"} incomplete`);
         }
@@ -473,7 +512,22 @@ export default function ProductTemplateStudioV3Page() {
         : await http.patch(`/admin/product-templates/${id}`, payload);
       const saved = { ...blankTemplate, ...response.data };
       setTemplate(saved);
-      setStructureMode(activeVariations(saved).length ? "variable" : "single");
+      setStructureMode(
+        activeVariations(saved).length ? "variable" : "single"
+      );
+
+      const savedMode = saved.variation_inheritance?.mode;
+
+      setSetupMode(
+        savedMode === "attribute"
+          ? "attribute"
+          : savedMode === "individual"
+            ? "individual"
+            : variationConfigurationsEqual(saved.variations, saved)
+              ? "shared"
+              : "individual"
+      );
+
       toast.success("Product template saved");
       if (isNew) navigate(templatePath(saved.id, "product"), { replace: true });
     } catch (error) {
@@ -566,7 +620,7 @@ export default function ProductTemplateStudioV3Page() {
             <section className="v3-card">
               <div className="overline">Current workflow</div>
               <strong className="v3-structure-label">{variableProduct ? "Variable product" : "Non-variable product"}</strong>
-              <p>{variableProduct ? "Generate the variations next, then choose shared or individual production setup." : "Configure the complete product in Production Setup."}</p>
+              <p>{variableProduct ? "Generate the variations next, then choose shared, attribute-owned or individual production setup." : "Configure the complete product in Production Setup."}</p>
             </section>
           </aside>
         </div>
@@ -585,7 +639,7 @@ export default function ProductTemplateStudioV3Page() {
       {currentSection === "variations" && variableProduct && (
         <div className="v3-variation-workspace">
           <section className="v3-card">
-            <div className="v3-section-heading"><div><div className="overline">Variation matrix</div><h2>Select and generate variations</h2><p>After generation, choose whether every variation receives the same production setup or is configured separately.</p></div><button type="button" className="v3-button v3-button-primary" onClick={generateVariations}><Wand2 size={15} /> Generate</button></div>
+            <div className="v3-section-heading"><div><div className="overline">Variation matrix</div><h2>Select and generate variations</h2><p>After generation, choose shared setup, attribute-owned setup or fully independent variations.</p></div><button type="button" className="v3-button v3-button-primary" onClick={generateVariations}><Wand2 size={15} /> Generate</button></div>
             <div className="v3-attribute-list">{attributes.map((attribute) => <button type="button" key={attribute.id} className={safeArray(template.attribute_ids).includes(attribute.id) ? "active" : ""} onClick={() => toggleAttribute(attribute.id)}>{attribute.name}</button>)}</div>
             {selectedAttributeObjects(attributes, template).map((attribute) => { const key = attribute.id || attribute.name || attribute.slug; const selected = new Set(safeArray(template.selected_attribute_values?.[key])); return <div className="v3-attribute-values" key={key}><strong>{attribute.name}</strong><div>{safeArray(attribute.values).map((value) => <label key={value}><input type="checkbox" checked={selected.has(value)} onChange={() => toggleAttributeValue(attribute, value)} />{value}</label>)}</div></div>; })}
           </section>
@@ -594,7 +648,7 @@ export default function ProductTemplateStudioV3Page() {
             <section className="v3-card v3-empty-state">
               <Wand2 size={34} />
               <h2>Generate the product variations</h2>
-              <p>Select the relevant attributes and supplier values above. The shared-versus-individual production prompt appears immediately after generation.</p>
+              <p>Select the relevant attributes and supplier values above. Production can then be shared globally, owned by attributes or configured per variation.</p>
             </section>
           ) : (
             <>
@@ -602,8 +656,63 @@ export default function ProductTemplateStudioV3Page() {
                 <div className="overline">Production setup method</div>
                 <h2>How should these variations be configured?</h2>
                 <div className="v3-decision-grid">
-                  <button type="button" className={setupMode === "shared" ? "active" : ""} onClick={() => { setSetupMode("shared"); setSharedConfig(getVariationProductionConfiguration(selectedVariation || variations[0], template)); }}><strong>Same setup for all variations</strong><span>Configure once, then copy a complete independent production configuration into every variation. Best for colour variants.</span></button>
-                  <button type="button" className={setupMode === "individual" ? "active" : ""} onClick={() => setSetupMode("individual")}><strong>Configure each variation separately</strong><span>Each variation receives its own images, print areas, dimensions and print rules. Best for different shapes or sizes.</span></button>
+                  <button
+                    type="button"
+                    className={setupMode === "shared" ? "active" : ""}
+                    onClick={() => {
+                      setSetupMode("shared");
+                      setSharedConfig(
+                        getVariationProductionConfiguration(
+                          selectedVariation || variations[0],
+                          template
+                        )
+                      );
+                      updateTemplate({
+                        variation_inheritance: {
+                          ...(template.variation_inheritance || {}),
+                          mode: "shared",
+                        },
+                      });
+                    }}
+                  >
+                    <strong>Same setup for all variations</strong>
+                    <span>
+                      One complete setup is copied to every variation.
+                      Best when every combination is physically identical.
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={setupMode === "attribute" ? "active" : ""}
+                    onClick={() => setSetupMode("attribute")}
+                  >
+                    <strong>Configure by attribute</strong>
+                    <span>
+                      Let one attribute own images and another own print
+                      geometry. Best for Size × Colour products.
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={setupMode === "individual" ? "active" : ""}
+                    onClick={() => {
+                      setSetupMode("individual");
+                      updateTemplate({
+                        variation_inheritance: {
+                          ...(template.variation_inheritance || {}),
+                          mode: "individual",
+                        },
+                      });
+                    }}
+                  >
+                    <strong>Configure every variation separately</strong>
+                    <span>
+                      Every combination owns independent images, dimensions
+                      and manufacturing rules.
+                    </span>
+                  </button>
                 </div>
               </section>
 
@@ -612,6 +721,14 @@ export default function ProductTemplateStudioV3Page() {
                   <ProductionConfigurationEditor value={sharedConfig} onChange={setSharedConfig} printOptions={printOptions} title="Shared production setup" subtitle={`This configuration will be copied into all ${variations.length} variations. Each variation remains independently editable afterwards.`} />
                   <div className="v3-sticky-action"><button type="button" className="v3-button v3-button-primary" onClick={applySharedToAll}><Check size={16} /> Apply this complete configuration to all {variations.length} variations</button></div>
                 </>
+              ) : setupMode === "attribute" ? (
+                <AttributeProductionProfileEditor
+                  template={template}
+                  variations={variations}
+                  attributes={attributes}
+                  printOptions={printOptions}
+                  onChange={updateTemplate}
+                />
               ) : (
                 <div className="v3-individual-layout">
                   <aside className="v3-variation-list">

@@ -162,6 +162,252 @@ export function productionConfigurationComplete(configuration = {}) {
   return screensReady && areasReady;
 }
 
+
+export function productionImageConfigurationComplete(configuration = {}) {
+  const config = normaliseProductionConfiguration(configuration);
+  return (
+    config.screens.length > 0
+    && config.screens.every((screen) => Boolean(screen.image_url))
+  );
+}
+
+export function productionGeometryConfigurationComplete(configuration = {}) {
+  const config = normaliseProductionConfiguration(configuration);
+  return (
+    config.print_areas.length > 0
+    && config.print_areas.every((area) => (
+      Number(area.width_mm || 0) > 0
+      && Number(area.height_mm || 0) > 0
+      && Number(area.width_pct ?? area.width ?? 0) > 0
+      && Number(area.height_pct ?? area.height ?? 0) > 0
+      && safeArray(area.allowed_print_option_ids).length > 0
+    ))
+  );
+}
+
+export function attributeProfileKey(value) {
+  return normaliseKey(value) || "default";
+}
+
+export function getVariationAttributeValue(variation = {}, attributeName = "") {
+  const attributes = variation?.attributes || {};
+  const expected = normaliseKey(attributeName);
+
+  const matchingKey = Object.keys(attributes).find(
+    (key) => normaliseKey(key) === expected
+  );
+
+  return matchingKey ? attributes[matchingKey] : "";
+}
+
+export function getAttributeProfileConfiguration(profiles = {}, value = "") {
+  const rows = profiles && typeof profiles === "object" ? profiles : {};
+  const direct = rows[attributeProfileKey(value)];
+  const fallback = Object.values(rows).find(
+    (row) => normaliseKey(row?.attribute_value) === normaliseKey(value)
+  );
+  const profile = direct || fallback;
+
+  if (!profile) return null;
+
+  return normaliseProductionConfiguration(
+    profile.configuration || profile
+  );
+}
+
+function activeVariationRows(variations = []) {
+  return safeArray(variations).filter(
+    (variation) => (
+      variation
+      && variation.enabled !== false
+      && variation.status !== "archived"
+    )
+  );
+}
+
+function uniqueAttributeValues(variations, attributeName) {
+  return Array.from(
+    new Set(
+      activeVariationRows(variations)
+        .map((variation) => getVariationAttributeValue(variation, attributeName))
+        .filter(Boolean)
+    )
+  );
+}
+
+export function initialiseAttributeProductionProfiles(
+  template = {},
+  variations = [],
+  imageAttribute = "",
+  productionAttribute = ""
+) {
+  const currentOwnership = template.variation_inheritance || {};
+
+  const imageProfiles = (
+    currentOwnership.image_attribute === imageAttribute
+      ? clone(template.attribute_image_profiles || {})
+      : {}
+  ) || {};
+
+  const productionProfiles = (
+    currentOwnership.production_attribute === productionAttribute
+      ? clone(template.attribute_production_profiles || {})
+      : {}
+  ) || {};
+
+  uniqueAttributeValues(variations, imageAttribute).forEach((value) => {
+    const key = attributeProfileKey(value);
+
+    if (imageProfiles[key]) return;
+
+    const sourceVariation = activeVariationRows(variations).find(
+      (variation) => (
+        getVariationAttributeValue(variation, imageAttribute) === value
+      )
+    );
+
+    const source = sourceVariation
+      ? getVariationProductionConfiguration(sourceVariation, template)
+      : blankProductionConfiguration();
+
+    imageProfiles[key] = {
+      attribute_value: value,
+      configuration: normaliseProductionConfiguration({
+        screens: source.screens,
+        print_areas: [],
+        print_option_ids: [],
+        print_options: [],
+      }),
+      updated_at: new Date().toISOString(),
+    };
+  });
+
+  uniqueAttributeValues(variations, productionAttribute).forEach((value) => {
+    const key = attributeProfileKey(value);
+
+    if (productionProfiles[key]) return;
+
+    const sourceVariation = activeVariationRows(variations).find(
+      (variation) => (
+        getVariationAttributeValue(variation, productionAttribute) === value
+      )
+    );
+
+    const source = sourceVariation
+      ? getVariationProductionConfiguration(sourceVariation, template)
+      : blankProductionConfiguration();
+
+    productionProfiles[key] = {
+      attribute_value: value,
+      configuration: cloneProductionConfiguration(source),
+      updated_at: new Date().toISOString(),
+    };
+  });
+
+  return {
+    variation_inheritance: {
+      mode: "attribute",
+      image_attribute: imageAttribute,
+      production_attribute: productionAttribute,
+    },
+    attribute_image_profiles: imageProfiles,
+    attribute_production_profiles: productionProfiles,
+  };
+}
+
+export function resolveVariationProductionConfiguration(
+  variation = {},
+  template = {}
+) {
+  const base = getVariationProductionConfiguration(variation, template);
+  const ownership = template.variation_inheritance || {};
+
+  if (ownership.mode !== "attribute") return base;
+
+  const imageAttribute = ownership.image_attribute || "";
+  const productionAttribute = ownership.production_attribute || "";
+
+  if (!imageAttribute || !productionAttribute) return base;
+
+  const imageValue = getVariationAttributeValue(
+    variation,
+    imageAttribute
+  );
+
+  const productionValue = getVariationAttributeValue(
+    variation,
+    productionAttribute
+  );
+
+  const imageConfiguration = (
+    getAttributeProfileConfiguration(
+      template.attribute_image_profiles,
+      imageValue
+    )
+    || base
+  );
+
+  const productionConfiguration = (
+    getAttributeProfileConfiguration(
+      template.attribute_production_profiles,
+      productionValue
+    )
+    || base
+  );
+
+  const screens = safeArray(imageConfiguration.screens).length
+    ? clone(imageConfiguration.screens)
+    : clone(base.screens);
+
+  const targetScreenBySlot = new Map(
+    screenSlotRows({ screens }).map(
+      ({ row, slotKey }) => [slotKey, row]
+    )
+  );
+
+  screenSlotRows(productionConfiguration).forEach(
+    ({ row, slotKey }) => {
+      if (targetScreenBySlot.has(slotKey)) return;
+
+      const fallback = {
+        ...clone(row),
+        id: `attribute-screen-${attributeProfileKey(imageValue)}-${normaliseKey(slotKey)}`,
+        image_url: "",
+        status: "active",
+      };
+
+      screens.push(fallback);
+      targetScreenBySlot.set(slotKey, fallback);
+    }
+  );
+
+  const printAreas = areaSlotRows(productionConfiguration).map(
+    ({ row, screenSlot }) => {
+      const targetScreen = (
+        targetScreenBySlot.get(screenSlot)
+        || screens[0]
+      );
+
+      return {
+        ...clone(row),
+        screen_id: targetScreen?.id || row.screen_id,
+      };
+    }
+  );
+
+  return normaliseProductionConfiguration({
+    screens,
+    print_areas: printAreas,
+    print_option_ids: productionConfiguration.print_option_ids,
+    print_options: productionConfiguration.print_options,
+    configured_at: (
+      productionConfiguration.configured_at
+      || imageConfiguration.configured_at
+      || base.configured_at
+    ),
+  });
+}
+
 export function applyProductionConfigurationToVariations(variations = [], configuration = {}, variationIds = null) {
   const selected = variationIds ? new Set(safeArray(variationIds)) : null;
   const source = cloneProductionConfiguration(configuration);
@@ -261,7 +507,7 @@ export function compileVariableTemplateProduction(template = {}, variations = []
 
   const rows = activeVariations.map((variation) => ({
     variation,
-    config: getVariationProductionConfiguration(variation, template),
+    config: resolveVariationProductionConfiguration(variation, template),
   }));
 
   const screenRepresentatives = new Map();
@@ -307,7 +553,7 @@ export function compileVariableTemplateProduction(template = {}, variations = []
   const compiledVariations = safeArray(variations).map((variation) => {
     if (!activeVariations.some((active) => active.id === variation.id)) return variation;
 
-    const sourceConfig = getVariationProductionConfiguration(variation, template);
+    const sourceConfig = resolveVariationProductionConfiguration(variation, template);
     const config = compiledVariationConfiguration(
       sourceConfig,
       variation,
@@ -379,7 +625,7 @@ export function compileVariableTemplateProduction(template = {}, variations = []
 }
 
 export function variationProductionSummary(variation = {}, template = {}) {
-  const config = getVariationProductionConfiguration(variation, template);
+  const config = resolveVariationProductionConfiguration(variation, template);
   return {
     screens: config.screens.length,
     printAreas: config.print_areas.length,

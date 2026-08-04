@@ -257,7 +257,6 @@ export default function TemplateViewManager({
                       {screen.image_url ? "Editor image ready" : "No editor image"}
                     </div>
                   </button>
-                  <div className="mt-3">{renderViewActions(screen)}</div>
                 </div>
               </div>
             );
