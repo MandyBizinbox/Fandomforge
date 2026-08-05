@@ -49,6 +49,26 @@ export function profileName(profile = {}) {
     || "Costing profile";
 }
 
+export function profileColourIds(profile = {}) {
+  return [...new Set(safeArray(
+    profile.supported_colour_ids
+    || profile.available_colour_ids
+    || profile.stocked_colour_ids
+  ).map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+export function profileColourMode(profile = {}) {
+  const explicit = String(
+    profile.colour_selection_mode
+    || profile.color_selection_mode
+    || profile.profile_colour_mode
+    || ""
+  ).trim().toLowerCase();
+  if (["restricted", "selected", "profile_restricted", "subset"].includes(explicit)) return "restricted";
+  if (["inherit", "inherit_method", "all", "method"].includes(explicit)) return "inherit_method";
+  return profileColourIds(profile).length ? "restricted" : "inherit_method";
+}
+
 export function makeCanonicalProfileId(methodKey, profile = {}) {
   const explicit = profile.manufacturing_profile_id || profile.profile_id || profile.id || "";
   if (String(explicit).startsWith("profile:")) return explicit;
@@ -66,6 +86,8 @@ export function normaliseCostingProfile(profile = {}, methodKey = "method", inde
     profile.id,
     profile.profile_id,
   ].map((value) => String(value || "").trim()).filter((value, idx, all) => value && value !== id && all.indexOf(value) === idx);
+  const colourIds = profileColourIds(profile);
+  const colourMode = profileColourMode(profile);
 
   return {
     ...profile,
@@ -94,6 +116,10 @@ export function normaliseCostingProfile(profile = {}, methodKey = "method", inde
     pricing_notes: profile.pricing_notes || "",
     print_positions: safeArray(profile.print_positions).length ? safeArray(profile.print_positions) : safeArray(profile.placement_tags),
     placement_tags: safeArray(profile.print_positions).length ? safeArray(profile.print_positions) : safeArray(profile.placement_tags),
+    colour_selection_mode: colourMode,
+    color_selection_mode: colourMode,
+    supported_colour_ids: colourIds,
+    available_colour_ids: colourIds,
     legacy_print_option_ids: aliases,
     costing_engine_version: profile.costing_engine_version || UNIFIED_COSTING_ENGINE_VERSION,
     _key: id || `${methodKey}-${index}`,
@@ -178,6 +204,8 @@ export function newCostingProfile(methodKey, index = 0) {
     minimum_area_cm2: 100,
     application_cost: 7.5,
     markup_percentage: 5,
+    colour_selection_mode: "inherit_method",
+    supported_colour_ids: [],
   }, methodKey, index);
 }
 
@@ -214,6 +242,8 @@ export function methodDraft(method = {}, colours = []) {
 
 export function profilePayload(profile = {}) {
   const { _key, _advancedOpen, ...source } = profile;
+  const colourIds = profileColourIds(profile);
+  const colourMode = profileColourMode(profile);
   return {
     ...source,
     id: profile.id,
@@ -241,14 +271,26 @@ export function profilePayload(profile = {}) {
     pricing_notes: profile.pricing_notes || "",
     print_positions: textList(Array.isArray(profile.print_positions) ? profile.print_positions.join("\n") : profile.print_positions),
     placement_tags: textList(Array.isArray(profile.print_positions) ? profile.print_positions.join("\n") : profile.print_positions),
+    colour_selection_mode: colourMode,
+    color_selection_mode: colourMode,
+    supported_colour_ids: colourIds,
+    available_colour_ids: colourIds,
     legacy_print_option_ids: safeArray(profile.legacy_print_option_ids),
   };
 }
 
 export function methodPayload(draft = {}, colours = []) {
-  const profiles = safeArray(draft.profiles).map(profilePayload);
+  const selectedMethodColourIds = new Set(safeArray(draft.selectedColourIds));
+  const profiles = safeArray(draft.profiles).map((profile) => {
+    const payload = profilePayload(profile);
+    if (payload.colour_selection_mode === "restricted") {
+      payload.supported_colour_ids = payload.supported_colour_ids.filter((id) => selectedMethodColourIds.has(id));
+      payload.available_colour_ids = [...payload.supported_colour_ids];
+    }
+    return payload;
+  });
   const defaultProfile = profiles.find((profile) => profile.is_default) || profiles.find((profile) => profile.status === "active") || profiles[0];
-  const selectedColours = colours.filter((colour) => safeArray(draft.selectedColourIds).includes(colour.id)).map((colour) => ({ id: colour.id, name: colour.name, hex: colour.hex, aliases: colour.aliases || [], active: colour.active !== false }));
+  const selectedColours = colours.filter((colour) => selectedMethodColourIds.has(colour.id)).map((colour) => ({ id: colour.id, name: colour.name, hex: colour.hex, aliases: colour.aliases || [], active: colour.active !== false }));
   const stocked = draft.colourMode === "stocked_library";
   return {
     display_name: draft.display_name || draft.method_key,

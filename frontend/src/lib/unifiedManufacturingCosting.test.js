@@ -3,6 +3,8 @@ import {
   methodProfiles,
   methodPayload,
   normaliseCostingProfile,
+  profileColourIds,
+  profileColourMode,
   profileSummary,
 } from "./unifiedManufacturingCosting";
 
@@ -54,6 +56,40 @@ describe("unified manufacturing costing helpers", () => {
       "sheet_height_mm",
       "sheet_cost",
     ]);
+  });
+
+  test("profile stocked colours default to method inheritance", () => {
+    const profile = normaliseCostingProfile({
+      id: "profile:htv:classic_htv",
+      display_name: "Classic HTV",
+    }, "htv");
+    expect(profileColourMode(profile)).toBe("inherit_method");
+    expect(profileColourIds(profile)).toEqual([]);
+  });
+
+  test("profile stocked colour restrictions survive normalisation and payload", () => {
+    const payload = methodPayload({
+      method_key: "htv",
+      display_name: "HTV",
+      active: true,
+      colourMode: "stocked_library",
+      selectedColourIds: ["black", "white", "rose_gold"],
+      profiles: [normaliseCostingProfile({
+        id: "profile:htv:metallic_htv",
+        display_name: "Metallic HTV",
+        status: "active",
+        is_default: true,
+        colour_selection_mode: "restricted",
+        supported_colour_ids: ["rose_gold", "not_in_method_pool"],
+      }, "htv")],
+    }, [
+      { id: "black", name: "Black", hex: "#000000", active: true },
+      { id: "white", name: "White", hex: "#ffffff", active: true },
+      { id: "rose_gold", name: "Rose Gold", hex: "#b76e79", active: true },
+    ]);
+    expect(payload.costing_profiles[0].colour_selection_mode).toBe("restricted");
+    expect(payload.costing_profiles[0].supported_colour_ids).toEqual(["rose_gold"]);
+    expect(payload.costing_profiles[0].available_colour_ids).toEqual(["rose_gold"]);
   });
 
   test("method payload writes canonical profiles only", () => {
