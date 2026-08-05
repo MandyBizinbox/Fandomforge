@@ -23,6 +23,7 @@ from platform_fee_pricing import (
     production_fee_amount,
     total_cost_to_produce,
 )
+from artwork_print_job_pricing import aggregate_artwork_print_jobs
 
 from auth import create_token, get_current_user, hash_password, optional_user, require_role
 from models import (
@@ -3466,6 +3467,14 @@ def _enrich_and_validate_product_artwork_slots(template: dict, global_print_opti
         slot["minimum_print_cost"] = float(option.get("minimum_print_cost") or slot.get("minimum_print_cost") or 0)
         slot["waste_percentage"] = float(option.get("waste_percentage") or slot.get("waste_percentage") or 0)
         slot["markup_percentage"] = float(option.get("markup_percentage") or slot.get("markup_percentage") or 0)
+        slot["sheet_width_mm"] = float(option.get("sheet_width_mm") or slot.get("sheet_width_mm") or 0)
+        slot["sheet_height_mm"] = float(option.get("sheet_height_mm") or slot.get("sheet_height_mm") or 0)
+        slot["sheet_cost"] = float(option.get("sheet_cost") or slot.get("sheet_cost") or 0)
+        slot["combine_same_method_layers"] = option.get("combine_same_method_layers", slot.get("combine_same_method_layers"))
+        slot["combine_layers"] = option.get("combine_layers", slot.get("combine_layers"))
+        slot["additive_layer_pricing"] = option.get("additive_layer_pricing", slot.get("additive_layer_pricing"))
+        slot["same_method_layer_policy"] = option.get("same_method_layer_policy") or slot.get("same_method_layer_policy")
+        slot["layer_pricing_mode"] = option.get("layer_pricing_mode") or slot.get("layer_pricing_mode")
 
         resolved_print_costing = _resolve_print_costing(option, slot, slot.get("calculated_print_cost") or 0)
         slot["platform_print_cost"] = resolved_print_costing["platform_print_cost"]
@@ -3778,15 +3787,19 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
     _enrich_and_validate_product_artwork_slots(template, global_print_options, artwork_groups, grouped_flat_artworks)
     _ensure_artwork_review_defaults(artwork_groups, grouped_flat_artworks, is_admin=is_admin_user)
 
-    calculated_slot_costings = [
-        _resolve_print_costing(None, row, row.get("calculated_print_cost") or row.get("print_cost_max") or 0)
-        for row in grouped_flat_artworks
-        if row.get("print_option_id") and row.get("original_url")
-    ]
+    calculated_print_jobs = aggregate_artwork_print_jobs(
+        artwork_groups
+    )
 
-    if calculated_slot_costings:
-        platform_print_cost = round(sum(row["platform_print_cost"] for row in calculated_slot_costings), 2)
-        creator_print_price = round(sum(row["creator_print_price"] for row in calculated_slot_costings), 2)
+    if calculated_print_jobs:
+        platform_print_cost = round(
+            sum(row["platform_print_cost"] for row in calculated_print_jobs),
+            2,
+        )
+        creator_print_price = round(
+            sum(row["creator_print_price"] for row in calculated_print_jobs),
+            2,
+        )
     else:
         fallback_print = float((print_option or {}).get("print_cost_max") or data.get("print_cost") or 0)
         print_costing = _resolve_print_costing(print_option, None, fallback_print)
