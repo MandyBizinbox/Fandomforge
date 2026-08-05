@@ -8,6 +8,7 @@ on:
       - feature/profile-stocked-colours
       - feature/seed-classic-htv-colours
       - feature/seed-puff-htv-colours
+      - feature/seed-metallic-glow-htv-colours
   pull_request:
     branches:
       - feature/template-production-routing-v3
@@ -33,6 +34,8 @@ on:
       - "backend/profile_stocked_colours_patch.py"
       - "backend/classic_htv_colour_seed.py"
       - "backend/puff_htv_colour_seed.py"
+      - "backend/metallic_htv_colour_seed.py"
+      - "backend/glow_htv_colour_seed.py"
       - "backend/unified_manufacturing_costing.py"
       - "backend/production_method_profiles.py"
       - "backend/production_profile_resolution_patch.py"
@@ -49,6 +52,7 @@ on:
       - "backend/tests/test_profile_stocked_colours.py"
       - "backend/tests/test_classic_htv_colour_seed.py"
       - "backend/tests/test_puff_htv_colour_seed.py"
+      - "backend/tests/test_speciality_htv_colour_seeds.py"
       - "backend/tests/test_production_profile_resolution_patch.py"
       - ".github/workflows/template-production-routing-v3-ci.yml"
 
@@ -106,6 +110,7 @@ jobs:
           PYTHONPATH=. python tests/test_profile_stocked_colours.py
           PYTHONPATH=. python tests/test_classic_htv_colour_seed.py
           PYTHONPATH=. python tests/test_puff_htv_colour_seed.py
+          PYTHONPATH=. python tests/test_speciality_htv_colour_seeds.py
           PYTHONPATH=. python tests/test_production_profile_resolution_patch.py
 
       - name: Compile changed backend modules
@@ -120,6 +125,8 @@ jobs:
           profile_stocked_colours_patch.py
           classic_htv_colour_seed.py
           puff_htv_colour_seed.py
+          metallic_htv_colour_seed.py
+          glow_htv_colour_seed.py
           unified_manufacturing_costing.py
           production_method_profiles.py
           production_profile_resolution_patch.py
