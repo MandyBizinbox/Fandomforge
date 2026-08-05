@@ -17,6 +17,7 @@ on:
       - "frontend/src/routes/AdminTemplateStudioRoute.jsx"
       - "backend/platform_fee_pricing.py"
       - "backend/models.py"
+      - "backend/artwork_print_job_pricing.py"
       - "backend/routes_main.py"
       - "backend/production_rules_engine.py"
       - "backend/production_operation_pricing.py"
@@ -66,15 +67,18 @@ jobs:
           derivedMockupRenderer.test.js
           productBuilderPricingGallery.test.js
 
-      - name: Run backend platform fee tests
+      - name: Run backend pricing tests
         working-directory: backend
-        run: PYTHONPATH=. python tests/test_platform_fee_pricing.py
+        run: |
+          PYTHONPATH=. python tests/test_platform_fee_pricing.py
+          PYTHONPATH=. python tests/test_artwork_print_job_pricing.py
 
       - name: Compile changed backend modules
         working-directory: backend
         run: >-
           python -m py_compile
           platform_fee_pricing.py
+          artwork_print_job_pricing.py
           models.py
           routes_main.py
           production_rules_engine.py
