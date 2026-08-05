@@ -352,26 +352,24 @@ export function isCombinablePrintMethod(methodKey, option = {}) {
   return ["dtf", "sublimation", "uv_dtf"].includes(normalizeProductionMethodKey(methodKey));
 }
 
-function placementBounds(slot) {
-  const p = slot.placement || {};
-  const x = safeNumber(p.x ?? p.x_pct ?? 0);
-  const y = safeNumber(p.y ?? p.y_pct ?? 0);
-  const width = safeNumber(p.width ?? p.width_pct ?? 100);
-  const height = safeNumber(p.height ?? p.height_pct ?? 100);
-  return { x, y, right: x + width, bottom: y + height };
-}
-
-function combinedSlotFromGroup(groupSlots) {
+function combinedSlotFromGroup(groupSlots, area, option) {
   const first = groupSlots[0] || {};
-  const bounds = groupSlots.map(placementBounds);
-  const x = Math.min(...bounds.map((item) => item.x));
-  const y = Math.min(...bounds.map((item) => item.y));
-  const right = Math.max(...bounds.map((item) => item.right));
-  const bottom = Math.max(...bounds.map((item) => item.bottom));
+  const layerCostings = groupSlots.map((slot) => (
+    calculateAreaPrintCost(slot, area, option)
+  ));
+  const combinedAreaCm2 = layerCostings.reduce(
+    (total, costing) => total + Number(costing.area_cm2 || 0),
+    0
+  );
+
   return {
     ...first,
     combined_layer_count: groupSlots.length,
-    placement: { ...(first.placement || {}), x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y), rotation: 0 },
+    combined_area_cm2: Math.round(combinedAreaCm2 * 100) / 100,
+    combined_layer_areas: layerCostings.map((costing, index) => ({
+      slot_id: groupSlots[index]?.id,
+      area_cm2: Number(costing.area_cm2 || 0),
+    })),
   };
 }
 
@@ -385,7 +383,16 @@ export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
   const placementHeightPct = safeNumber(placement.height ?? placement.height_pct ?? 100, 100);
   const printWidthMm = areaWidthMm * (placementWidthPct / 100);
   const printHeightMm = areaHeightMm * (placementHeightPct / 100);
-  const areaCm2 = Math.max(0, (printWidthMm / 10) * (printHeightMm / 10));
+  const placementAreaCm2 = Math.max(
+    0,
+    (printWidthMm / 10) * (printHeightMm / 10)
+  );
+  const explicitCombinedAreaCm2 = safeNumber(
+    slot.combined_area_cm2 || 0
+  );
+  const areaCm2 = explicitCombinedAreaCm2 > 0
+    ? explicitCombinedAreaCm2
+    : placementAreaCm2;
   const artworkWidthPx = safeNumber(slot.original_width_px || slot.artwork_width_px || 0);
   const artworkHeightPx = safeNumber(slot.original_height_px || slot.artwork_height_px || 0);
   const aspectRatio = artworkWidthPx > 0 && artworkHeightPx > 0 ? artworkWidthPx / artworkHeightPx : safeNumber(slot.artwork_aspect_ratio || 0);
@@ -451,6 +458,10 @@ export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
     print_width_mm: roundMm(printWidthMm),
     print_height_mm: roundMm(printHeightMm),
     area_cm2: roundArea(areaCm2),
+    combined_area_cm2: explicitCombinedAreaCm2 > 0
+      ? roundArea(explicitCombinedAreaCm2)
+      : null,
+    combined_layer_count: Number(slot.combined_layer_count || 1),
     cost_per_cm2: costPerCm2,
     base_production_cost: roundMoney(baseProductionCost),
     waste_amount: roundMoney(wasteAmount),
@@ -491,11 +502,28 @@ export function getAggregatedPrintCostLines(groups, printOptions = [], template 
   });
 
   combinable.forEach((items) => {
-    const slot = combinedSlotFromGroup(items);
-    const option = optionForSlot(slot, printOptions);
-    const area = areaForSlot(slot, template);
+    const first = items[0] || {};
+    const option = optionForSlot(first, printOptions);
+    const area = areaForSlot(first, template);
+    const slot = combinedSlotFromGroup(items, area, option);
     const result = calculateAreaPrintCost(slot, area, option);
-    lines.push({ slot_ids: items.map((item) => item.id), method_key: methodForSlot(slot, option), print_area_id: slot.print_area_id, combined: items.length > 1, layer_count: items.length, cost: Number(result.calculated_print_cost || 0), costing: result });
+
+    lines.push({
+      slot_ids: items.map((item) => item.id),
+      method_key: methodForSlot(slot, option),
+      profile_id:
+        slot.manufacturing_profile_id
+        || slot.production_profile_id
+        || slot.print_option_id,
+      print_area_id: slot.print_area_id,
+      screen_id: slot.screen_id,
+      combined: items.length > 1,
+      layer_count: items.length,
+      combined_area_cm2: Number(result.area_cm2 || 0),
+      layer_areas: slot.combined_layer_areas || [],
+      cost: Number(result.calculated_print_cost || 0),
+      costing: result,
+    });
   });
   return lines;
 }
