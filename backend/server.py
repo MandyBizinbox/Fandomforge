@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
         from seed_production_operations import seed_production_operations
         from seed_production_rules import seed_production_rules
         from classic_htv_colour_seed import seed_classic_htv_colours
+        from puff_htv_colour_seed import seed_puff_htv_colours
         from payout_launch_routes import ensure_payout_launch_indexes
         from email_delivery import ensure_email_delivery_indexes
         from email_settings_routes import dashboard_email_delivery_loop
@@ -45,6 +46,8 @@ async def lifespan(app: FastAPI):
         await seed_production_rules(app.state.db)
         classic_htv_seed = await seed_classic_htv_colours(app.state.db)
         logger.info("Classic HTV stocked-colour seed: %s", classic_htv_seed)
+        puff_htv_seed = await seed_puff_htv_colours(app.state.db)
+        logger.info("Puff HTV stocked-colour seed: %s", puff_htv_seed)
         await ensure_payout_launch_indexes(app.state.db)
         await ensure_email_delivery_indexes(app.state.db)
         await ensure_launch_integrity_indexes(app.state.db)
