@@ -908,12 +908,45 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const templateForCosting = useMemo(() => ({ ...(template || {}), print_areas: printAreas }), [template, printAreas]);
   const currentScreenCostLines = useMemo(() => getAggregatedPrintCostLines([{ ...(activeGroup || {}), artworks: currentScreenSlots }], profileCatalog, templateForCosting), [activeGroup, currentScreenSlots, profileCatalog, templateForCosting]);
   const allCostLines = useMemo(() => getAggregatedPrintCostLines(activeGroup ? [activeGroup] : [], profileCatalog, templateForCosting), [activeGroup, profileCatalog, templateForCosting]);
-  const allGroupPrintCost = Math.round(allCostLines.reduce((total, line) => total + Number(line.cost || 0), 0) * 100) / 100;
-  const selectedLayerCost = useMemo(() => {
-    if (!activeSlot || !activeArea) return 0;
+  const allGroupPrintCost = Math.round(
+    allCostLines.reduce(
+      (total, line) => total + Number(line.cost || 0),
+      0
+    ) * 100
+  ) / 100;
+
+  const selectedCostLine = useMemo(
+    () => (
+      allCostLines.find(
+        (line) => asArray(line.slot_ids).includes(activeSlot?.id)
+      ) || null
+    ),
+    [activeSlot?.id, allCostLines]
+  );
+
+  const selectedLayerCosting = useMemo(() => {
+    if (!activeSlot || !activeArea) return null;
     const profile = selectedProfile || activeSlot;
-    return Number(calculateAreaPrintCost(activeSlot, activeArea, profile).calculated_print_cost || activeSlot.calculated_print_cost || activeSlot.print_cost_max || 0);
+    return calculateAreaPrintCost(activeSlot, activeArea, profile);
   }, [activeSlot, activeArea, selectedProfile]);
+
+  const selectedLayerCost = Number(
+    selectedCostLine?.cost
+    ?? selectedLayerCosting?.calculated_print_cost
+    ?? activeSlot?.calculated_print_cost
+    ?? activeSlot?.print_cost_max
+    ?? 0
+  );
+
+  const selectedLayerAreaCm2 = Number(
+    selectedLayerCosting?.area_cm2 || activeSlot?.area_cm2 || 0
+  );
+
+  const selectedJobAreaCm2 = Number(
+    selectedCostLine?.combined_area_cm2
+    || selectedCostLine?.costing?.area_cm2
+    || selectedLayerAreaCm2
+  );
   const missingMethodCount = currentScreenSlots.filter((slot) => slotHasArtwork(slot) && !slot.print_option_id).length;
   const canGenerateMockup = Boolean(activeImage && currentScreenSlots.some((slot) => slotHasArtwork(slot) && slot.print_option_id));
   const groupedProfiles = useMemo(() => {
@@ -1613,14 +1646,27 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
 
         <div className="border border-[#34C759]/40 bg-[#0A1B10] p-3 grid grid-cols-2 gap-3">
           <div className="border-r border-white/40 pr-3">
-            <div className="text-[10px] uppercase tracking-widest">Selected artwork cost</div>
+            <div className="text-[10px] uppercase tracking-widest">Selected print job cost</div>
             <div className="font-display text-4xl mt-2">{money(selectedLayerCost)}</div>
-            {activeSlot?.minimum_print_cost_applied && <div className="text-[10px] text-[#FFE08A] mt-1">Minimum applied</div>}
+            {selectedCostLine?.combined ? (
+              <div className="text-[10px] text-[#B8F5C3] mt-1">
+                {selectedCostLine.layer_count}{" "}
+                {methodLabel(selectedCostLine.method_key)} layers combined
+                {" · "}{round(selectedJobAreaCm2)} cm²
+              </div>
+            ) : (
+              <div className="text-[10px] text-zinc-500 mt-1">{round(selectedLayerAreaCm2)} cm²</div>
+            )}
+            {selectedCostLine?.costing?.minimum_print_cost_applied && (
+              <div className="text-[10px] text-[#FFE08A] mt-1">Job minimum applied once</div>
+            )}
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-widest">Total artwork cost</div>
             <div className="font-display text-4xl mt-2">{money(allGroupPrintCost)}</div>
-            <div className="text-[10px] text-zinc-500 mt-1">Screen: {money(currentScreenCostLines.reduce((total, line) => total + Number(line.cost || 0), 0))}</div>
+            <div className="text-[10px] text-zinc-500 mt-1">
+              Screen: {money(currentScreenCostLines.reduce((total, line) => total + Number(line.cost || 0), 0))}
+            </div>
           </div>
         </div>
       </section>
@@ -1638,11 +1684,28 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                     {areaSlots.map((slot) => {
                       const active = activeSlot?.id === slot.id;
                       const profile = resolveProfileForSlot(slot, profileCatalog, printOptions);
+                      const costLine = allCostLines.find(
+                        (line) => asArray(line.slot_ids).includes(slot.id)
+                      );
+                      const layerCosting = calculateAreaPrintCost(
+                        slot,
+                        area,
+                        profile || slot
+                      );
                       return (
                         <button key={slot.id} type="button" onClick={() => { setActiveSlotId(slot.id); setActivePrintAreaId(area.id); }} className={`w-full text-left border px-2 py-2 ${active ? "border-[#FF3B30] bg-[#FF3B30]/15" : "border-white/30 bg-black/40 hover:border-white/60"}`}>
                           <div className="font-bold text-xs uppercase">{slot.text_layer ? "Text Layer" : "Image Layer"}</div>
                           <div className="text-[10px] text-zinc-500 mt-1 truncate">{profile ? `${methodLabel(profile.method_key)} · ${profileLabel(profile)}` : "No manufacturing profile"}</div>
-                          {slot.calculated_print_cost !== undefined && <div className="text-[10px] text-[#34C759] mt-1">{money(slot.calculated_print_cost)}</div>}
+                          <div className="text-[10px] text-zinc-500 mt-1">
+                            {round(layerCosting.area_cm2 || 0)} cm²
+                          </div>
+                          {costLine && (
+                            <div className="text-[10px] text-[#34C759] mt-1">
+                              {costLine.combined
+                                ? `${costLine.layer_count}-layer job · ${money(costLine.cost)}`
+                                : money(costLine.cost)}
+                            </div>
+                          )}
                         </button>
                       );
                     })}
@@ -1719,9 +1782,21 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                   <span>Profile</span><span className="text-right text-zinc-200">{selectedProfile ? profileLabel(selectedProfile) : "None"}</span>
                   <span>Calculation</span><span className="text-right text-zinc-200">{activeSlot.calculation_type || selectedProfile?.calculation_type || "—"}</span>
                   <span>Minimum</span><span className="text-right text-zinc-200">{money(activeSlot.minimum_print_cost || selectedProfile?.minimum_print_cost || 0)}</span>
-                  <span>Layer cost</span><span className="text-right text-[#34C759]">{money(selectedLayerCost)}</span>
+                  <span>{selectedCostLine?.combined ? "Combined job cost" : "Layer cost"}</span>
+                  <span className="text-right text-[#34C759]">{money(selectedLayerCost)}</span>
                 </div>
-                {activeSlot.minimum_print_cost_applied && <p className="text-[#FFE08A] mt-2">Minimum print cost has been applied to this layer.</p>}
+                {selectedCostLine?.combined && (
+                  <p className="text-[#B8F5C3] mt-2">
+                    This layer contributes {round(selectedLayerAreaCm2)} cm² to a{" "}
+                    {selectedCostLine.layer_count}-layer {methodLabel(selectedCostLine.method_key)}{" "}
+                    print job totalling {round(selectedJobAreaCm2)} cm².
+                  </p>
+                )}
+                {selectedCostLine?.costing?.minimum_print_cost_applied && (
+                  <p className="text-[#FFE08A] mt-2">
+                    The minimum print cost is applied once to the combined print job.
+                  </p>
+                )}
               </div>
               <div className="border-t border-white/10 pt-4"><div className="overline mb-2">Placement</div><p className="text-xs text-zinc-500 mb-3 flex items-center gap-2"><Move size={13} /> Drag the layer on the preview.</p><label className="flex items-center gap-2 text-xs text-zinc-300 mb-3"><input type="checkbox" checked={activeSlot.lock_aspect_ratio !== false} onChange={(event) => patchSlot(activeSlot.id, { lock_aspect_ratio: event.target.checked })} /> Lock aspect ratio</label><div className="grid grid-cols-2 gap-2"><NumericControl label="X %" value={activePlacement.x} onChange={(value) => patchPlacement(activeSlot.id, { x: value })} /><NumericControl label="Y %" value={activePlacement.y} onChange={(value) => patchPlacement(activeSlot.id, { y: value })} /><NumericControl label="W %" value={activePlacement.width} onChange={(value) => patchPlacement(activeSlot.id, { width: value })} /><NumericControl label="H %" value={activePlacement.height} onChange={(value) => patchPlacement(activeSlot.id, { height: value })} /><NumericControl label="Rotation" value={activePlacement.rotation} onChange={(value) => patchPlacement(activeSlot.id, { rotation: value })} /></div><div className="grid grid-cols-3 gap-2 mt-3"><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 0, y: 0, width: 100, height: 100, rotation: 0 })}>Fit</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 25, y: 25, width: 50, height: 50, rotation: 0 })}>Center</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, defaultPlacement(activeArea))}>Reset</button></div></div>
               {missingMethodCount > 0 && <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg">{missingMethodCount} layer(s) need manufacturing profiles.</div>}
