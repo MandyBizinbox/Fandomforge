@@ -127,7 +127,6 @@ from creator_finance_routes import creator_finance_router
 from email_settings_routes import email_settings_router
 from routes_production_operations import production_operations_router
 from routes_production_rules import production_rules_router
-from routes_outsourced_rates import outsourced_rates_router
 from launch_integrity.routes import integrity_router
 from launch_integrity.printer_gate_routes import printer_gate_router
 from launch_integrity.printer_ops import printer_ops_router
@@ -170,6 +169,5 @@ api_router.include_router(attributes_router)
 api_router.include_router(print_options_router)
 api_router.include_router(production_operations_router)
 api_router.include_router(production_rules_router)
-api_router.include_router(outsourced_rates_router)
 app.include_router(api_router)
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","), allow_methods=["*"], allow_headers=["*"])

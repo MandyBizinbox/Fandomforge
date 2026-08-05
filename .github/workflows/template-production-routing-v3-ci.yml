@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - feature/template-production-routing-v3
-      - fix/outsourced-production-rate-model
+      - refactor/unified-manufacturing-costing-engine
   pull_request:
     branches:
       - feature/template-production-routing-v3
@@ -12,7 +12,10 @@ on:
       - "frontend/src/components/template-studio/**"
       - "frontend/src/components/product-builder/**"
       - "frontend/src/components/product/**"
-      - "frontend/src/components/admin/outsourcedProductionRatesRuntime.js"
+      - "frontend/src/pages/admin/AdminManufacturingRulesUnified.jsx"
+      - "frontend/src/pages/admin/ManufacturingProfilesPanel.jsx"
+      - "frontend/src/pages/admin/manufacturingRulesShared.jsx"
+      - "frontend/src/routes/AdminManufacturingRulesRoute.jsx"
       - "frontend/src/components/orders/ManualOrderBuilder.jsx"
       - "frontend/src/lib/**"
       - "frontend/src/index.js"
@@ -24,7 +27,10 @@ on:
       - "backend/builder_artwork_costing_patch.py"
       - "backend/outsourced_production_rates.py"
       - "backend/outsourced_rate_runtime_patch.py"
-      - "backend/routes_outsourced_rates.py"
+      - "backend/unified_manufacturing_costing.py"
+      - "backend/production_method_profiles.py"
+      - "backend/production_profile_resolution_patch.py"
+      - "backend/routes_production_rules.py"
       - "backend/routes_main.py"
       - "backend/server.py"
       - "backend/production_rules_engine.py"
@@ -33,6 +39,8 @@ on:
       - "backend/tests/test_platform_fee_pricing.py"
       - "backend/tests/test_artwork_print_job_pricing.py"
       - "backend/tests/test_outsourced_production_rates.py"
+      - "backend/tests/test_unified_manufacturing_costing.py"
+      - "backend/tests/test_production_profile_resolution_patch.py"
       - ".github/workflows/template-production-routing-v3-ci.yml"
 
 permissions:
@@ -77,6 +85,7 @@ jobs:
           derivedMockupRenderer.test.js
           productBuilderPricingGallery.test.js
           outsourcedProductionPricing.test.js
+          unifiedManufacturingCosting.test.js
 
       - name: Run backend pricing tests
         working-directory: backend
@@ -84,6 +93,8 @@ jobs:
           PYTHONPATH=. python tests/test_platform_fee_pricing.py
           PYTHONPATH=. python tests/test_artwork_print_job_pricing.py
           PYTHONPATH=. python tests/test_outsourced_production_rates.py
+          PYTHONPATH=. python tests/test_unified_manufacturing_costing.py
+          PYTHONPATH=. python tests/test_production_profile_resolution_patch.py
 
       - name: Compile changed backend modules
         working-directory: backend
@@ -94,7 +105,10 @@ jobs:
           builder_artwork_costing_patch.py
           outsourced_production_rates.py
           outsourced_rate_runtime_patch.py
-          routes_outsourced_rates.py
+          unified_manufacturing_costing.py
+          production_method_profiles.py
+          production_profile_resolution_patch.py
+          routes_production_rules.py
           models.py
           routes_main.py
           server.py

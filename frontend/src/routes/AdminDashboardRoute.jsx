@@ -8,7 +8,6 @@ import "../components/product-builder/productBuilderPricingSimplificationRuntime
 import "../components/product-builder/productBuilderTextColourRuntime";
 import "../components/product-builder/productBuilderDraftButtonRuntime";
 import "../components/admin/adminManufacturingRulesThemeRuntime";
-import "../components/admin/legacyPrintOptionCostingSeedRuntime";
 
 function adminDashboardKey(pathname) {
   const path = String(pathname || "").replace(/\/+$/, "");
