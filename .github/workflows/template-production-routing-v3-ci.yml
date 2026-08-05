@@ -4,25 +4,35 @@ on:
   push:
     branches:
       - feature/template-production-routing-v3
+      - fix/outsourced-production-rate-model
   pull_request:
     branches:
-      - feature/template-builder-production-geometry-v2
+      - feature/template-production-routing-v3
     paths:
       - "frontend/src/components/template-studio/**"
       - "frontend/src/components/product-builder/**"
       - "frontend/src/components/product/**"
+      - "frontend/src/components/admin/outsourcedProductionRatesRuntime.js"
       - "frontend/src/components/orders/ManualOrderBuilder.jsx"
       - "frontend/src/lib/**"
+      - "frontend/src/index.js"
       - "frontend/src/routes/AdminDashboardRoute.jsx"
       - "frontend/src/routes/AdminTemplateStudioRoute.jsx"
       - "backend/platform_fee_pricing.py"
       - "backend/models.py"
       - "backend/artwork_print_job_pricing.py"
+      - "backend/builder_artwork_costing_patch.py"
+      - "backend/outsourced_production_rates.py"
+      - "backend/outsourced_rate_runtime_patch.py"
+      - "backend/routes_outsourced_rates.py"
       - "backend/routes_main.py"
+      - "backend/server.py"
       - "backend/production_rules_engine.py"
       - "backend/production_operation_pricing.py"
       - "backend/launch_integrity/pricing.py"
       - "backend/tests/test_platform_fee_pricing.py"
+      - "backend/tests/test_artwork_print_job_pricing.py"
+      - "backend/tests/test_outsourced_production_rates.py"
       - ".github/workflows/template-production-routing-v3-ci.yml"
 
 permissions:
@@ -50,7 +60,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Run frontend production tests
         working-directory: frontend
@@ -66,12 +76,14 @@ jobs:
           templateReadiness.test.js
           derivedMockupRenderer.test.js
           productBuilderPricingGallery.test.js
+          outsourcedProductionPricing.test.js
 
       - name: Run backend pricing tests
         working-directory: backend
         run: |
           PYTHONPATH=. python tests/test_platform_fee_pricing.py
           PYTHONPATH=. python tests/test_artwork_print_job_pricing.py
+          PYTHONPATH=. python tests/test_outsourced_production_rates.py
 
       - name: Compile changed backend modules
         working-directory: backend
@@ -79,8 +91,13 @@ jobs:
           python -m py_compile
           platform_fee_pricing.py
           artwork_print_job_pricing.py
+          builder_artwork_costing_patch.py
+          outsourced_production_rates.py
+          outsourced_rate_runtime_patch.py
+          routes_outsourced_rates.py
           models.py
           routes_main.py
+          server.py
           production_rules_engine.py
           production_operation_pricing.py
           launch_integrity/pricing.py

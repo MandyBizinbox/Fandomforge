@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from outsourced_production_rates import calculate_outsourced_area_cost
+
 
 COMBINABLE_METHODS = {"dtf", "sublimation", "uv_dtf"}
 
@@ -120,58 +122,39 @@ def _ratio(slot: dict, key: str, reference: float) -> float:
 def _combined_calculated_cost(slots: list[dict]) -> dict:
     first = slots[0]
     calculation_type = str(first.get("calculation_type") or "fixed").strip().lower()
-    combined_area_cm2 = sum(max(0.0, _number(slot.get("area_cm2") or 0)) for slot in slots)
-    minimum = max(0.0, _number(first.get("minimum_print_cost") or 0))
-    waste_percentage = max(0.0, _number(first.get("waste_percentage") or 0))
-    markup_percentage = max(0.0, _number(first.get("markup_percentage") or 0))
-
-    if calculation_type in {"area_fixed_rate", "area", "cm2"}:
-        base_cost = combined_area_cm2 * _number(first.get("cost_per_cm2") or 0)
-    elif calculation_type in {"sheet", "area_from_sheet"}:
-        cost_per_cm2 = _number(first.get("cost_per_cm2") or 0)
-        sheet_area_cm2 = (
-            (_number(first.get("sheet_width_mm") or 0) / 10)
-            * (_number(first.get("sheet_height_mm") or 0) / 10)
-        )
-        sheet_cost = _number(first.get("sheet_cost") or 0)
-        if cost_per_cm2 <= 0 and sheet_area_cm2 > 0 and sheet_cost > 0:
-            cost_per_cm2 = sheet_cost / sheet_area_cm2
-        base_cost = combined_area_cm2 * cost_per_cm2
-    elif calculation_type in {"full_sheet", "sheet_full"}:
-        base_cost = _number(
-            first.get("sheet_cost")
-            or first.get("raw_print_cost")
-            or first.get("calculated_print_cost")
-            or first.get("print_cost_max")
-            or 0
-        )
-    else:
-        final_cost = _reference_cost(first)
-        return {
-            "calculation_type": calculation_type,
-            "combined_area_cm2": _area(combined_area_cm2),
-            "raw_print_cost": _money(final_cost),
-            "calculated_print_cost": _money(final_cost),
-            "minimum_print_cost": _money(minimum),
-            "minimum_print_cost_applied": False,
-        }
-
-    waste_amount = base_cost * (waste_percentage / 100)
-    after_waste = base_cost + waste_amount
-    markup_amount = after_waste * (markup_percentage / 100)
-    before_minimum = after_waste + markup_amount
-    minimum_applied = minimum > 0 and before_minimum < minimum
-    final_cost = max(before_minimum, minimum)
+    combined_area_cm2 = sum(max(0.0, _number(slot.get("area_cm2") or slot.get("charged_area_cm2") or 0)) for slot in slots)
+    pricing = dict(first)
+    pricing["calculation_type"] = calculation_type
+    costing = calculate_outsourced_area_cost(
+        combined_area_cm2,
+        pricing,
+        fallback_cost=_reference_cost(first),
+    )
     return {
-        "calculation_type": calculation_type,
+        **costing,
         "combined_area_cm2": _area(combined_area_cm2),
-        "base_production_cost": _money(base_cost),
-        "waste_amount": _money(waste_amount),
-        "markup_amount": _money(markup_amount),
-        "raw_print_cost": _money(before_minimum),
-        "calculated_print_cost": _money(final_cost),
-        "minimum_print_cost": _money(minimum),
-        "minimum_print_cost_applied": minimum_applied,
+        "actual_area_cm2": _area(combined_area_cm2),
+    }
+
+
+def _single_costing(slot: dict, canonical_cost: float) -> dict:
+    return {
+        "calculation_type": str(slot.get("calculation_type") or "fixed"),
+        "combined_area_cm2": _area(slot.get("area_cm2") or slot.get("charged_area_cm2") or 0),
+        "actual_area_cm2": _area(slot.get("area_cm2") or slot.get("charged_area_cm2") or 0),
+        "chargeable_area_cm2": _area(slot.get("chargeable_area_cm2") or slot.get("area_cm2") or slot.get("charged_area_cm2") or 0),
+        "minimum_area_cm2": _area(slot.get("minimum_area_cm2") or 0),
+        "minimum_area_applied": bool(slot.get("minimum_area_applied")),
+        "material_cost": _money(slot.get("material_cost") or slot.get("base_production_cost") or 0),
+        "base_production_cost": _money(slot.get("base_production_cost") or slot.get("material_cost") or 0),
+        "waste_amount": _money(slot.get("waste_amount") or 0),
+        "application_cost": _money(slot.get("application_cost") or 0),
+        "production_subtotal_before_markup": _money(slot.get("production_subtotal_before_markup") or 0),
+        "markup_amount": _money(slot.get("markup_amount") or 0),
+        "raw_print_cost": _money(slot.get("raw_print_cost") or canonical_cost),
+        "calculated_print_cost": _money(canonical_cost),
+        "minimum_print_cost": _money(slot.get("minimum_print_cost") or 0),
+        "minimum_print_cost_applied": bool(slot.get("minimum_print_cost_applied")),
     }
 
 
@@ -187,14 +170,8 @@ def _line_for_slots(group_id: str, slots: list[dict], combined: bool) -> dict:
         canonical_cost = _reference_cost(first)
         platform_cost = _number(first.get("platform_print_cost") or canonical_cost)
         creator_cost = _number(first.get("creator_print_price") or canonical_cost)
-        costing = {
-            "calculation_type": str(first.get("calculation_type") or "fixed"),
-            "combined_area_cm2": _area(first.get("area_cm2") or 0),
-            "raw_print_cost": _money(first.get("raw_print_cost") or canonical_cost),
-            "calculated_print_cost": _money(canonical_cost),
-            "minimum_print_cost": _money(first.get("minimum_print_cost") or 0),
-            "minimum_print_cost_applied": bool(first.get("minimum_print_cost_applied")),
-        }
+        costing = _single_costing(first, canonical_cost)
+
     return {
         "group_id": group_id,
         "slot_ids": [str(slot.get("id") or "") for slot in slots],
@@ -205,6 +182,10 @@ def _line_for_slots(group_id: str, slots: list[dict], combined: bool) -> dict:
         "combined": combined,
         "layer_count": len(slots),
         "combined_area_cm2": costing["combined_area_cm2"],
+        "chargeable_area_cm2": costing.get("chargeable_area_cm2"),
+        "minimum_area_cm2": costing.get("minimum_area_cm2"),
+        "minimum_area_applied": costing.get("minimum_area_applied"),
+        "application_cost": costing.get("application_cost"),
         "calculated_print_cost": _money(canonical_cost),
         "platform_print_cost": _money(platform_cost),
         "creator_print_price": _money(creator_cost),
@@ -230,6 +211,7 @@ def aggregate_artwork_print_jobs(artwork_groups: list[dict]) -> list[dict]:
                 grouped[key] = []
                 order.append(key)
             grouped[key].append(slot)
+
     lines = []
     for key in order:
         slots = grouped[key]
