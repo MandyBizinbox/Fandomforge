@@ -8,6 +8,7 @@ from outsourced_production_rates import calculate_outsourced_area_cost
 
 
 COMBINABLE_METHODS = {"dtf", "sublimation", "uv_dtf"}
+AREA_CALCULATION_TYPES = {"area_fixed_rate", "area", "cm2", "sheet", "area_from_sheet"}
 
 
 def _number(value: Any, fallback: float = 0.0) -> float:
@@ -119,10 +120,14 @@ def _ratio(slot: dict, key: str, reference: float) -> float:
     return value / reference if reference > 0 and value > 0 else 1.0
 
 
-def _combined_calculated_cost(slots: list[dict]) -> dict:
+def _actual_area(slot: dict) -> float:
+    return max(0.0, _number(slot.get("area_cm2") or slot.get("charged_area_cm2") or 0))
+
+
+def _authoritative_costing(slots: list[dict]) -> dict:
     first = slots[0]
     calculation_type = str(first.get("calculation_type") or "fixed").strip().lower()
-    combined_area_cm2 = sum(max(0.0, _number(slot.get("area_cm2") or slot.get("charged_area_cm2") or 0)) for slot in slots)
+    combined_area_cm2 = sum(_actual_area(slot) for slot in slots)
     pricing = dict(first)
     pricing["calculation_type"] = calculation_type
     costing = calculate_outsourced_area_cost(
@@ -137,12 +142,12 @@ def _combined_calculated_cost(slots: list[dict]) -> dict:
     }
 
 
-def _single_costing(slot: dict, canonical_cost: float) -> dict:
+def _stored_single_costing(slot: dict, canonical_cost: float) -> dict:
     return {
         "calculation_type": str(slot.get("calculation_type") or "fixed"),
-        "combined_area_cm2": _area(slot.get("area_cm2") or slot.get("charged_area_cm2") or 0),
-        "actual_area_cm2": _area(slot.get("area_cm2") or slot.get("charged_area_cm2") or 0),
-        "chargeable_area_cm2": _area(slot.get("chargeable_area_cm2") or slot.get("area_cm2") or slot.get("charged_area_cm2") or 0),
+        "combined_area_cm2": _area(_actual_area(slot)),
+        "actual_area_cm2": _area(_actual_area(slot)),
+        "chargeable_area_cm2": _area(slot.get("chargeable_area_cm2") or _actual_area(slot)),
         "minimum_area_cm2": _area(slot.get("minimum_area_cm2") or 0),
         "minimum_area_applied": bool(slot.get("minimum_area_applied")),
         "material_cost": _money(slot.get("material_cost") or slot.get("base_production_cost") or 0),
@@ -160,17 +165,18 @@ def _single_costing(slot: dict, canonical_cost: float) -> dict:
 
 def _line_for_slots(group_id: str, slots: list[dict], combined: bool) -> dict:
     first = slots[0]
-    if combined:
-        costing = _combined_calculated_cost(slots)
+    calculation_type = str(first.get("calculation_type") or "fixed").strip().lower()
+    reference = _reference_cost(first)
+
+    if combined or calculation_type in AREA_CALCULATION_TYPES:
+        costing = _authoritative_costing(slots)
         canonical_cost = _number(costing["calculated_print_cost"])
-        reference = _reference_cost(first)
-        platform_cost = canonical_cost * _ratio(first, "platform_print_cost", reference)
-        creator_cost = canonical_cost * _ratio(first, "creator_print_price", reference)
     else:
-        canonical_cost = _reference_cost(first)
-        platform_cost = _number(first.get("platform_print_cost") or canonical_cost)
-        creator_cost = _number(first.get("creator_print_price") or canonical_cost)
-        costing = _single_costing(first, canonical_cost)
+        canonical_cost = reference
+        costing = _stored_single_costing(first, canonical_cost)
+
+    platform_cost = canonical_cost * _ratio(first, "platform_print_cost", reference)
+    creator_cost = canonical_cost * _ratio(first, "creator_print_price", reference)
 
     return {
         "group_id": group_id,
