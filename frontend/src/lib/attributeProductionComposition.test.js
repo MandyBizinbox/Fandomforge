@@ -2,6 +2,10 @@ import {
   composeAttributeGeometryPreview,
   geometryOnlyProductionConfiguration,
 } from "./attributeProductionComposition";
+import {
+  attributeProfileKey,
+  resolveVariationProductionConfiguration,
+} from "./variationProductionConfig";
 
 function screen(id, view, imageUrl) {
   return {
@@ -134,6 +138,102 @@ describe("attribute production composition", () => {
     ]);
     expect(composed.print_option_ids).toEqual(["dtf"]);
     expect(composed.print_options).toEqual([{ id: "dtf", name: "DTF" }]);
+  });
+
+  test("resolved variations also exclude deleted image-owned views", () => {
+    const variation = {
+      id: "small-white",
+      enabled: true,
+      attributes: {
+        Size: "Small",
+        Color: "White",
+      },
+    };
+    const imageConfiguration = {
+      screens: [
+        screen("white-front", "front", "/front.png"),
+        screen("white-back", "back", "/back.png"),
+      ],
+    };
+    const productionConfiguration = {
+      screens: [
+        screen("small-front", "front", ""),
+        screen("small-back", "back", ""),
+        screen("small-pocket", "pocket-front-bk-pocket", ""),
+      ],
+      print_areas: [
+        {
+          id: "front-area",
+          screen_id: "small-front",
+          view_key: "front",
+          width_mm: 100,
+          height_mm: 120,
+          width_pct: 30,
+          height_pct: 40,
+          allowed_print_option_ids: ["dtf"],
+        },
+        {
+          id: "back-area",
+          screen_id: "small-back",
+          view_key: "back",
+          width_mm: 100,
+          height_mm: 120,
+          width_pct: 30,
+          height_pct: 40,
+          allowed_print_option_ids: ["dtf"],
+        },
+        {
+          id: "stale-pocket-area",
+          screen_id: "small-pocket",
+          view_key: "pocket-front-bk-pocket",
+          width_mm: 50,
+          height_mm: 50,
+          width_pct: 20,
+          height_pct: 20,
+          allowed_print_option_ids: ["htv"],
+        },
+      ],
+      print_option_ids: ["dtf", "htv"],
+      print_options: [
+        { id: "dtf", name: "DTF" },
+        { id: "htv", name: "HTV" },
+      ],
+    };
+    const template = {
+      variation_inheritance: {
+        mode: "attribute",
+        image_attribute: "Color",
+        production_attribute: "Size",
+      },
+      attribute_image_profiles: {
+        [attributeProfileKey("White")]: {
+          attribute_value: "White",
+          configuration: imageConfiguration,
+        },
+      },
+      attribute_production_profiles: {
+        [attributeProfileKey("Small")]: {
+          attribute_value: "Small",
+          configuration: productionConfiguration,
+        },
+      },
+    };
+
+    const resolved = resolveVariationProductionConfiguration(
+      variation,
+      template
+    );
+
+    expect(resolved.screens.map((row) => row.id)).toEqual([
+      "white-front",
+      "white-back",
+    ]);
+    expect(resolved.print_areas.map((row) => row.id)).toEqual([
+      "front-area",
+      "back-area",
+    ]);
+    expect(resolved.print_option_ids).toEqual(["dtf"]);
+    expect(resolved.print_options).toEqual([{ id: "dtf", name: "DTF" }]);
   });
 
   test("production profile persistence strips preview image ownership", () => {
