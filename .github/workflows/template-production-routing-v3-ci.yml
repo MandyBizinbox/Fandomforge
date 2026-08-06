@@ -12,6 +12,7 @@ on:
       - feature/seed-glitter-htv-colours
       - fix/authoritative-htv-profile-colours
       - fix/preserve-profile-colour-restrictions
+      - fix/template-attribute-generation-and-image-preview
   pull_request:
     branches:
       - feature/template-production-routing-v3
@@ -99,6 +100,8 @@ jobs:
           npm test -- --watchAll=false --runInBand
           variationProductionConfig.test.js
           variationProductionRouting.test.js
+          attributeProductionComposition.test.js
+          templateVariationRegeneration.test.js
           printAreaGeometry.test.js
           templateProductionResolver.test.js
           cataloguePricingUtils.test.js
