@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import production_method_profiles
 import unified_manufacturing_costing
 from classic_htv_colour_seed import CLASSIC_HTV_COLOUR_IDS
+from glitter_htv_colour_seed import GLITTER_HTV_COLOUR_IDS
 from glow_htv_colour_seed import GLOW_ACTIVE_COLOUR_IDS, GLOW_HTV_COLOUR_IDS
 from metallic_htv_colour_seed import METALLIC_HTV_COLOUR_IDS
 from profile_colour_projection_repair import install_profile_colour_projection_repair
@@ -131,7 +132,7 @@ class ProfileStockedColourTests(unittest.TestCase):
         self.assertEqual(tuple(profile["supported_colour_ids"]), GLOW_HTV_COLOUR_IDS)
         self.assertEqual(tuple(profile["available_colour_ids"]), GLOW_ACTIVE_COLOUR_IDS)
 
-    def test_route_binding_derives_completed_ranges_when_live_document_has_no_colour_fields(self):
+    def test_route_binding_derives_all_completed_ranges_when_live_document_has_no_colour_fields(self):
         method = {
             **self.method,
             "active": True,
@@ -149,12 +150,12 @@ class ProfileStockedColourTests(unittest.TestCase):
 
         self.assertEqual(profiles["Classic HTV"]["colour_selection_mode"], "restricted")
         self.assertEqual(tuple(profiles["Classic HTV"]["supported_colour_ids"]), CLASSIC_HTV_COLOUR_IDS)
+        self.assertEqual(tuple(profiles["Glitter HTV"]["supported_colour_ids"]), GLITTER_HTV_COLOUR_IDS)
+        self.assertEqual(tuple(profiles["Glitter HTV"]["available_colour_ids"]), GLITTER_HTV_COLOUR_IDS)
         self.assertEqual(tuple(profiles["Puff HTV"]["supported_colour_ids"]), PUFF_HTV_COLOUR_IDS)
         self.assertEqual(tuple(profiles["Metallic HTV"]["supported_colour_ids"]), METALLIC_HTV_COLOUR_IDS)
         self.assertEqual(tuple(profiles["Glow HTV"]["supported_colour_ids"]), GLOW_HTV_COLOUR_IDS)
         self.assertEqual(tuple(profiles["Glow HTV"]["available_colour_ids"]), GLOW_ACTIVE_COLOUR_IDS)
-        self.assertEqual(profiles["Glitter HTV"]["colour_selection_mode"], "inherit_method")
-        self.assertEqual(profiles["Glitter HTV"]["supported_colour_ids"], [])
         self.assertIs(
             self.route_bindings.method_with_unified_profiles,
             unified_manufacturing_costing.method_with_unified_profiles,
