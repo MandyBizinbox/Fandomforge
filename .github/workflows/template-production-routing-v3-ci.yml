@@ -10,6 +10,7 @@ on:
       - feature/seed-puff-htv-colours
       - feature/seed-metallic-glow-htv-colours
       - fix/authoritative-htv-profile-colours
+      - fix/preserve-profile-colour-restrictions
   pull_request:
     branches:
       - feature/template-production-routing-v3
@@ -33,6 +34,7 @@ on:
       - "backend/outsourced_production_rates.py"
       - "backend/outsourced_rate_runtime_patch.py"
       - "backend/profile_stocked_colours_patch.py"
+      - "backend/profile_colour_projection_repair.py"
       - "backend/classic_htv_colour_seed.py"
       - "backend/puff_htv_colour_seed.py"
       - "backend/metallic_htv_colour_seed.py"
@@ -127,6 +129,7 @@ jobs:
           outsourced_production_rates.py
           outsourced_rate_runtime_patch.py
           profile_stocked_colours_patch.py
+          profile_colour_projection_repair.py
           classic_htv_colour_seed.py
           puff_htv_colour_seed.py
           metallic_htv_colour_seed.py
