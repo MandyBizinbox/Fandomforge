@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI):
         from puff_htv_colour_seed import seed_puff_htv_colours
         from metallic_htv_colour_seed import seed_metallic_htv_colours
         from glow_htv_colour_seed import seed_glow_htv_colours
+        from htv_profile_colour_assignment import repair_htv_profile_colour_assignments
         from payout_launch_routes import ensure_payout_launch_indexes
         from email_delivery import ensure_email_delivery_indexes
         from email_settings_routes import dashboard_email_delivery_loop
@@ -54,6 +55,8 @@ async def lifespan(app: FastAPI):
         logger.info("Metallic HTV stocked-colour seed: %s", metallic_htv_seed)
         glow_htv_seed = await seed_glow_htv_colours(app.state.db)
         logger.info("Glow HTV stocked-colour seed: %s", glow_htv_seed)
+        htv_profile_assignment = await repair_htv_profile_colour_assignments(app.state.db)
+        logger.info("Authoritative HTV profile-colour assignment: %s", htv_profile_assignment)
         await ensure_payout_launch_indexes(app.state.db)
         await ensure_email_delivery_indexes(app.state.db)
         await ensure_launch_integrity_indexes(app.state.db)
