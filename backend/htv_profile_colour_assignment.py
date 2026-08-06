@@ -1,7 +1,7 @@
 """Authoritative HTV profile-to-colour assignments.
 
 Individual supplier seeds populate the stocked-colour records and extend the HTV
-method pool. This final pass assigns the completed ranges to the canonical costing
+method pool. This final pass assigns every completed range to the canonical costing
 profiles in one atomic method update so the admin UI and Creator Studio cannot
 fall back to "all HTV colours" because of method-key casing or legacy profile IDs.
 """
@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from classic_htv_colour_seed import CLASSIC_HTV_COLOUR_IDS
+from glitter_htv_colour_seed import GLITTER_HTV_COLOUR_IDS
 from glow_htv_colour_seed import GLOW_ACTIVE_COLOUR_IDS, GLOW_HTV_COLOUR_IDS
 from metallic_htv_colour_seed import METALLIC_HTV_COLOUR_IDS
 from outsourced_production_rates import profile_key_for_record
@@ -20,12 +21,16 @@ from puff_htv_colour_seed import PUFF_HTV_COLOUR_IDS
 from seed_production_operations import normalize_method_key
 
 
-HTV_PROFILE_COLOUR_ASSIGNMENT_VERSION = "2026-08-06-htv-profile-colours-v1"
+HTV_PROFILE_COLOUR_ASSIGNMENT_VERSION = "2026-08-06-htv-profile-colours-v2"
 
 PROFILE_RANGES: Dict[str, Dict[str, Tuple[str, ...]]] = {
     "classic_htv": {
         "supported": tuple(CLASSIC_HTV_COLOUR_IDS),
         "available": tuple(CLASSIC_HTV_COLOUR_IDS),
+    },
+    "glitter_htv": {
+        "supported": tuple(GLITTER_HTV_COLOUR_IDS),
+        "available": tuple(GLITTER_HTV_COLOUR_IDS),
     },
     "puff_htv": {
         "supported": tuple(PUFF_HTV_COLOUR_IDS),
@@ -72,14 +77,12 @@ def _profile_identity_text(profile: Dict[str, Any]) -> str:
 def profile_range_key(profile: Dict[str, Any]) -> Optional[str]:
     """Resolve canonical, legacy and display-name profile identities consistently."""
     explicit = str(profile.get("outsourced_rate_profile_key") or "").strip().lower()
-    if explicit == "glitter_htv":
-        return None
     if explicit in PROFILE_RANGES:
         return explicit
 
     identity = _profile_identity_text(profile)
     if "glitter" in identity:
-        return None
+        return "glitter_htv"
     if any(token in identity for token in ("puff", "3d_puff", "3_d_puff")):
         return "puff_htv"
     if "metallic" in identity:
@@ -90,7 +93,7 @@ def profile_range_key(profile: Dict[str, Any]) -> Optional[str]:
         return "classic_htv"
 
     inferred = profile_key_for_record({**profile, "method_key": "htv"}, "htv")
-    if inferred == "glitter_htv":
+    if inferred == "classic_htv":
         return None
     return inferred if inferred in PROFILE_RANGES else None
 
@@ -98,7 +101,7 @@ def profile_range_key(profile: Dict[str, Any]) -> Optional[str]:
 def assign_authoritative_htv_profile_colours(
     method: Dict[str, Any],
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Restrict completed HTV profiles while preserving Glitter and unknown profiles."""
+    """Restrict every completed HTV profile while preserving unknown profiles."""
     updated = deepcopy(method)
     profiles = list(updated.get("costing_profiles") or [])
     matched: Dict[str, int] = {key: 0 for key in PROFILE_RANGES}

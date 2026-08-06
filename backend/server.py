@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
         from seed_production_operations import seed_production_operations
         from seed_production_rules import seed_production_rules
         from classic_htv_colour_seed import seed_classic_htv_colours
+        from glitter_htv_colour_seed import seed_glitter_htv_colours
         from puff_htv_colour_seed import seed_puff_htv_colours
         from metallic_htv_colour_seed import seed_metallic_htv_colours
         from glow_htv_colour_seed import seed_glow_htv_colours
@@ -49,6 +50,8 @@ async def lifespan(app: FastAPI):
         await seed_production_rules(app.state.db)
         classic_htv_seed = await seed_classic_htv_colours(app.state.db)
         logger.info("Classic HTV stocked-colour seed: %s", classic_htv_seed)
+        glitter_htv_seed = await seed_glitter_htv_colours(app.state.db)
+        logger.info("Glitter HTV stocked-colour seed: %s", glitter_htv_seed)
         puff_htv_seed = await seed_puff_htv_colours(app.state.db)
         logger.info("Puff HTV stocked-colour seed: %s", puff_htv_seed)
         metallic_htv_seed = await seed_metallic_htv_colours(app.state.db)
