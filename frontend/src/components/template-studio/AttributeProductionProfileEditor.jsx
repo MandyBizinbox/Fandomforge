@@ -15,6 +15,10 @@ import {
   productionImageConfigurationComplete,
   resolveVariationProductionConfiguration,
 } from "../../lib/variationProductionConfig";
+import {
+  composeAttributeGeometryPreview,
+  geometryOnlyProductionConfiguration,
+} from "../../lib/attributeProductionComposition";
 
 function selectedAttributes(attributes, template) {
   const selectedIds = new Set(safeArray(template.attribute_ids));
@@ -182,6 +186,11 @@ export default function AttributeProductionProfileEditor({
     || blankProductionConfiguration()
   );
 
+  const geometryEditorConfiguration = composeAttributeGeometryPreview(
+    imageConfiguration,
+    productionConfiguration
+  );
+
   const updateImageProfile = (configuration) => {
     const key = attributeProfileKey(selectedImageValue);
 
@@ -206,13 +215,18 @@ export default function AttributeProductionProfileEditor({
 
   const updateProductionProfile = (configuration) => {
     const key = attributeProfileKey(selectedProductionValue);
+    const geometryConfiguration = geometryOnlyProductionConfiguration(
+      configuration
+    );
 
     onChange({
       attribute_production_profiles: {
         ...(template.attribute_production_profiles || {}),
         [key]: {
           attribute_value: selectedProductionValue,
-          configuration: normaliseProductionConfiguration(configuration),
+          configuration: normaliseProductionConfiguration(
+            geometryConfiguration
+          ),
           updated_at: new Date().toISOString(),
         },
       },
@@ -377,7 +391,9 @@ export default function AttributeProductionProfileEditor({
                 <h2>{productionAttribute} print geometry and rules</h2>
                 <p>
                   Define dimensions and manufacturing rules once for each
-                  {` ${productionAttribute}`} value.
+                  {` ${productionAttribute}`} value. The canvas previews the
+                  selected size on the currently selected {imageAttribute}
+                  image profile.
                 </p>
               </div>
             </div>
@@ -423,11 +439,11 @@ export default function AttributeProductionProfileEditor({
           {selectedProductionValue && (
             <ProductionConfigurationEditor
               mode="geometry"
-              value={productionConfiguration}
+              value={geometryEditorConfiguration}
               onChange={updateProductionProfile}
               printOptions={printOptions}
               title={`${selectedProductionValue} print geometry and rules`}
-              subtitle={`These printable boundaries, dimensions and rules are inherited by every variation where ${productionAttribute} is ${selectedProductionValue}.`}
+              subtitle={`Previewing ${selectedProductionValue} geometry on the ${selectedImageValue || imageAttribute} image profile. Replacing that colour image updates this canvas without changing the geometry.`}
             />
           )}
 

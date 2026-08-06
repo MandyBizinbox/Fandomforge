@@ -232,23 +232,29 @@ export function buildVariationCombinations(
         .join("|");
 
       const existing = existingByKey.get(key);
+      const variation = existing
+        ? {
+            ...existing,
+            attributes: attrs,
+            enabled: true,
+            status: "active",
+          }
+        : {
+            id: newId("var"),
+            sku: "",
+            attributes: attrs,
+            cost: Number(baseCost || 0),
+            base_blank_cost: Number(baseCost || 0),
+            supplier_sku: "",
+            image_url: "",
+            mockup_screen_overrides: {},
+            print_area_overrides: {},
+            enabled: true,
+            sort_order: 0,
+            status: "active",
+          };
 
-      return [
-        existing || {
-          id: newId("var"),
-          sku: "",
-          attributes: attrs,
-          cost: Number(baseCost || 0),
-          base_blank_cost: Number(baseCost || 0),
-          supplier_sku: "",
-          image_url: "",
-          mockup_screen_overrides: {},
-          print_area_overrides: {},
-          enabled: true,
-          sort_order: 0,
-          status: "active",
-        },
-      ];
+      return [variation];
     }
 
     const attribute = activeAttributes[index];
@@ -261,7 +267,10 @@ export function buildVariationCombinations(
 
   return walk(0, {}).flat().map((variation, index) => ({
     ...variation,
+    mockup_screen_overrides: variation.mockup_screen_overrides || {},
     print_area_overrides: variation.print_area_overrides || {},
+    enabled: true,
+    status: "active",
     sort_order: index,
   }));
 }
