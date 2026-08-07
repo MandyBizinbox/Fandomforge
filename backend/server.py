@@ -106,6 +106,8 @@ from production_model_compat import install_production_model_compat
 install_production_model_compat()
 from auth import auth_router
 import routes_main as routes_main_module
+from product_template_geometry_csv_patch import install_product_template_geometry_csv_patch
+install_product_template_geometry_csv_patch(routes_main_module)
 if E2E_MODE:
     from e2e_gateway_patch import install_e2e_mock_gateway
     install_e2e_mock_gateway(routes_main_module)
