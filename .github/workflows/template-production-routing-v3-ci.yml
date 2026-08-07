@@ -11,6 +11,7 @@ on:
       - feature/seed-metallic-glow-htv-colours
       - feature/seed-glitter-htv-colours
       - feature/template-delete-lifecycle
+      - feature/production-geometry-profile-copy
       - fix/authoritative-htv-profile-colours
       - fix/preserve-profile-colour-restrictions
       - fix/template-attribute-generation-and-image-preview
@@ -49,6 +50,7 @@ on:
       - "backend/template_lifecycle_routes.py"
       - "backend/product_template_csv.py"
       - "backend/product_template_geometry_csv_patch.py"
+      - "backend/production_geometry_profile_copy_patch.py"
       - "backend/unified_manufacturing_costing.py"
       - "backend/production_method_profiles.py"
       - "backend/production_profile_resolution_patch.py"
@@ -72,6 +74,7 @@ on:
       - "backend/tests/test_template_lifecycle_routes.py"
       - "backend/tests/test_product_template_csv.py"
       - "backend/tests/test_product_template_geometry_csv_patch.py"
+      - "backend/tests/test_production_geometry_profile_copy_patch.py"
       - ".github/workflows/template-production-routing-v3-ci.yml"
 
 permissions:
@@ -137,6 +140,7 @@ jobs:
           PYTHONPATH=. python tests/test_template_lifecycle_routes.py
           PYTHONPATH=. python tests/test_product_template_csv.py
           PYTHONPATH=. python tests/test_product_template_geometry_csv_patch.py
+          PYTHONPATH=. python tests/test_production_geometry_profile_copy_patch.py
 
       - name: Compile changed backend modules
         working-directory: backend
@@ -159,6 +163,7 @@ jobs:
           template_lifecycle_routes.py
           product_template_csv.py
           product_template_geometry_csv_patch.py
+          production_geometry_profile_copy_patch.py
           unified_manufacturing_costing.py
           production_method_profiles.py
           production_profile_resolution_patch.py
