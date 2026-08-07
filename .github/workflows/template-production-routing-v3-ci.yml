@@ -10,6 +10,7 @@ on:
       - feature/seed-puff-htv-colours
       - feature/seed-metallic-glow-htv-colours
       - feature/seed-glitter-htv-colours
+      - feature/template-delete-lifecycle
       - fix/authoritative-htv-profile-colours
       - fix/preserve-profile-colour-restrictions
       - fix/template-attribute-generation-and-image-preview
@@ -43,6 +44,8 @@ on:
       - "backend/metallic_htv_colour_seed.py"
       - "backend/glow_htv_colour_seed.py"
       - "backend/htv_profile_colour_assignment.py"
+      - "backend/template_lifecycle.py"
+      - "backend/template_lifecycle_routes.py"
       - "backend/unified_manufacturing_costing.py"
       - "backend/production_method_profiles.py"
       - "backend/production_profile_resolution_patch.py"
@@ -63,6 +66,7 @@ on:
       - "backend/tests/test_speciality_htv_colour_seeds.py"
       - "backend/tests/test_htv_profile_colour_assignment.py"
       - "backend/tests/test_production_profile_resolution_patch.py"
+      - "backend/tests/test_template_lifecycle_routes.py"
       - ".github/workflows/template-production-routing-v3-ci.yml"
 
 permissions:
@@ -125,6 +129,7 @@ jobs:
           PYTHONPATH=. python tests/test_speciality_htv_colour_seeds.py
           PYTHONPATH=. python tests/test_htv_profile_colour_assignment.py
           PYTHONPATH=. python tests/test_production_profile_resolution_patch.py
+          PYTHONPATH=. python tests/test_template_lifecycle_routes.py
 
       - name: Compile changed backend modules
         working-directory: backend
@@ -143,6 +148,8 @@ jobs:
           metallic_htv_colour_seed.py
           glow_htv_colour_seed.py
           htv_profile_colour_assignment.py
+          template_lifecycle.py
+          template_lifecycle_routes.py
           unified_manufacturing_costing.py
           production_method_profiles.py
           production_profile_resolution_patch.py

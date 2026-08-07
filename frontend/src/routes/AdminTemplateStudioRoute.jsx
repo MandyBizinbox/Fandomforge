@@ -12,6 +12,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import DashboardLayout from "../components/DashboardLayout";
+import ProductTemplateLifecycleActions from "../components/template-studio/ProductTemplateLifecycleActions";
 import ProductTemplateStudioV3Page from "../components/template-studio/ProductTemplateStudioV3Page";
 import "../components/template-studio/templateStudioV3Compatibility.css";
 import "../components/template-studio/templateStudioV3DarkContrast.css";
@@ -35,12 +36,21 @@ const links = [
   { to: "/admin/platform-settings", label: "Platform Settings", key: "platform-settings", icon: <Settings size={14} /> },
 ];
 
+function TemplateStudioLifecyclePage() {
+  return (
+    <>
+      <ProductTemplateLifecycleActions />
+      <ProductTemplateStudioV3Page />
+    </>
+  );
+}
+
 export default function AdminTemplateStudioRoute() {
   return (
     <Routes>
       <Route element={<DashboardLayout title="Platform Admin" links={links} testidPrefix="admin-dash" notificationEndpoint="/admin/notifications" notificationPath="/admin/notifications" />}>
         <Route path="product-templates/new/:section?" element={<ProductTemplateStudioV3Page />} />
-        <Route path="product-templates/:id/:section?" element={<ProductTemplateStudioV3Page />} />
+        <Route path="product-templates/:id/:section?" element={<TemplateStudioLifecyclePage />} />
       </Route>
     </Routes>
   );
