@@ -14,6 +14,7 @@ on:
       - fix/authoritative-htv-profile-colours
       - fix/preserve-profile-colour-restrictions
       - fix/template-attribute-generation-and-image-preview
+      - fix/variation-print-area-csv-import
   pull_request:
     branches:
       - feature/template-production-routing-v3
@@ -46,6 +47,8 @@ on:
       - "backend/htv_profile_colour_assignment.py"
       - "backend/template_lifecycle.py"
       - "backend/template_lifecycle_routes.py"
+      - "backend/product_template_csv.py"
+      - "backend/product_template_geometry_csv_patch.py"
       - "backend/unified_manufacturing_costing.py"
       - "backend/production_method_profiles.py"
       - "backend/production_profile_resolution_patch.py"
@@ -67,6 +70,8 @@ on:
       - "backend/tests/test_htv_profile_colour_assignment.py"
       - "backend/tests/test_production_profile_resolution_patch.py"
       - "backend/tests/test_template_lifecycle_routes.py"
+      - "backend/tests/test_product_template_csv.py"
+      - "backend/tests/test_product_template_geometry_csv_patch.py"
       - ".github/workflows/template-production-routing-v3-ci.yml"
 
 permissions:
@@ -130,6 +135,8 @@ jobs:
           PYTHONPATH=. python tests/test_htv_profile_colour_assignment.py
           PYTHONPATH=. python tests/test_production_profile_resolution_patch.py
           PYTHONPATH=. python tests/test_template_lifecycle_routes.py
+          PYTHONPATH=. python tests/test_product_template_csv.py
+          PYTHONPATH=. python tests/test_product_template_geometry_csv_patch.py
 
       - name: Compile changed backend modules
         working-directory: backend
@@ -150,6 +157,8 @@ jobs:
           htv_profile_colour_assignment.py
           template_lifecycle.py
           template_lifecycle_routes.py
+          product_template_csv.py
+          product_template_geometry_csv_patch.py
           unified_manufacturing_costing.py
           production_method_profiles.py
           production_profile_resolution_patch.py
