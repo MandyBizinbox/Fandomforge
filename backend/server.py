@@ -109,9 +109,18 @@ import routes_main as routes_main_module
 from product_template_geometry_csv_patch import install_product_template_geometry_csv_patch
 from production_geometry_profile_copy_patch import install_production_geometry_profile_copy_patch
 from production_geometry_profile_copy_color_patch import install_production_geometry_profile_copy_color_patch
+from production_geometry_profile_copy_warning_patch import (
+    build_import_plan as build_profile_copy_import_plan,
+    apply_import_plan_to_documents as apply_profile_copy_import_plan,
+)
 install_product_template_geometry_csv_patch(routes_main_module)
 install_production_geometry_profile_copy_patch(routes_main_module)
 install_production_geometry_profile_copy_color_patch(routes_main_module)
+# Missing Color-owned editor views must not block a Size-owned geometry repair.
+# Route preview/apply through the final compatibility layer while leaving the
+# existing export/parse stack untouched.
+routes_main_module.build_import_plan = build_profile_copy_import_plan
+routes_main_module.apply_import_plan_to_documents = apply_profile_copy_import_plan
 if E2E_MODE:
     from e2e_gateway_patch import install_e2e_mock_gateway
     install_e2e_mock_gateway(routes_main_module)
