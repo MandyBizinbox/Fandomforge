@@ -136,6 +136,44 @@ class ProductionGeometryProfileCopyColorPatchTests(unittest.TestCase):
                 [550.0, 550.0, 150.0, 150.0],
             )
 
+    def test_orphan_source_screen_without_print_area_does_not_block_copy(self):
+        template = stale_target_template()
+        source = template["attribute_production_profiles"]["3-4-yrs"]["configuration"]
+        source["screens"].append({
+            "id": "src-old-pocket",
+            "view_key": "old_pocket_preview",
+            "view": "old_pocket_preview",
+            "image_url": "",
+            "status": "active",
+        })
+
+        target_row = next(
+            row for row in production_profile_copy_rows([template])
+            if row["production_value"] == "7/8 yrs"
+        )
+        target_row["copy_from_production_value"] = "3/4 yrs"
+
+        package = parse_product_template_import(
+            PROFILE_COPY_FILENAME,
+            csv_bytes(target_row),
+        )
+        plan = build_import_plan([template], package)
+
+        self.assertEqual(plan["errors"], [])
+        self.assertTrue(plan["can_apply"])
+
+        applied = apply_import_plan_to_documents(
+            [template],
+            plan,
+            "2026-08-07T12:40:00+00:00",
+        )
+        updated = applied["documents"][template["id"]]
+        target_config = updated["attribute_production_profiles"]["7-8-yrs"]["configuration"]
+        self.assertEqual(
+            [screen["view_key"] for screen in target_config["screens"]],
+            ["front", "back", "left_sleeve", "right_sleeve"],
+        )
+
     def test_missing_view_on_authoritative_color_profile_still_blocks_copy(self):
         template = stale_target_template()
         white_screens = template["attribute_image_profiles"]["white"]["configuration"]["screens"]

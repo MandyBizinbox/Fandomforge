@@ -6,15 +6,15 @@ variation records can be stale precisely because the Size profile has not yet
 been reconciled. The canonical image source is ``attribute_image_profiles``.
 
 This patch hydrates exact variations from their Color-owned image profile before
-both import preview and apply. The existing profile-copy engine then validates
-and compiles against the authoritative view list while preserving each Color's
-actual image URLs.
+both import preview and apply. It also prunes unused/orphan screens from
+production profiles so validation only requires editor views that are actually
+referenced by print geometry.
 """
 
 from __future__ import annotations
 
 import copy
-from typing import Any, Dict, Iterable, List, Mapping
+from typing import Any, Dict, Iterable, List, Mapping, MutableMapping
 
 import product_template_csv as legacy_csv
 import product_template_geometry_csv_patch as geometry_csv
@@ -99,12 +99,92 @@ def _image_configuration_for_variation(
     return configuration
 
 
+def _prune_configuration_to_geometry_views(
+    configuration: MutableMapping[str, Any],
+) -> None:
+    """Remove screens that no active print area can ever use.
+
+    Size profiles may retain historical editor views even after their print
+    areas were deleted. Those orphan screens are not production requirements
+    and must not make Color-profile validation fail. Prefer exact screen IDs;
+    use semantic view identity only when an area's stored screen ID is missing.
+    """
+    screens = profile_copy._active_rows(
+        configuration.get("screens")
+        or configuration.get("mockup_screens")
+    )
+    areas = profile_copy._active_rows(configuration.get("print_areas"))
+    if not screens or not areas:
+        return
+
+    screen_by_id = {
+        _text(screen.get("id")): screen
+        for screen in screens
+        if screen.get("id")
+    }
+    required_ids = set()
+    fallback_views = set()
+
+    for area in areas:
+        screen_id = _text(area.get("screen_id"))
+        if screen_id and screen_id in screen_by_id:
+            required_ids.add(screen_id)
+            continue
+        view = geometry_csv._screen_identity({
+            "view_key": area.get("view_key"),
+            "screen_view": area.get("screen_view"),
+        })
+        if view:
+            fallback_views.add(view)
+
+    if not required_ids and not fallback_views:
+        return
+
+    pruned = [
+        copy.deepcopy(screen)
+        for screen in screens
+        if (
+            _text(screen.get("id")) in required_ids
+            or geometry_csv._screen_identity(screen) in fallback_views
+        )
+    ]
+    if not pruned:
+        return
+
+    configuration["screens"] = pruned
+    if "mockup_screens" in configuration:
+        configuration["mockup_screens"] = copy.deepcopy(pruned)
+
+
+def _prune_attribute_production_profiles(template: MutableMapping[str, Any]) -> None:
+    profiles = template.get("attribute_production_profiles") or {}
+    if not isinstance(profiles, Mapping):
+        return
+
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        configuration = profile.get("configuration")
+        if isinstance(configuration, dict):
+            _prune_configuration_to_geometry_views(configuration)
+        else:
+            _prune_configuration_to_geometry_views(profile)
+
+
 def _hydrate_template_color_owned_screens(
     template: Mapping[str, Any],
 ) -> Dict[str, Any]:
     hydrated = copy.deepcopy(dict(template))
     ownership = hydrated.get("variation_inheritance") or {}
-    if ownership.get("mode") != "attribute" or not ownership.get("image_attribute"):
+    if ownership.get("mode") != "attribute":
+        return hydrated
+
+    # Production/Size profiles only require screens referenced by active print
+    # areas. This removes stale source views before profile-copy validation and
+    # before the source profile is structurally cloned onto a target Size.
+    _prune_attribute_production_profiles(hydrated)
+
+    if not ownership.get("image_attribute"):
         return hydrated
 
     for variation in profile_copy._active_rows(hydrated.get("variations")):
