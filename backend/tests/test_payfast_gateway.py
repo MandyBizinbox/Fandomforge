@@ -103,6 +103,30 @@ def test_verify_payment_reconciles_from_transaction_history(monkeypatch):
     assert result["amount_gross"] == 100.0
 
 
+def test_verify_payment_reconciles_from_raw_csv_transaction_history(monkeypatch):
+    adapter = PayFastPaymentGateway()
+
+    class Response:
+        status_code = 200
+        text = (
+            'Date,Type,Sign,Gross,"M Payment ID","PF Payment ID","custom str1"\n'
+            '"2026-08-10 12:29:57",FUNDS_RECEIVED,CREDIT,695.00,'
+            'mf_e1b87d12-106,320524817,28c2dd69-de2b-4219-9e22-1b8ccdc42380\n'
+        )
+
+        def json(self):
+            raise ValueError("raw CSV response")
+
+    monkeypatch.setattr("payment_gateways.payfast.requests.get", lambda *args, **kwargs: Response())
+
+    result = asyncio.run(adapter.verify_payment("mf_e1b87d12-106", config()))
+    assert result["paid"] is True
+    assert result["status"] == "completed"
+    assert result["payment_id"] == "320524817"
+    assert result["amount_gross"] == 695.0
+    assert result["raw"]["custom str1"] == "28c2dd69-de2b-4219-9e22-1b8ccdc42380"
+
+
 def test_verify_payment_stays_pending_when_reference_is_absent(monkeypatch):
     adapter = PayFastPaymentGateway()
 
