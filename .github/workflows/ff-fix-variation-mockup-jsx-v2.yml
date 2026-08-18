@@ -1,0 +1,33 @@
+name: FandomForge Variation Mockup JSX Fix V2
+
+on:
+  push:
+    branches:
+      - feature/template-production-routing-v3
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feature/template-production-routing-v3
+          fetch-depth: 0
+      - name: Apply fix
+        run: python3 scripts/fix_variation_mockup_jsx.py
+      - name: Commit fix and remove automation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/product-builder/ProductBuilder.jsx
+          git rm -f scripts/fix_variation_mockup_jsx.py .github/workflows/ff-fix-variation-mockup-jsx.yml .github/workflows/ff-fix-variation-mockup-jsx-v2.yml || true
+          git add frontend/src/components/product-builder/ProductBuilder.jsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: wrap variation mockup generator in builder artwork step"
+          git push origin HEAD:feature/template-production-routing-v3
