@@ -955,6 +955,9 @@ class ProductVariation(BaseModel):
     attribute_values: Dict[str, str] = Field(default_factory=dict)
     size: Optional[str] = ""
     color: Optional[str] = ""
+    artwork_group_id: Optional[str] = None
+    primary_mockup_image_url: Optional[str] = None
+    generated_mockups: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ProductArtworkSnapshot(BaseModel):
@@ -1069,6 +1072,7 @@ class ProductArtworkGroup(BaseModel):
     inherits_from: Optional[str] = None
     artworks: List[ProductArtworkSlot] = Field(default_factory=list)
     primary_mockup_image_url: Optional[str] = None
+    variation_mockups: List[Dict[str, Any]] = Field(default_factory=list)
     derived_mockup_images: List[Dict[str, Any]] = Field(default_factory=list)
     sort_order: int = 0
 

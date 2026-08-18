@@ -4,6 +4,7 @@ import { Image as ImageIcon, Move, RefreshCw, RotateCcw, Trash2, Type } from "lu
 import { http, assetUrl } from "../../lib/api";
 import { resolveEffectiveProductionSetup } from "../../lib/templateProductionResolver";
 import { geometryClipStyle, normalisePrintAreaGeometry, traceCanvasPrintAreaPath } from "../../lib/printAreaGeometry";
+import { generateVariationMockups, applyVariationMockupsToGroups } from "./variationMockupGeneration";
 import { renderDerivedMockupCanvas } from "../../lib/derivedMockupRenderer";
 import "./productBuilderV2.css";
 import {
@@ -11,6 +12,7 @@ import {
   calculateAreaPrintCost,
   getAggregatedPrintCostLines,
   getGroupRepresentativeVariationId,
+  getVariationLabel,
   makeId,
   money,
   normalizeProductionMethodKey,
@@ -791,6 +793,8 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const [activeScreenId, setActiveScreenId] = useState(asArray(template?.mockup_screens)[0]?.id || "");
   const [activePrintAreaId, setActivePrintAreaId] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [generatingVariations, setGeneratingVariations] = useState(false);
+  const [variationGenerationProgress, setVariationGenerationProgress] = useState({ completed: 0, total: 0, label: "" });
   const [generating, setGenerating] = useState(false);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [manufacturingProfiles, setManufacturingProfiles] = useState([]);
@@ -1597,6 +1601,48 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     }
   };
 
+  const generateAllVariationMockups = async () => {
+    if (!variations.length) {
+      toast.error("Select at least one variation first.");
+      return;
+    }
+    const groupsWithArtwork = groups.filter((group) => asArray(group.artworks).some(slotHasArtwork));
+    if (!groupsWithArtwork.length) {
+      toast.error("Add artwork to at least one artwork group first.");
+      return;
+    }
+
+    setGeneratingVariations(true);
+    setVariationGenerationProgress({ completed: 0, total: variations.length * screens.length, label: "Starting…" });
+    try {
+      const records = await generateVariationMockups({
+        template,
+        variations,
+        artworkGroups: groups,
+        onProgress: ({ completed, total, variation, screen, skipped }) => {
+          setVariationGenerationProgress({
+            completed,
+            total,
+            label: `${getVariationLabel(variation)} · ${screenLabel(screen)}${skipped ? " · skipped" : ""}`,
+          });
+        },
+      });
+
+      if (!records.length) {
+        throw new Error("No variation mockups could be generated. Check that every selected variation resolves to an artwork group and the template has mockup views.");
+      }
+
+      const nextGroups = applyVariationMockupsToGroups(groups, records);
+      setGroups(nextGroups);
+      setVariationGenerationProgress({ completed: records.length, total: records.length, label: `${records.length} mockups generated` });
+      toast.success(`Generated ${records.length} variation mockup(s)`);
+    } catch (error) {
+      toast.error(error.message || "Could not generate variation mockups");
+    } finally {
+      setGeneratingVariations(false);
+    }
+  };
+
   const selectView = (screenId) => {
     setActiveScreenId(screenId);
     const firstArea = printAreas.find((area) => area.screen_id === screenId);
@@ -1715,6 +1761,29 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
               );
             })}
           </div>
+          <button
+            type="button"
+            className="btn-primary w-full mt-4"
+            disabled={generatingVariations || generating || !variations.length}
+            onClick={generateAllVariationMockups}
+          >
+            <RefreshCw size={14} />
+            {generatingVariations
+              ? `Generating ${variationGenerationProgress.completed}/${variationGenerationProgress.total}…`
+              : "Generate Mockups For All Variations"}
+          </button>
+          {(generatingVariations || variationGenerationProgress.completed > 0) && (
+            <div className="mt-2 border border-white/10 bg-black/30 p-2 text-[10px] text-zinc-400">
+              <div className="flex items-center justify-between gap-2">
+                <span>{variationGenerationProgress.label || "Variation mockups ready"}</span>
+                <span>{variationGenerationProgress.completed}/{variationGenerationProgress.total}</span>
+              </div>
+              <div className="mt-2 h-1.5 rounded bg-white/10 overflow-hidden">
+                <div className="h-full bg-[#34C759] transition-all" style={{ width: `${variationGenerationProgress.total ? Math.min(100, (variationGenerationProgress.completed / variationGenerationProgress.total) * 100) : 0}%` }} />
+              </div>
+            </div>
+          )}
+
           <button type="button" className="btn-primary w-full mt-4" disabled={generating || !canGenerateMockup} onClick={generateMockup}><RefreshCw size={14} /> {generating ? "Generating…" : `Generate ${screenLabel(activeScreen)} Mockup`}</button>
           {activeSlot?.mockup_image_url && <div className="mt-3 border border-white/10 p-2"><div className="overline mb-2">Generated mockup</div><img src={assetUrl(activeSlot.mockup_image_url)} alt="Generated mockup" className="w-full max-h-40 object-contain" /></div>}
           {asArray(activeGroup?.derived_mockup_images).length > 0 && (

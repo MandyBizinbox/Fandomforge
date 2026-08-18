@@ -774,6 +774,17 @@ export function getProductBuilderStorefrontGalleryCandidates(
       });
     });
 
+    asArray(group?.variation_mockups).forEach((mockup, mockupIndex) => {
+      addCandidate({
+        url: mockup?.image_url || mockup?.mockup_image_url || mockup?.url,
+        label: mockup?.variation_label
+          ? `${mockup.variation_label} · ${mockup.view_key || mockup.role || "Mockup"}`
+          : `Variation mockup ${mockupIndex + 1}`,
+        source: "Variation mockup",
+        role: mockup?.role || "variation_mockup",
+      });
+    });
+
     asArray(group?.derived_mockup_images).forEach((mockup, mockupIndex) => {
       addCandidate({
         url: mockup?.image_url || mockup?.mockup_image_url || mockup?.url,

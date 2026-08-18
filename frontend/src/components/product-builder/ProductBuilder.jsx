@@ -15,6 +15,7 @@ import {
 } from "../../lib/creatorProductPublishing";
 import ProductVariationMatrix from "./ProductVariationMatrix";
 import ArtworkScopeSelector from "./ArtworkScopeSelector";
+import { asArray as builderAsArray } from "./productBuilderUtils";
 import ProductArtworkStudio from "./ProductArtworkStudio";
 import {
   asArray,
@@ -559,13 +560,35 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     }
 
     const primary = primaryArtwork;
-    const variations = hasTemplateVariations
+    const baseVariations = hasTemplateVariations
       ? buildProductVariations(
         selectedTemplate,
         form.selected_template_variation_ids,
         form.variation_price_overrides
       )
       : [buildStandardProductVariation(selectedTemplate)];
+    const generatedVariationMockups = form.artwork_groups.flatMap((group) =>
+      builderAsArray(group?.variation_mockups)
+        .map((mockup) => ({
+          ...mockup,
+          artwork_group_id: mockup.artwork_group_id || group.id,
+          artwork_group_label: mockup.artwork_group_label || group.label,
+        }))
+    );
+    const variations = baseVariations.map((variation) => {
+      const mockups = generatedVariationMockups.filter((mockup) =>
+        mockup.variation_id === variation.template_variation_id
+        || mockup.variation_id === variation.id
+      );
+      const primary = mockups.find((mockup) => mockup.image_url)?.image_url || "";
+      const artworkGroup = mockups.find((mockup) => mockup.artwork_group_id)?.artwork_group_id || null;
+      return {
+        ...variation,
+        artwork_group_id: artworkGroup,
+        generated_mockups: mockups,
+        primary_mockup_image_url: primary,
+      };
+    });
     const selectedGalleryImages = asArray(form.mockup_images).filter(Boolean);
     const primaryMockup = (
       form.primary_mockup_image_url
