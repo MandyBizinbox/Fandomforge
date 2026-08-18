@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Image as ImageIcon, Move, Plus, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
+import VariationMockupGenerator from "./VariationMockupGenerator";
 import {
   asArray,
   getAreaPreviewImage,
@@ -33,9 +34,6 @@ function areaPct(area, key) {
   const pct = area[pctKey];
   const direct = area[key];
 
-  // Template Studio stores percentage coordinates as *_pct.
-  // Some older records also have x/y/width/height, but those can be stale.
-  // Product Builder overlays must prefer the percentage fields.
   if (pct !== undefined && pct !== null && pct !== "") return Number(pct || 0);
   if (direct !== undefined && direct !== null && direct !== "") return Number(direct || 0);
 
@@ -72,11 +70,7 @@ function readImageFileDimensions(file) {
       const width = img.naturalWidth || img.width || 0;
       const height = img.naturalHeight || img.height || 0;
       URL.revokeObjectURL(url);
-      resolve({
-        width,
-        height,
-        aspectRatio: width > 0 && height > 0 ? width / height : 0,
-      });
+      resolve({ width, height, aspectRatio: width > 0 && height > 0 ? width / height : 0 });
     };
 
     img.onerror = () => {
@@ -124,8 +118,6 @@ export default function ProductArtworkStudio({
 
   const groups = asArray(artworkGroups);
   const printAreas = useMemo(() => {
-    // Product Builder must consume Product Template areas only.
-    // Product Type areas are blueprint defaults and must not be merged here.
     return asArray(template?.print_areas)
       .filter((area) => area?.id && area?.screen_id)
       .map((area) => ({
@@ -146,13 +138,7 @@ export default function ProductArtworkStudio({
     const name = String(area?.name || area?.label || "").toLowerCase();
     const view = String(area?.screen_view || area?.view_key || "").toLowerCase();
 
-    return (
-      key === "neck_label" ||
-      key.includes("neck_label") ||
-      name.includes("neck label") ||
-      view === "neck_label" ||
-      view.includes("neck_label")
-    );
+    return key === "neck_label" || key.includes("neck_label") || name.includes("neck label") || view === "neck_label" || view.includes("neck_label");
   };
 
   const neckLabelAreas = printAreas.filter(isNeckLabelArea);
@@ -193,16 +179,10 @@ export default function ProductArtworkStudio({
 
   const allowedOptions = useMemo(() => {
     if (!activeArea) return [];
-
     const templateOptionIds = asArray(template?.print_option_ids);
     const areaOptionIds = asArray(activeArea?.allowed_print_option_ids);
-
-    // Strict Phase 3 rule:
-    // Product areas must explicitly allow print options.
-    // If neither the area nor the template defines allowed options, creators should see no print methods.
     const allowedIds = areaOptionIds.length ? areaOptionIds : templateOptionIds;
     if (!allowedIds.length) return [];
-
     return printOptions.filter((option) => allowedIds.includes(option.id) && (option.status || "active") === "active");
   }, [activeArea, template, printOptions]);
 
@@ -226,10 +206,7 @@ export default function ProductArtworkStudio({
       const start = dragState.startPlacement;
 
       if (dragState.type === "move") {
-        patchPlacement(activeSlot.id, {
-          x: round(clamp(start.x + dx, -100, 200)),
-          y: round(clamp(start.y + dy, -100, 200)),
-        });
+        patchPlacement(activeSlot.id, { x: round(clamp(start.x + dx, -100, 200)), y: round(clamp(start.y + dy, -100, 200)) });
         return;
       }
 
@@ -245,12 +222,7 @@ export default function ProductArtworkStudio({
           next.y = clamp(start.y + dy, -100, 200);
           next.height = clamp(start.height - dy, 2, 250);
         }
-        patchPlacement(activeSlot.id, {
-          x: round(next.x),
-          y: round(next.y),
-          width: round(next.width),
-          height: round(next.height),
-        });
+        patchPlacement(activeSlot.id, { x: round(next.x), y: round(next.y), width: round(next.width), height: round(next.height) });
         return;
       }
 
@@ -279,11 +251,7 @@ export default function ProductArtworkStudio({
   const setGroupSlots = (groupId, nextSlots) => {
     const nextGroups = patchGroup(groups, groupId, (group) => {
       const primaryMockup = nextSlots.find((slot) => slot.mockup_image_url)?.mockup_image_url || group.primary_mockup_image_url || "";
-      return {
-        ...group,
-        artworks: nextSlots.map((slot, index) => ({ ...slot, sort_order: index })),
-        primary_mockup_image_url: primaryMockup,
-      };
+      return { ...group, artworks: nextSlots.map((slot, index) => ({ ...slot, sort_order: index })), primary_mockup_image_url: primaryMockup };
     });
     setGroups(nextGroups);
   };
@@ -341,12 +309,7 @@ export default function ProductArtworkStudio({
     const slot = slots.find((item) => item.id === slotId);
     if (!slot) return;
 
-    const nextPlacement = sanitizePlacement({
-      ...defaultPlacement(activeArea),
-      ...(slot.placement || {}),
-      ...patch,
-    }, activeArea);
-
+    const nextPlacement = sanitizePlacement({ ...defaultPlacement(activeArea), ...(slot.placement || {}), ...patch }, activeArea);
     const option = printOptions.find((item) => item.id === slot.print_option_id) || slot;
     const costing = calculateAreaPrintCost({ ...slot, placement: nextPlacement }, activeArea, option || {});
 
@@ -369,13 +332,7 @@ export default function ProductArtworkStudio({
     if (!activeSlot || !activeArea) return;
     event.preventDefault();
     event.stopPropagation();
-    setDragState({
-      type,
-      handle,
-      startX: event.clientX,
-      startY: event.clientY,
-      startPlacement: sanitizePlacement(activeSlot.placement, activeArea),
-    });
+    setDragState({ type, handle, startX: event.clientX, startY: event.clientY, startPlacement: sanitizePlacement(activeSlot.placement, activeArea) });
   };
 
   const removeSlot = (slotId) => {
@@ -389,9 +346,7 @@ export default function ProductArtworkStudio({
     if (!file || !activeSlot || !activeArea) return;
 
     setUploading(true);
-
     const dimensions = await readImageFileDimensions(file);
-
     const data = new FormData();
     data.append("file", file);
     data.append("subdir", "product-artwork");
@@ -399,7 +354,6 @@ export default function ProductArtworkStudio({
     try {
       const response = await http.post("/files/image", data);
       const option = printOptions.find((item) => item.id === activeSlot.print_option_id) || activeSlot;
-
       const nextSlot = {
         ...activeSlot,
         original_url: response.data.url,
@@ -408,7 +362,6 @@ export default function ProductArtworkStudio({
         original_height_px: dimensions.height,
         artwork_aspect_ratio: dimensions.aspectRatio,
       };
-
       const costing = calculateAreaPrintCost(nextSlot, activeArea, option);
 
       patchSlot(activeSlot.id, {
@@ -417,8 +370,6 @@ export default function ProductArtworkStudio({
         original_width_px: dimensions.width,
         original_height_px: dimensions.height,
         artwork_aspect_ratio: dimensions.aspectRatio,
-        placement_box_width_mm: costing.placement_box_width_mm,
-        placement_box_height_mm: costing.placement_box_height_mm,
         placement_box_width_mm: costing.placement_box_width_mm,
         placement_box_height_mm: costing.placement_box_height_mm,
         artwork_aspect_ratio: costing.artwork_aspect_ratio || nextSlot.artwork_aspect_ratio || 0,
@@ -453,7 +404,6 @@ export default function ProductArtworkStudio({
     try {
       const baseImage = await loadImage(activeImage);
       const artworkImage = await loadImage(activeSlot.original_url);
-
       const canvas = document.createElement("canvas");
       canvas.width = baseImage.naturalWidth || baseImage.width;
       canvas.height = baseImage.naturalHeight || baseImage.height;
@@ -471,16 +421,13 @@ export default function ProductArtworkStudio({
       const artH = (Number(placement.height || 100) / 100) * areaH;
       const rotation = (Number(placement.rotation || 0) * Math.PI) / 180;
 
-      const drawW = artW;
-      const drawH = artH;
-
       ctx.save();
       ctx.beginPath();
       ctx.rect(areaX, areaY, areaW, areaH);
       ctx.clip();
       ctx.translate(artX + artW / 2, artY + artH / 2);
       ctx.rotate(rotation);
-      ctx.drawImage(artworkImage, -drawW / 2, -drawH / 2, drawW, drawH);
+      ctx.drawImage(artworkImage, -artW / 2, -artH / 2, artW, artH);
       ctx.restore();
 
       const blob = await blobFromCanvas(canvas);
@@ -491,10 +438,7 @@ export default function ProductArtworkStudio({
       fd.append("file", new File([blob], `mockup-${safeName}.png`, { type: "image/png" }));
       fd.append("subdir", "product-mockups");
 
-      const response = await http.post("/files/image", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-
+      const response = await http.post("/files/image", fd, { headers: { "Content-Type": "multipart/form-data" } });
       patchSlot(activeSlot.id, { mockup_image_url: response.data.url });
       toast.success("Mockup generated");
     } catch (error) {
@@ -514,9 +458,7 @@ export default function ProductArtworkStudio({
       <header className="border border-white/10 bg-black/30 rounded-xl p-4 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
         <div>
           <div className="overline mb-1">Artwork Workspace</div>
-          <p className="text-sm text-zinc-500 max-w-4xl">
-            Select an artwork group, choose a print area, upload artwork, then drag, resize or rotate it inside the allowed print area.
-          </p>
+          <p className="text-sm text-zinc-500 max-w-4xl">Select an artwork group, choose a print area, upload artwork, then drag, resize or rotate it inside the allowed print area.</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-zinc-400">
           <span className="border border-white/10 px-3 py-2 rounded-lg">Groups: {groups.length}</span>
@@ -534,12 +476,7 @@ export default function ProductArtworkStudio({
                 const ready = asArray(group.artworks).filter((slot) => slot.original_url && slot.print_option_id).length;
                 const active = activeGroup?.id === group.id;
                 return (
-                  <button
-                    key={group.id}
-                    type="button"
-                    onClick={() => { setActiveGroupId(group.id); setActiveSlotId(asArray(group.artworks)[0]?.id || ""); }}
-                    className={`w-full text-left border rounded-xl p-3 ${active ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}
-                  >
+                  <button key={group.id} type="button" onClick={() => { setActiveGroupId(group.id); setActiveSlotId(asArray(group.artworks)[0]?.id || ""); }} className={`w-full text-left border rounded-xl p-3 ${active ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}>
                     <div className="font-bold text-sm">{group.label}</div>
                     <div className="text-xs text-zinc-500 mt-1">{group.scope_type}</div>
                     <div className={`text-[10px] uppercase tracking-widest mt-2 ${ready ? "text-[#34C759]" : "text-zinc-500"}`}>{ready} ready slot(s)</div>
@@ -554,9 +491,7 @@ export default function ProductArtworkStudio({
             <div className="overline mb-3">Print Area Slots</div>
             <select className="input-base mb-3" value="" onChange={(e) => e.target.value && addSlot(e.target.value)} disabled={!activeGroup}>
               <option value="">Add print area artwork</option>
-              {normalPrintAreas.map((area) => (
-                <option key={area.id} value={area.id}>{area.name}</option>
-              ))}
+              {normalPrintAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
             </select>
 
             {neckLabelAreas.length > 0 && (
@@ -564,36 +499,16 @@ export default function ProductArtworkStudio({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-xs font-bold uppercase tracking-widest text-[#FFB36B]">Optional Neck Label</div>
-                    <p className="text-[11px] text-zinc-400 mt-1">
-                      This template supports a neck label print area. Upload neck label artwork only if this product needs custom inner-label branding.
-                    </p>
+                    <p className="text-[11px] text-zinc-400 mt-1">This template supports a neck label print area. Upload neck label artwork only if this product needs custom inner-label branding.</p>
                   </div>
                 </div>
-
                 <div className="mt-3 space-y-2">
                   {neckLabelAreas.map((area) => {
                     const existing = slots.find((slot) => slot.print_area_id === area.id);
                     return (
-                      <button
-                        key={area.id}
-                        type="button"
-                        onClick={() => addSlot(area.id)}
-                        disabled={!activeGroup}
-                        className={`w-full text-left rounded-lg border px-3 py-2 ${
-                          existing
-                            ? "border-[#34C759]/40 bg-[#34C759]/10 text-[#B8F5C3]"
-                            : "border-white/10 bg-black/30 text-zinc-300 hover:border-[#FF7A1A]/50"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-bold">{area.name || "Neck Label"}</span>
-                          <span className="text-[10px] uppercase tracking-widest">
-                            {existing ? "Added" : "Add label artwork"}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-zinc-500 mt-1">
-                          Upload artwork, choose a print method, then generate a mockup like any other slot.
-                        </div>
+                      <button key={area.id} type="button" onClick={() => addSlot(area.id)} disabled={!activeGroup} className={`w-full text-left rounded-lg border px-3 py-2 ${existing ? "border-[#34C759]/40 bg-[#34C759]/10 text-[#B8F5C3]" : "border-white/10 bg-black/30 text-zinc-300 hover:border-[#FF7A1A]/50"}`}>
+                        <div className="flex items-center justify-between gap-2"><span className="text-xs font-bold">{area.name || "Neck Label"}</span><span className="text-[10px] uppercase tracking-widest">{existing ? "Added" : "Add label artwork"}</span></div>
+                        <div className="text-[11px] text-zinc-500 mt-1">Upload artwork, choose a print method, then generate a mockup like any other slot.</div>
                       </button>
                     );
                   })}
@@ -607,22 +522,11 @@ export default function ProductArtworkStudio({
                 const option = printOptions.find((item) => item.id === slot.print_option_id);
                 const active = activeSlot?.id === slot.id;
                 return (
-                  <button
-                    key={slot.id}
-                    type="button"
-                    onClick={() => setActiveSlotId(slot.id)}
-                    className={`w-full text-left border rounded-xl p-3 ${active ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}
-                  >
+                  <button key={slot.id} type="button" onClick={() => setActiveSlotId(slot.id)} className={`w-full text-left border rounded-xl p-3 ${active ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/10 bg-black/30 hover:border-white/30"}`}>
                     <div className="font-bold text-sm">{area?.name || "Print area"}</div>
-                    <div className={`text-xs mt-1 ${slot.original_url && !slot.print_option_id ? "text-[#FF3B30]" : "text-zinc-500"}`}>
-                      {option ? getPrintOptionLabel(option) : slot.original_url ? "Print method missing" : "No method selected"}
-                    </div>
-                    <div className={`text-[10px] uppercase tracking-widest mt-2 ${slot.original_url ? "text-[#34C759]" : "text-zinc-500"}`}>
-                      {slot.original_url ? "Artwork uploaded" : "Needs artwork"}
-                    </div>
-                    <div className={`text-[10px] uppercase tracking-widest mt-1 ${slot.mockup_image_url ? "text-[#34C759]" : "text-zinc-500"}`}>
-                      {slot.mockup_image_url ? "Mockup ready" : "No mockup"}
-                    </div>
+                    <div className={`text-xs mt-1 ${slot.original_url && !slot.print_option_id ? "text-[#FF3B30]" : "text-zinc-500"}`}>{option ? getPrintOptionLabel(option) : slot.original_url ? "Print method missing" : "No method selected"}</div>
+                    <div className={`text-[10px] uppercase tracking-widest mt-2 ${slot.original_url ? "text-[#34C759]" : "text-zinc-500"}`}>{slot.original_url ? "Artwork uploaded" : "Needs artwork"}</div>
+                    <div className={`text-[10px] uppercase tracking-widest mt-1 ${slot.mockup_image_url ? "text-[#34C759]" : "text-zinc-500"}`}>{slot.mockup_image_url ? "Mockup ready" : "No mockup"}</div>
                   </button>
                 );
               })}
@@ -636,179 +540,79 @@ export default function ProductArtworkStudio({
             <div className="relative inline-block max-w-full max-h-[860px] select-none leading-none align-middle">
               <img src={assetUrl(activeImage)} alt="Product view" className="block h-auto w-auto max-h-[860px] max-w-full object-contain" draggable="false" />
               {activeArea && (
-                <div
-                  ref={areaRef}
-                  className="absolute border-2 border-[#FF3B30] bg-[#FF3B30]/10 overflow-visible"
-                  style={{
-                    left: `${areaPct(activeArea, "x")}%`,
-                    top: `${areaPct(activeArea, "y")}%`,
-                    width: `${areaPct(activeArea, "width")}%`,
-                    height: `${areaPct(activeArea, "height")}%`,
-                  }}
-                >
-                  <div className="absolute -top-8 left-0 z-30 bg-[#FF3B30] text-white text-[10px] uppercase tracking-widest px-2 py-1 whitespace-nowrap">
-                    {activeArea.name} · {areaPct(activeArea, "width").toFixed(1)}% × {areaPct(activeArea, "height").toFixed(1)}%
-                  </div>
-
+                <div ref={areaRef} className="absolute border-2 border-[#FF3B30] bg-[#FF3B30]/10 overflow-visible" style={{ left: `${areaPct(activeArea, "x")}%`, top: `${areaPct(activeArea, "y")}%`, width: `${areaPct(activeArea, "width")}%`, height: `${areaPct(activeArea, "height")}%` }}>
+                  <div className="absolute -top-8 left-0 z-30 bg-[#FF3B30] text-white text-[10px] uppercase tracking-widest px-2 py-1 whitespace-nowrap">{activeArea.name} · {areaPct(activeArea, "width").toFixed(1)}% × {areaPct(activeArea, "height").toFixed(1)}%</div>
                   {activeSlot?.original_url && (
-                    <div
-                      className={`absolute border-2 ${dragState ? "border-[#34C759]" : "border-white"} bg-white/5 cursor-move shadow-[0_0_0_9999px_rgba(0,0,0,0.02)]`}
-                      style={{
-                        left: `${activePlacement.x}%`,
-                        top: `${activePlacement.y}%`,
-                        width: `${activePlacement.width}%`,
-                        height: `${activePlacement.height}%`,
-                        transform: `rotate(${activePlacement.rotation}deg)`,
-                        transformOrigin: "center center",
-                      }}
-                      onMouseDown={(event) => startDrag(event, "move")}
-                    >
-                      <img
-                        src={assetUrl(activeSlot.original_url)}
-                        alt="Artwork overlay"
-                        className="h-full w-full object-fill pointer-events-none"
-                        draggable="false"
-                      />
+                    <div className={`absolute border-2 ${dragState ? "border-[#34C759]" : "border-white"} bg-white/5 cursor-move shadow-[0_0_0_9999px_rgba(0,0,0,0.02)]`} style={{ left: `${activePlacement.x}%`, top: `${activePlacement.y}%`, width: `${activePlacement.width}%`, height: `${activePlacement.height}%`, transform: `rotate(${activePlacement.rotation}deg)`, transformOrigin: "center center" }} onMouseDown={(event) => startDrag(event, "move")}>
+                      <img src={assetUrl(activeSlot.original_url)} alt="Artwork overlay" className="h-full w-full object-fill pointer-events-none" draggable="false" />
                       <ResizeHandle position="nw" onMouseDown={(event) => startDrag(event, "resize", "nw")} />
                       <ResizeHandle position="ne" onMouseDown={(event) => startDrag(event, "resize", "ne")} />
                       <ResizeHandle position="sw" onMouseDown={(event) => startDrag(event, "resize", "sw")} />
                       <ResizeHandle position="se" onMouseDown={(event) => startDrag(event, "resize", "se")} />
-                      <button
-                        type="button"
-                        className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab"
-                        title="Drag to rotate"
-                        onMouseDown={(event) => startDrag(event, "rotate")}
-                      >
-                        <RotateCcw size={14} />
-                      </button>
+                      <button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onMouseDown={(event) => startDrag(event, "rotate")}><RotateCcw size={14} /></button>
                     </div>
                   )}
                 </div>
               )}
             </div>
           ) : (
-            <div className="text-center text-zinc-600 p-10">
-              <ImageIcon className="mx-auto mb-4" size={56} />
-              <div className="font-display text-3xl uppercase">No product view</div>
-              <p className="text-sm mt-2">Select an artwork slot with a template view image.</p>
-            </div>
+            <div className="text-center text-zinc-600 p-10"><ImageIcon className="mx-auto mb-4" size={56} /><div className="font-display text-3xl uppercase">No product view</div><p className="text-sm mt-2">Select an artwork slot with a template view image.</p></div>
           )}
         </main>
 
         <aside className="border border-white/10 bg-black/20 p-4 rounded-xl">
           {activeSlot && activeArea ? (
             <div className="space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="overline mb-1">Inspector</div>
-                  <h3 className="font-display text-2xl uppercase">{activeArea.name}</h3>
-                  <p className="text-xs text-zinc-500 mt-1">{activeGroup?.label} · {activeArea.width_mm || 0}mm × {activeArea.height_mm || 0}mm</p>
-                </div>
-                <button type="button" className="text-zinc-500 hover:text-[#FF3B30]" onClick={() => removeSlot(activeSlot.id)}><Trash2 size={16} /></button>
-              </div>
+              <div className="flex items-start justify-between gap-3"><div><div className="overline mb-1">Inspector</div><h3 className="font-display text-2xl uppercase">{activeArea.name}</h3><p className="text-xs text-zinc-500 mt-1">{activeGroup?.label} · {activeArea.width_mm || 0}mm × {activeArea.height_mm || 0}mm</p></div><button type="button" className="text-zinc-500 hover:text-[#FF3B30]" onClick={() => removeSlot(activeSlot.id)}><Trash2 size={16} /></button></div>
 
               <div>
                 <label className="label">Print method for this area</label>
-                <select
-                  className="input-base"
-                  value={activeSlot.print_option_id || ""}
-                  onChange={(e) => {
-                    const optionId = e.target.value;
-                    const option = allowedOptions.find((item) => item.id === optionId);
-
-                    const costing = calculateAreaPrintCost(activeSlot, activeArea, option || {});
-                    patchSlot(activeSlot.id, {
-                      print_option_id: optionId,
-                      rule_name: option?.rule_name || option?.print_method || "",
-                      print_method: option?.print_method || option?.rule_name || "",
-                      method_key: option?.method_key || "",
-                      print_size: option?.print_size || "",
-                      print_cost_max: costing.calculated_print_cost,
-                      print_width_mm: costing.print_width_mm,
-                      print_height_mm: costing.print_height_mm,
-                      area_cm2: costing.area_cm2,
-                      raw_print_cost: costing.raw_print_cost,
-                      calculated_print_cost: costing.calculated_print_cost,
-                      calculation_type: option?.calculation_type || "fixed",
-                      sheet_width_mm: option ? Number(option.sheet_width_mm || 0) : 0,
-                      sheet_height_mm: option ? Number(option.sheet_height_mm || 0) : 0,
-                      sheet_cost: option ? Number(option.sheet_cost || 0) : 0,
-                      cost_per_cm2: option ? Number(option.cost_per_cm2 || 0) : 0,
-                      minimum_print_cost: option ? Number(option.minimum_print_cost || 0) : 0,
-                      waste_percentage: option ? Number(option.waste_percentage || 0) : 0,
-                      markup_percentage: option ? Number(option.markup_percentage || 0) : 0,
-                      pricing_notes: option?.pricing_notes || "",
-                      standard_print_size_key:
-                        option?.standard_print_size_key ||
-                        activeArea?.standard_print_size_key ||
-                        activeSlot.standard_print_size_key ||
-                        "",
-                      width_mm:
-                        option?.width_mm ??
-                        activeArea?.width_mm ??
-                        activeSlot.width_mm ??
-                        "",
-                      height_mm:
-                        option?.height_mm ??
-                        activeArea?.height_mm ??
-                        activeSlot.height_mm ??
-                        "",
-                      dpi:
-                        option?.dpi ||
-                        activeArea?.dpi ||
-                        activeSlot.dpi ||
-                        300,
-                      fit_mode:
-                        option?.fit_mode ||
-                        activeArea?.fit_mode ||
-                        activeSlot.fit_mode ||
-                        "contain",
-                      production_notes: option?.production_notes || activeSlot.production_notes || "",
-                    });
-                  }}
-                >
+                <select className="input-base" value={activeSlot.print_option_id || ""} onChange={(e) => {
+                  const optionId = e.target.value;
+                  const option = allowedOptions.find((item) => item.id === optionId);
+                  const costing = calculateAreaPrintCost(activeSlot, activeArea, option || {});
+                  patchSlot(activeSlot.id, {
+                    print_option_id: optionId,
+                    rule_name: option?.rule_name || option?.print_method || "",
+                    print_method: option?.print_method || option?.rule_name || "",
+                    method_key: option?.method_key || "",
+                    print_size: option?.print_size || "",
+                    print_cost_max: costing.calculated_print_cost,
+                    print_width_mm: costing.print_width_mm,
+                    print_height_mm: costing.print_height_mm,
+                    area_cm2: costing.area_cm2,
+                    raw_print_cost: costing.raw_print_cost,
+                    calculated_print_cost: costing.calculated_print_cost,
+                    calculation_type: option?.calculation_type || "fixed",
+                    sheet_width_mm: option ? Number(option.sheet_width_mm || 0) : 0,
+                    sheet_height_mm: option ? Number(option.sheet_height_mm || 0) : 0,
+                    sheet_cost: option ? Number(option.sheet_cost || 0) : 0,
+                    cost_per_cm2: option ? Number(option.cost_per_cm2 || 0) : 0,
+                    minimum_print_cost: option ? Number(option.minimum_print_cost || 0) : 0,
+                    waste_percentage: option ? Number(option.waste_percentage || 0) : 0,
+                    markup_percentage: option ? Number(option.markup_percentage || 0) : 0,
+                    pricing_notes: option?.pricing_notes || "",
+                    standard_print_size_key: option?.standard_print_size_key || activeArea?.standard_print_size_key || activeSlot.standard_print_size_key || "",
+                    width_mm: option?.width_mm ?? activeArea?.width_mm ?? activeSlot.width_mm ?? "",
+                    height_mm: option?.height_mm ?? activeArea?.height_mm ?? activeSlot.height_mm ?? "",
+                    dpi: option?.dpi || activeArea?.dpi || activeSlot.dpi || 300,
+                    fit_mode: option?.fit_mode || activeArea?.fit_mode || activeSlot.fit_mode || "contain",
+                    production_notes: option?.production_notes || activeSlot.production_notes || "",
+                  });
+                }}>
                   <option value="">Select method</option>
-                  {allowedOptions.map((option) => (
-                    <option key={option.id} value={option.id}>{getPrintOptionLabel(option)} · {option.calculation_type === "area_fixed_rate" || option.calculation_type === "area_from_sheet" ? `R ${Number(option.cost_per_cm2 || 0).toFixed(4)}/cm²` : money(option.print_cost_max)}</option>
-                  ))}
+                  {allowedOptions.map((option) => <option key={option.id} value={option.id}>{getPrintOptionLabel(option)} · {option.calculation_type === "area_fixed_rate" || option.calculation_type === "area_from_sheet" ? `R ${Number(option.cost_per_cm2 || 0).toFixed(4)}/cm²` : money(option.print_cost_max)}</option>)}
                 </select>
-                {allowedOptions.length === 0 && (
-                  <div className="mt-3 border border-[#FFCC00]/50 bg-[#FFCC00]/10 p-3 text-xs text-[#FFE08A] rounded-lg">
-                    No print options are allowed for this area yet. Update the Product Template print area rules before creating products.
-                  </div>
-                )}
-                {selectedOption && (
-                  <div className="text-xs text-zinc-500 mt-2">
-                    Selected: {getPrintOptionLabel(selectedOption)}
-                    {activeSlot.standard_print_size_key && (
-                      <span className="block mt-1">
-                        Output: {activeSlot.standard_print_size_key} · {activeSlot.width_mm || 0}×{activeSlot.height_mm || 0}mm @ {activeSlot.dpi || 300}DPI
-                      </span>
-                    )}
-                    {activeSlot.calculated_print_cost !== undefined && (
-                      <span className="block mt-1 text-[#34C759]">
-                        Costed artwork: {activeSlot.print_width_mm || 0}×{activeSlot.print_height_mm || 0}mm · {activeSlot.area_cm2 || 0}cm² · {money(activeSlot.calculated_print_cost || 0)}
-                        {activeSlot.placement_box_width_mm && activeSlot.placement_box_height_mm ? ` · box ${activeSlot.placement_box_width_mm}×${activeSlot.placement_box_height_mm}mm` : ""}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {missingPrintMethod && (
-                  <div className="mt-3 border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg">
-                    Artwork has been uploaded, but this slot is not production-ready yet. Select a print method for this area before generating or saving the product.
-                  </div>
-                )}
+                {allowedOptions.length === 0 && <div className="mt-3 border border-[#FFCC00]/50 bg-[#FFCC00]/10 p-3 text-xs text-[#FFE08A] rounded-lg">No print options are allowed for this area yet. Update the Product Template print area rules before creating products.</div>}
+                {selectedOption && <div className="text-xs text-zinc-500 mt-2">Selected: {getPrintOptionLabel(selectedOption)}{activeSlot.standard_print_size_key && <span className="block mt-1">Output: {activeSlot.standard_print_size_key} · {activeSlot.width_mm || 0}×{activeSlot.height_mm || 0}mm @ {activeSlot.dpi || 300}DPI</span>}{activeSlot.calculated_print_cost !== undefined && <span className="block mt-1 text-[#34C759]">Costed artwork: {activeSlot.print_width_mm || 0}×{activeSlot.print_height_mm || 0}mm · {activeSlot.area_cm2 || 0}cm² · {money(activeSlot.calculated_print_cost || 0)}{activeSlot.placement_box_width_mm && activeSlot.placement_box_height_mm ? ` · box ${activeSlot.placement_box_width_mm}×${activeSlot.placement_box_height_mm}mm` : ""}</span>}</div>}
+                {missingPrintMethod && <div className="mt-3 border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg">Artwork has been uploaded, but this slot is not production-ready yet. Select a print method for this area before generating or saving the product.</div>}
               </div>
 
               <div>
                 <label className="label">Upload artwork</label>
                 <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="input-base" onChange={(e) => uploadArtwork(e.target.files?.[0] || null)} />
                 {uploading && <div className="text-xs text-zinc-500 mt-2">Uploading…</div>}
-                {activeSlot.original_url && (
-                  <a href={assetUrl(activeSlot.original_url)} target="_blank" rel="noreferrer" className="block text-xs text-[#FF3B30] mt-2 truncate">
-                    {activeSlot.file_name || activeSlot.original_url}
-                  </a>
-                )}
+                {activeSlot.original_url && <a href={assetUrl(activeSlot.original_url)} target="_blank" rel="noreferrer" className="block text-xs text-[#FF3B30] mt-2 truncate">{activeSlot.file_name || activeSlot.original_url}</a>}
               </div>
 
               <div className="border-t border-white/10 pt-4">
@@ -834,35 +638,26 @@ export default function ProductArtworkStudio({
                 </div>
               </div>
 
-              <button type="button" className="btn-primary w-full" disabled={generating || !canGenerateMockup} onClick={generateMockup}>
-                <RefreshCw size={14} /> {generating ? "Generating…" : "Generate Mockup"}
-              </button>
-              {hasUploadedArtwork && !activeSlot.print_option_id && (
-                <p className="text-xs text-[#FFB4B0]">
-                  Choose a print method above to unlock mockup generation and mark this artwork slot as ready.
-                </p>
-              )}
-
-              {activeSlot.mockup_image_url && (
-                <div className="border border-white/10 p-3 bg-black/40 rounded-xl">
-                  <div className="overline mb-2">Generated Mockup</div>
-                  <img src={assetUrl(activeSlot.mockup_image_url)} alt="Generated mockup" className="w-full max-h-56 object-contain bg-black" />
-                </div>
-              )}
+              <button type="button" className="btn-primary w-full" disabled={generating || !canGenerateMockup} onClick={generateMockup}><RefreshCw size={14} /> {generating ? "Generating…" : "Generate Mockup"}</button>
+              {hasUploadedArtwork && !activeSlot.print_option_id && <p className="text-xs text-[#FFB4B0]">Choose a print method above to unlock mockup generation and mark this artwork slot as ready.</p>}
+              {activeSlot.mockup_image_url && <div className="border border-white/10 p-3 bg-black/40 rounded-xl"><div className="overline mb-2">Generated Mockup</div><img src={assetUrl(activeSlot.mockup_image_url)} alt="Generated mockup" className="w-full max-h-56 object-contain bg-black" /></div>}
             </div>
           ) : (
             <div className="text-zinc-500 text-sm">
               <div className="overline mb-3">Inspector</div>
               <p>Select a group and add an artwork slot to configure print method, upload artwork and generate a mockup.</p>
-              {printAreas.length > 0 && activeGroup && (
-                <button type="button" className="btn-primary w-full mt-4" onClick={() => addSlot(printAreas[0].id)}>
-                  <Plus size={14} /> Add First Slot
-                </button>
-              )}
+              {printAreas.length > 0 && activeGroup && <button type="button" className="btn-primary w-full mt-4" onClick={() => addSlot(printAreas[0].id)}><Plus size={14} /> Add First Slot</button>}
             </div>
           )}
         </aside>
       </div>
+
+      <VariationMockupGenerator
+        template={template}
+        artworkGroups={groups}
+        selectedVariations={selectedVariations}
+        onArtworkGroupsChange={onArtworkGroupsChange}
+      />
     </div>
   );
 }
@@ -876,12 +671,7 @@ function ResizeHandle({ position, onMouseDown }) {
   };
 
   return (
-    <button
-      type="button"
-      aria-label={`Resize ${position}`}
-      className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`}
-      onMouseDown={onMouseDown}
-    />
+    <button type="button" aria-label={`Resize ${position}`} className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`} onMouseDown={onMouseDown} />
   );
 }
 
