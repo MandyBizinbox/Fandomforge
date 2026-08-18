@@ -1,0 +1,8 @@
+from pathlib import Path
+p = Path('frontend/src/components/product-builder/ProductBuilder.jsx')
+s = p.read_text(encoding='utf-8')
+old = '''          {activeStep === "artwork" && selectedTemplate && (\n            <ProductArtworkStudio\n              template={selectedTemplate}\n              printOptions={printOptions}\n              artworkGroups={form.artwork_groups}\n              onArtworkGroupsChange={setArtworkGroups}\n              selectedVariations={selectedVariations}\n              isAdmin={isAdmin}\n            />\n            <VariationMockupGenerator\n              template={selectedTemplate}\n              artworkGroups={form.artwork_groups}\n              selectedVariations={selectedVariations}\n              onArtworkGroupsChange={setArtworkGroups}\n            />\n          )}'''
+new = '''          {activeStep === "artwork" && selectedTemplate && (\n            <div className="space-y-6">\n              <ProductArtworkStudio\n                template={selectedTemplate}\n                printOptions={printOptions}\n                artworkGroups={form.artwork_groups}\n                onArtworkGroupsChange={setArtworkGroups}\n                selectedVariations={selectedVariations}\n                isAdmin={isAdmin}\n              />\n              <VariationMockupGenerator\n                template={selectedTemplate}\n                artworkGroups={form.artwork_groups}\n                selectedVariations={selectedVariations}\n                onArtworkGroupsChange={setArtworkGroups}\n              />\n            </div>\n          )}'''
+if old not in s:
+    raise SystemExit('Expected ProductBuilder artwork block was not found')
+p.write_text(s.replace(old, new, 1), encoding='utf-8')
