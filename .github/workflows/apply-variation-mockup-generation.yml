@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: agent/variation-mockup-generation
 
       - name: Apply integration patch
         run: python3 .github/variation_mockup_generation_patch.py
