@@ -1,12 +1,4 @@
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-COMPONENT = ROOT / "frontend/src/components/product-builder/VariationMockupGenerator.jsx"
-BUILDER = ROOT / "frontend/src/components/product-builder/ProductBuilder.jsx"
-
-COMPONENT.parent.mkdir(parents=True, exist_ok=True)
-
-component = r'''import React, { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { http, assetUrl } from "../../lib/api";
@@ -278,36 +270,3 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
     </section>
   );
 }
-'''
-COMPONENT.write_text(component, encoding="utf-8")
-
-builder = BUILDER.read_text(encoding="utf-8")
-marker_import = 'import ProductArtworkStudio from "./ProductArtworkStudio";'
-new_import = marker_import + '\nimport VariationMockupGenerator from "./VariationMockupGenerator";'
-if 'import VariationMockupGenerator from "./VariationMockupGenerator";' not in builder:
-    if marker_import not in builder:
-        raise SystemExit("ProductArtworkStudio import marker not found")
-    builder = builder.replace(marker_import, new_import, 1)
-
-marker_jsx = '''            <ProductArtworkStudio
-              template={selectedTemplate}
-              printOptions={printOptions}
-              artworkGroups={form.artwork_groups}
-              onArtworkGroupsChange={setArtworkGroups}
-              selectedVariations={selectedVariations}
-              isAdmin={isAdmin}
-            />'''
-replacement_jsx = marker_jsx + '''
-            <VariationMockupGenerator
-              template={selectedTemplate}
-              artworkGroups={form.artwork_groups}
-              selectedVariations={selectedVariations}
-              onArtworkGroupsChange={setArtworkGroups}
-            />'''
-if '<VariationMockupGenerator' not in builder:
-    if marker_jsx not in builder:
-        raise SystemExit("ProductArtworkStudio JSX marker not found")
-    builder = builder.replace(marker_jsx, replacement_jsx, 1)
-
-BUILDER.write_text(builder, encoding="utf-8")
-print("Variation mockup generator implementation staged")

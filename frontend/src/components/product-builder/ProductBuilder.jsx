@@ -16,6 +16,7 @@ import {
 import ProductVariationMatrix from "./ProductVariationMatrix";
 import ArtworkScopeSelector from "./ArtworkScopeSelector";
 import ProductArtworkStudio from "./ProductArtworkStudio";
+import VariationMockupGenerator from "./VariationMockupGenerator";
 import {
   asArray,
   buildProductVariations,
@@ -920,6 +921,12 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
               onArtworkGroupsChange={setArtworkGroups}
               selectedVariations={selectedVariations}
               isAdmin={isAdmin}
+            />
+            <VariationMockupGenerator
+              template={selectedTemplate}
+              artworkGroups={form.artwork_groups}
+              selectedVariations={selectedVariations}
+              onArtworkGroupsChange={setArtworkGroups}
             />
           )}
 
