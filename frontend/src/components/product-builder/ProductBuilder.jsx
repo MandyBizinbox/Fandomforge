@@ -560,13 +560,34 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
     }
 
     const primary = primaryArtwork;
-    const variations = hasTemplateVariations
+    const baseVariations = hasTemplateVariations
       ? buildProductVariations(
         selectedTemplate,
         form.selected_template_variation_ids,
         form.variation_price_overrides
       )
       : [buildStandardProductVariation(selectedTemplate)];
+    const variationMockupMap = new Map(
+      asArray(form.artwork_groups)
+        .flatMap((group) => asArray(group.variation_mockups))
+        .filter((mockup) => mockup?.variation_id && mockup?.image_url)
+        .reduce((rows, mockup) => {
+          const current = rows.get(mockup.variation_id) || [];
+          current.push(mockup);
+          rows.set(mockup.variation_id, current);
+          return rows;
+        }, new Map())
+    );
+    const variations = baseVariations.map((variation) => {
+      const mockups = variationMockupMap.get(variation.template_variation_id || variation.id) || [];
+      return {
+        ...variation,
+        variation_mockups: mockups,
+        mockup_images: mockups.map((mockup) => mockup.image_url).filter(Boolean),
+        mockup_image_url: mockups[0]?.image_url || "",
+        primary_mockup_image_url: mockups[0]?.image_url || "",
+      };
+    });
     const selectedGalleryImages = asArray(form.mockup_images).filter(Boolean);
     const primaryMockup = (
       form.primary_mockup_image_url
