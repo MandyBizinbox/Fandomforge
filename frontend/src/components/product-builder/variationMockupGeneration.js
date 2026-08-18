@@ -1,4 +1,4 @@
-import { assetUrl } from "../../lib/api";
+import { http, assetUrl } from "../../lib/api";
 import { resolveEffectiveProductionSetup } from "../../lib/templateProductionResolver";
 import { normalisePrintAreaGeometry, traceCanvasPrintAreaPath } from "../../lib/printAreaGeometry";
 import { asArray, getVariationLabel } from "./productBuilderUtils";
@@ -215,10 +215,10 @@ export async function generateVariationMockups({ template, variations, artworkGr
       const form = new FormData();
       form.append("file", new File([blob], `mockup-${variation.id}-${screen.id}.png`, { type: "image/png" }));
       form.append("subdir", "product-mockups");
-      const response = await fetch("/api/files/image", { method: "POST", body: form });
-      if (!response.ok) throw new Error(`Mockup upload failed for ${getVariationLabel(variation)}.`);
-      const payload = await response.json();
-      records.push(variationMockupRecord(variation, screen, payload.url, group));
+      const response = await http.post("/files/image", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      records.push(variationMockupRecord(variation, screen, response.data.url, group));
       completed += 1;
       onProgress?.({ completed, total, variation, screen, record: records[records.length - 1] });
     }
