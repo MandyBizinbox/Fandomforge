@@ -955,6 +955,12 @@ class ProductVariation(BaseModel):
     attribute_values: Dict[str, str] = Field(default_factory=dict)
     size: Optional[str] = ""
     color: Optional[str] = ""
+    artwork_group_id: Optional[str] = None
+    primary_mockup_image_url: Optional[str] = None
+    generated_mockups: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ProductArtworkSnapshot    color: Optional[str] = ""
 
 
 class ProductArtworkSnapshot(BaseModel):
