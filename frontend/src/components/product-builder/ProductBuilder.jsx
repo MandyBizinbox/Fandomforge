@@ -914,20 +914,22 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
           )}
 
           {activeStep === "artwork" && selectedTemplate && (
-            <ProductArtworkStudio
-              template={selectedTemplate}
-              printOptions={printOptions}
-              artworkGroups={form.artwork_groups}
-              onArtworkGroupsChange={setArtworkGroups}
-              selectedVariations={selectedVariations}
-              isAdmin={isAdmin}
-            />
-            <VariationMockupGenerator
-              template={selectedTemplate}
-              artworkGroups={form.artwork_groups}
-              selectedVariations={selectedVariations}
-              onArtworkGroupsChange={setArtworkGroups}
-            />
+            <div className="space-y-6">
+              <ProductArtworkStudio
+                template={selectedTemplate}
+                printOptions={printOptions}
+                artworkGroups={form.artwork_groups}
+                onArtworkGroupsChange={setArtworkGroups}
+                selectedVariations={selectedVariations}
+                isAdmin={isAdmin}
+              />
+              <VariationMockupGenerator
+                template={selectedTemplate}
+                artworkGroups={form.artwork_groups}
+                selectedVariations={selectedVariations}
+                onArtworkGroupsChange={setArtworkGroups}
+              />
+            </div>
           )}
 
           {activeStep === "gallery" && selectedTemplate && (
