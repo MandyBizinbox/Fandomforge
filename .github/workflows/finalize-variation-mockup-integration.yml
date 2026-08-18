@@ -1,0 +1,57 @@
+name: Finalize variation mockup integration
+
+on:
+  push:
+    branches:
+      - agent/variation-mockup-generation
+  pull_request:
+    types: [synchronize]
+    branches:
+      - feature/template-production-routing-v3
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/variation-mockup-generation
+
+      - name: Finalize source and persistence fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path("frontend/src/components/product-builder/variationMockupGeneration.js")
+          s = p.read_text()
+          if 'import { http, assetUrl } from "../../lib/api";' not in s:
+              s = s.replace('import { assetUrl } from "../../lib/api";', 'import { http, assetUrl } from "../../lib/api";', 1)
+          old = '''      const response = await fetch("/api/files/image", { method: "POST", body: form });
+          if (!response.ok) throw new Error(`Mockup upload failed for ${getVariationLabel(variation)}.`);
+          const payload = await response.json();
+          records.push(variationMockupRecord(variation, screen, payload.url, group));'''
+          new = '''      const response = await http.post("/files/image", form, { headers: { "Content-Type": "multipart/form-data" } });
+          records.push(variationMockupRecord(variation, screen, response.data.url, group));'''
+          if old in s:
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          p = Path("backend/models.py")
+          s = p.read_text()
+          s = s.replace('class ProductArtworkSnapshot    color: Optional[str] = ""\n\n\nclass ProductArtworkSnapshot(BaseModel):', 'class ProductArtworkSnapshot(BaseModel):', 1)
+          if '    variation_mockups: List[Dict[str, Any]] = Field(default_factory=list)\n' not in s:
+              marker = '    primary_mockup_image_url: Optional[str] = None\n    derived_mockup_images: List[Dict[str, Any]] = Field(default_factory=list)\n'
+              s = s.replace(marker, '    primary_mockup_image_url: Optional[str] = None\n    variation_mockups: List[Dict[str, Any]] = Field(default_factory=list)\n    derived_mockup_images: List[Dict[str, Any]] = Field(default_factory=list)\n', 1)
+          p.write_text(s)
+
+      - name: Commit finalization and remove temporary workflows
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/product-builder/variationMockupGeneration.js backend/models.py
+          git rm -f .github/variation_mockup_generation_patch.py .github/fix_variation_mockup_integration.py .github/workflows/apply-variation-mockup-generation.yml .github/workflows/fix-variation-mockup-integration.yml .github/workflows/finalize-variation-mockup-integration.yml || true
+          git commit -m "Finalize per-variation mockup persistence"
+          git push
