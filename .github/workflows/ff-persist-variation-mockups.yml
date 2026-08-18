@@ -1,0 +1,32 @@
+name: FandomForge Variation Mockup Persistence Patch
+
+on:
+  push:
+    branches:
+      - feature/template-production-routing-v3
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/template-production-routing-v3
+          fetch-depth: 0
+      - name: Apply persistence patch
+        run: python3 scripts/add_variation_mockups_to_payload.py
+      - name: Commit and clean up
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/product-builder/ProductBuilder.jsx
+          git rm -f scripts/add_variation_mockups_to_payload.py .github/workflows/ff-persist-variation-mockups.yml
+          git add frontend/src/components/product-builder/ProductBuilder.jsx
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: persist generated mockups on each product variation"
+          git push origin HEAD:feature/template-production-routing-v3
