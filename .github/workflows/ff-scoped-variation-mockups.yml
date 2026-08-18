@@ -1,0 +1,34 @@
+name: FandomForge Scoped Variation Mockups
+
+on:
+  push:
+    branches:
+      - feature/template-production-routing-v3
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/template-production-routing-v3
+          fetch-depth: 0
+      - name: Apply scoped mockup implementation
+        run: python3 scripts/apply_scoped_variation_mockup_workflow.py
+      - name: Commit implementation changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/product-builder/ProductBuilder.jsx
+          git add frontend/src/components/product-builder/ProductArtworkStudio.jsx
+          git add frontend/src/components/product-builder/ScopedProductArtworkStudio.jsx
+          git add frontend/src/components/product-builder/VariationMockupGenerator.jsx
+          git add frontend/src/components/product-builder/productBuilderUtilsBase.js
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: generate mockups by artwork scope"
+          git push origin HEAD:feature/template-production-routing-v3
