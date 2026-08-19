@@ -1,0 +1,75 @@
+name: Fix Product Create band_id Collision
+
+on:
+  push:
+    branches:
+      - fix/product-create-band-id-duplicate
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/product-create-band-id-duplicate
+          fetch-depth: 0
+
+      - name: Apply targeted backend fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("backend/routes_main.py")
+          text = path.read_text(encoding="utf-8")
+
+          old = '''    data = await normalize_template_product_payload(\n        db=db,\n        data=data,\n        creator=creator,\n        user=user,\n        allow_admin_publish=True,\n    )\n\n    if not assigned_printer_id:\n'''
+
+          new = '''    data = await normalize_template_product_payload(\n        db=db,\n        data=data,\n        creator=creator,\n        user=user,\n        allow_admin_publish=True,\n    )\n\n    # Ownership is supplied explicitly to Product below. The template normalizer\n    # may preserve legacy ownership fields, so remove any reintroduced band_id\n    # before constructing Product to avoid passing band_id twice via **data.\n    data.pop("band_id", None)\n\n    if not assigned_printer_id:\n'''
+
+          if text.count(old) != 1:
+              raise SystemExit(f"Expected exactly one normalization block; found {text.count(old)}")
+          if 'data.pop("band_id", None)' in text:
+              raise SystemExit("Target fix already exists; refusing to modify twice")
+
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
+      - name: Regression check
+        shell: bash
+        run: |
+          python -m py_compile backend/routes_main.py
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+
+          source = Path("backend/routes_main.py").read_text(encoding="utf-8")
+          tree = ast.parse(source)
+          target = next(
+              (node for node in ast.walk(tree)
+               if isinstance(node, ast.AsyncFunctionDef) and node.name == "admin_create_product"),
+              None,
+          )
+          if target is None:
+              raise SystemExit("admin_create_product not found")
+          segment = ast.get_source_segment(source, target) or ""
+          if segment.count('data.pop("band_id", None)') != 1:
+              raise SystemExit("band_id normalization guard missing")
+          if 'band_id=band_id' not in segment or '**data' not in segment:
+              raise SystemExit("Product construction shape changed unexpectedly")
+          print("Regression check passed")
+          PY
+
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/fix-product-create-band-id.yml
+          git add backend/routes_main.py
+          git commit -m "Fix duplicate band_id during product creation"
+          git push origin HEAD:fix/product-create-band-id-duplicate
