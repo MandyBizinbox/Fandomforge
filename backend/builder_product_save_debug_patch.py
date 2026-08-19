@@ -1,4 +1,4 @@
-"""Defensive diagnostics and save normalization for the Product Builder V3 save route."""
+"""Defensive diagnostics for the Product Builder V3 admin save route."""
 from __future__ import annotations
 
 import logging
@@ -29,21 +29,13 @@ def _clean_variation(row: Any) -> dict:
     return cleaned
 
 
-def _clean_payload(data: dict) -> dict:
-    payload = deepcopy(data or {})
-    payload["variations"] = [
-        row for row in (_clean_variation(value) for value in payload.get("variations") or [])
-        if row
-    ]
-    return payload
-
-
 def install_builder_product_save_debug_patch(routes_main_module) -> None:
     if getattr(routes_main_module, "_builder_product_save_debug_patch_installed", False):
         return
 
-    for route in getattr(routes_main_module, "admin_router", None).routes or []:
-        if getattr(route, "path", "") != "/admin/products":
+    admin_router = getattr(routes_main_module, "admin_router", None)
+    for route in getattr(admin_router, "routes", []) or []:
+        if getattr(route, "path", "") != "/products":
             continue
         if "POST" not in (getattr(route, "methods", set()) or set()):
             continue
@@ -58,7 +50,12 @@ def install_builder_product_save_debug_patch(routes_main_module) -> None:
             except Exception as exc:
                 payload = kwargs.get("payload")
                 payload_data = payload.model_dump() if hasattr(payload, "model_dump") else {}
-                clean = _clean_payload(payload_data)
+                clean = deepcopy(payload_data)
+                clean["variations"] = [
+                    _clean_variation(value)
+                    for value in clean.get("variations") or []
+                    if _clean_variation(value)
+                ]
                 logger.exception(
                     "Product Builder save failed after route dispatch: template_id=%s variations=%s payload_bytes=%s",
                     clean.get("template_id"),
@@ -77,15 +74,11 @@ def install_builder_product_save_debug_patch(routes_main_module) -> None:
                 ) from exc
 
         route.endpoint = wrapped_endpoint
-        # FastAPI/Starlette already created the dependant callable around the
-        # original endpoint, so rebuild the dependant after replacing it.
         from fastapi.dependencies.utils import get_dependant
         route.dependant = get_dependant(path=route.path_format, call=wrapped_endpoint)
-        route.body_field = None
-        try:
-            route.body_field = route.dependant.body_params[0] if route.dependant.body_params else None
-        except Exception:
-            pass
-        break
+        routes_main_module._builder_product_save_debug_patch_installed = True
+        logger.info("Installed Product Builder admin save diagnostics on %s", route.path)
+        return
 
+    logger.warning("Could not locate POST /products admin Product Builder route for diagnostics")
     routes_main_module._builder_product_save_debug_patch_installed = True
