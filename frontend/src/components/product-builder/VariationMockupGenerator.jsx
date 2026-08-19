@@ -215,8 +215,8 @@ function drawTextArtwork(ctx, area, slot, canvasWidth, canvasHeight) {
   return true;
 }
 
-async function generateScopeView(template, representative, group, screen) {
-  const printAreas = activeTemplatePrintAreas(template, representative);
+async function generateVariationView(template, variation, group, screen) {
+  const printAreas = activeTemplatePrintAreas(template, variation);
   const areas = printAreas.filter((area) => {
     if (text(area.screen_id) && text(screen?.id)) return text(area.screen_id) === text(screen.id);
     const screenKeys = screenKey(screen);
@@ -228,9 +228,9 @@ async function generateScopeView(template, representative, group, screen) {
   });
   if (!slots.length) return null;
 
-  const setup = resolveEffectiveProductionSetup(template, representative, { screen, area: areas[0] || printAreas[0] || {} });
-  const baseUrl = setup.viewImageUrl || setup.imageUrl || getAreaPreviewImage(template, areas[0], representative.id);
-  if (!baseUrl) throw new Error(`No base mockup image is available for ${getVariationLabel(representative)} / ${screen?.name || screen?.view_key || "view"}`);
+  const setup = resolveEffectiveProductionSetup(template, variation, { screen, area: areas[0] || printAreas[0] || {} });
+  const baseUrl = setup.viewImageUrl || setup.imageUrl || getAreaPreviewImage(template, areas[0], variation.id);
+  if (!baseUrl) throw new Error(`No base mockup image is available for ${getVariationLabel(variation)} / ${screen?.name || screen?.view_key || "view"}`);
 
   const base = await loadImage(baseUrl);
   const canvas = document.createElement("canvas");
@@ -256,18 +256,16 @@ async function generateScopeView(template, representative, group, screen) {
   const scopeLabel = group?.scope_type === "attribute"
     ? `${group.attribute_key}-${group.attribute_value}`
     : group?.label || "scope";
+  const variationLabel = getVariationLabel(variation);
   const viewLabel = screen?.view_key || screen?.screen_view || screen?.name || "view";
-  const safe = `${scopeLabel}-${viewLabel}`.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const imageUrl = await uploadCanvas(canvas, `variation-scope-mockup-${safe}.png`);
-  const variationIds = group?.scope_type === "all"
-    ? asArray(representative.__selected_variation_ids)
-    : asArray(group?.variation_ids);
+  const safe = `${scopeLabel}-${variationLabel}-${viewLabel}`.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const imageUrl = await uploadCanvas(canvas, `variation-mockup-${safe}.png`);
 
   return {
-    id: `variation-scope-mockup-${group.id}-${screen?.id || viewLabel}`,
-    variation_id: representative.id,
-    variation_ids: variationIds,
-    variation_label: getVariationLabel(representative),
+    id: `variation-mockup-${group.id}-${variation.id}-${screen?.id || viewLabel}`,
+    variation_id: variation.id,
+    variation_ids: [variation.id],
+    variation_label: variationLabel,
     scope_type: group?.scope_type || "custom",
     scope_label: group?.label || "Artwork scope",
     attribute_key: group?.attribute_key || "",
@@ -297,14 +295,19 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
     if (!scoped.length) return null;
     return {
       group,
-      representative: { ...scoped[0], __selected_variation_ids: ids },
       variations: scoped,
-      screens: activeTemplateScreens(template, scoped[0]),
     };
-  }).filter(Boolean), [groups, template, variations]);
+  }).filter(Boolean), [groups, variations]);
 
-  const readyTargets = useMemo(() => targets.filter((target) => asArray(target.group.artworks).some((slot) => slot.original_url || slot.text_layer || slot.text_content)), [targets]);
-  const totalViews = readyTargets.reduce((sum, target) => sum + target.screens.length, 0);
+  const readyTargets = useMemo(
+    () => targets.filter((target) => asArray(target.group.artworks).some((slot) => slot.original_url || slot.text_layer || slot.text_content)),
+    [targets]
+  );
+
+  const totalViews = readyTargets.reduce(
+    (sum, target) => sum + target.variations.reduce((variationSum, variation) => variationSum + activeTemplateScreens(template, variation).length, 0),
+    0
+  );
 
   const generateAll = async () => {
     if (!readyTargets.length) {
@@ -317,15 +320,20 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
     try {
       const generated = [];
       let done = 0;
+
       for (const target of readyTargets) {
-        for (const screen of target.screens) {
-          const result = await generateScopeView(template, target.representative, target.group, screen);
-          if (result) generated.push(result);
-          done += 1;
-          setProgress({ done, total: totalViews });
+        for (const variation of target.variations) {
+          const screens = activeTemplateScreens(template, variation);
+          for (const screen of screens) {
+            const result = await generateVariationView(template, variation, target.group, screen);
+            if (result) generated.push(result);
+            done += 1;
+            setProgress({ done, total: totalViews });
+          }
         }
       }
-      if (!generated.length) throw new Error("No scoped variation mockups could be generated. Check artwork, views and variation images.");
+
+      if (!generated.length) throw new Error("No variation mockups could be generated. Check artwork, views and variation images.");
 
       const byGroup = new Map();
       generated.forEach((row) => {
@@ -336,10 +344,15 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
       const nextGroups = groups.map((group) => {
         const rows = byGroup.get(group.id) || [];
         if (!rows.length) return group;
-        const generatedIds = new Set(rows.map((row) => row.id));
-        const existing = asArray(group.variation_mockups).filter((row) => !generatedIds.has(row.id));
+
+        const generatedKeys = new Set(rows.map((row) => `${row.variation_id}::${row.view_key}`));
+        const existing = asArray(group.variation_mockups).filter((row) => {
+          const key = `${row.variation_id || ""}::${row.view_key || ""}`;
+          return !generatedKeys.has(key);
+        });
         const allRows = [...existing, ...rows];
         const first = rows[0]?.image_url || group.primary_mockup_image_url || "";
+
         return {
           ...group,
           variation_mockups: allRows,
@@ -352,10 +365,15 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
       });
 
       onArtworkGroupsChange(nextGroups);
-      setLastResult({ generated: generated.length, scopes: readyTargets.length, uniqueImages: new Set(generated.map((row) => row.image_url)).size });
-      toast.success(`${generated.length} mockups generated across ${readyTargets.length} artwork scope(s) — ${new Set(generated.map((row) => row.image_url)).size} unique image(s)`);
+      setLastResult({
+        generated: generated.length,
+        variations: new Set(generated.map((row) => row.variation_id)).size,
+        scopes: readyTargets.length,
+        uniqueImages: new Set(generated.map((row) => row.image_url)).size,
+      });
+      toast.success(`${generated.length} variation mockups generated for ${new Set(generated.map((row) => row.variation_id)).size} variation(s) across ${readyTargets.length} artwork scope(s)`);
     } catch (error) {
-      toast.error(error.message || "Could not generate scoped variation mockups");
+      toast.error(error.message || "Could not generate variation mockups");
     } finally {
       setGenerating(false);
     }
@@ -365,33 +383,33 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
     <section className="border border-[#FF3B30]/40 bg-black/40 rounded-xl p-5 space-y-4" data-testid="variation-mockup-generator">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <div className="overline mb-1">Scoped Variation Mockup Generation</div>
-          <h2 className="font-display text-3xl uppercase">Generate by artwork scope</h2>
-          <p className="text-sm text-zinc-400 mt-2 max-w-3xl">Mockups are generated once per artwork scope and product view. A Colour scope therefore produces one image per Colour × View, not one image for every Size × Colour variation.</p>
+          <div className="overline mb-1">Variation Mockup Generation</div>
+          <h2 className="font-display text-3xl uppercase">Generate every selected variation</h2>
+          <p className="text-sm text-zinc-400 mt-2 max-w-3xl">Artwork scope controls which artwork is reused. Mockup generation is always variation-specific, so every selected variation gets its own mockup against that variation's actual base view.</p>
         </div>
         <button type="button" className="btn-primary shrink-0" disabled={generating || !readyTargets.length} onClick={generateAll}>
           <RefreshCw size={15} className={generating ? "animate-spin" : ""} />
-          {generating ? `Generating ${progress.done}/${progress.total}` : `Generate ${readyTargets.length} Scope(s)`}
+          {generating ? `Generating ${progress.done}/${progress.total}` : `Generate ${totalViews} Mockup(s)`}
         </button>
       </div>
 
       <div className="grid md:grid-cols-4 gap-3 text-xs">
         <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Selected variations</div><div className="font-display text-2xl mt-1">{variations.length}</div></div>
         <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Artwork scopes</div><div className="font-display text-2xl mt-1">{targets.length}</div></div>
-        <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Views to generate</div><div className="font-display text-2xl mt-1">{totalViews}</div></div>
-        <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Generation model</div><div className="font-display text-lg mt-1">1 / scope / view</div></div>
+        <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Variation views</div><div className="font-display text-2xl mt-1">{totalViews}</div></div>
+        <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Generation model</div><div className="font-display text-lg mt-1">1 / variation / view</div></div>
       </div>
 
       {generating && <div className="h-2 rounded-full bg-white/10 overflow-hidden"><div className="h-full bg-[#FF3B30] transition-all" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} /></div>}
-      {lastResult && <div className="border border-[#34C759]/30 bg-[#0A1B10] rounded-lg p-3 flex items-center gap-2 text-sm text-[#B8F5C3]"><CheckCircle2 size={16} /> {lastResult.generated} view mockups generated across {lastResult.scopes} scope(s), using {lastResult.uniqueImages} unique uploaded image(s). The same scope image is shared by its covered variations.</div>}
+      {lastResult && <div className="border border-[#34C759]/30 bg-[#0A1B10] rounded-lg p-3 flex items-center gap-2 text-sm text-[#B8F5C3]"><CheckCircle2 size={16} /> {lastResult.generated} variation mockups generated for {lastResult.variations} variation(s) across {lastResult.scopes} artwork scope(s), using {lastResult.uniqueImages} unique uploaded image(s).</div>}
       {!readyTargets.length && <div className="border border-[#FFCC00]/30 bg-[#FFCC00]/10 rounded-lg p-3 text-xs text-[#FFE08A] flex gap-2"><AlertTriangle size={15} /> Add artwork to the selected artwork scope(s) before generating mockups.</div>}
 
       {groups.some((group) => asArray(group.variation_mockups).length) && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {groups.flatMap((group) => asArray(group.variation_mockups)).filter((row, index, rows) => rows.findIndex((item) => item.image_url === row.image_url && item.view_key === row.view_key) === index).slice(-24).map((row) => (
-            <div key={row.id || `${row.image_url}-${row.view_key}`} className="border border-white/10 bg-black/30 rounded-lg p-2">
-              <img src={assetUrl(row.image_url)} alt={`${row.scope_label || row.variation_label || "Scope"} ${row.view_key || "mockup"}`} className="w-full aspect-square object-contain bg-black rounded" />
-              <div className="text-[10px] uppercase tracking-widest text-zinc-500 mt-2 truncate">{row.scope_label || row.variation_label}</div>
+          {groups.flatMap((group) => asArray(group.variation_mockups)).filter((row, index, rows) => rows.findIndex((item) => item.image_url === row.image_url && item.view_key === row.view_key && item.variation_id === row.variation_id) === index).slice(-24).map((row) => (
+            <div key={row.id || `${row.image_url}-${row.variation_id}-${row.view_key}`} className="border border-white/10 bg-black/30 rounded-lg p-2">
+              <img src={assetUrl(row.image_url)} alt={`${row.variation_label || row.scope_label || "Variation"} ${row.view_key || "mockup"}`} className="w-full aspect-square object-contain bg-black rounded" />
+              <div className="text-[10px] uppercase tracking-widest text-zinc-500 mt-2 truncate">{row.variation_label || row.scope_label}</div>
               <div className="text-[9px] text-zinc-600 mt-1 truncate">{row.view_key || "view"}</div>
             </div>
           ))}
