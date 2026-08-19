@@ -4,12 +4,13 @@ import { toast } from "sonner";
 import { http, assetUrl } from "../../lib/api";
 import { resolveEffectiveProductionSetup, activeTemplatePrintAreas, activeTemplateScreens } from "../../lib/templateProductionResolver";
 import { normalisePrintAreaGeometry, traceCanvasPrintAreaPath } from "../../lib/printAreaGeometry";
-import { asArray, getAreaPreviewImage, getVariationLabel } from "./productBuilderUtils";
+import { asArray, getAreaPreviewImage, getVariationColour, getVariationLabel } from "./productBuilderUtils";
 
 const text = (value) => String(value ?? "").trim();
 const normalise = (value) => text(value).toLowerCase().replace(/[^a-z0-9]+/g, "-");
 const screenKey = (screen = {}) => [screen.id, screen.view_key, screen.view, screen.screen_view, screen.name].filter(Boolean).map(normalise);
 const areaKey = (area = {}) => [area.id, area.area_key, area.view_key, area.screen_view, area.name].filter(Boolean).map(normalise);
+const colourKey = (variation) => normalise(getVariationColour(variation) || variation?.color || "default");
 
 function blobFromCanvas(canvas) {
   return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.95));
@@ -74,7 +75,6 @@ function withPrintAreaClip(ctx, area, canvasWidth, canvasHeight, draw) {
   const geometry = normalisePrintAreaGeometry(area || {});
   const { x, y, width, height } = getAreaBox(area, canvasWidth, canvasHeight);
   if (width <= 0 || height <= 0) return;
-
   ctx.save();
   if (geometry.geometry_type !== "mask") {
     traceCanvasPrintAreaPath(ctx, geometry, x, y, width, height);
@@ -87,7 +87,6 @@ function withPrintAreaClip(ctx, area, canvasWidth, canvasHeight, draw) {
 function drawArtwork(ctx, image, area, slot, canvasWidth, canvasHeight) {
   const box = getPlacementBox(area, slot, canvasWidth, canvasHeight);
   if (box.width <= 0 || box.height <= 0) return;
-
   withPrintAreaClip(ctx, area, canvasWidth, canvasHeight, () => {
     ctx.save();
     ctx.translate(box.x + box.width / 2, box.y + box.height / 2);
@@ -117,17 +116,14 @@ function wrapCanvasText(ctx, value, maxWidth) {
   if (!words.length) return [];
   const lines = [];
   let line = words[0];
-
   words.slice(1).forEach((word) => {
     const candidate = `${line} ${word}`;
-    if (ctx.measureText(candidate).width <= maxWidth) {
-      line = candidate;
-    } else {
+    if (ctx.measureText(candidate).width <= maxWidth) line = candidate;
+    else {
       lines.push(line);
       line = word;
     }
   });
-
   lines.push(line);
   return lines;
 }
@@ -135,26 +131,15 @@ function wrapCanvasText(ctx, value, maxWidth) {
 function drawTextArtwork(ctx, area, slot, canvasWidth, canvasHeight) {
   const layer = parseTextLayer(slot);
   if (!layer) return false;
-
   const content = text(layer.text ?? layer.content ?? layer.value ?? slot?.text_content);
   if (!content) return false;
-
   const box = getPlacementBox(area, slot, canvasWidth, canvasHeight);
   if (box.width <= 0 || box.height <= 0) return false;
 
   const fontFamily = text(layer.font_family ?? layer.fontFamily) || "Arial, sans-serif";
   const fontWeight = text(layer.font_weight ?? layer.fontWeight) || "700";
   const fontStyle = text(layer.font_style ?? layer.fontStyle) || "normal";
-  const fontSize = Math.max(
-    8,
-    Number(
-      layer.font_size_px ??
-      layer.fontSizePx ??
-      layer.font_size ??
-      layer.fontSize ??
-      Math.min(box.width, box.height) * 0.18
-    ) || 8
-  );
+  const fontSize = Math.max(8, Number(layer.font_size_px ?? layer.fontSizePx ?? layer.font_size ?? layer.fontSize ?? Math.min(box.width, box.height) * 0.18) || 8);
   const lineHeight = Math.max(1, Number(layer.line_height ?? layer.lineHeight ?? 1.15) || 1.15);
   const color = text(layer.color ?? layer.fill ?? layer.text_color) || "#000000";
   const align = text(layer.text_align ?? layer.textAlign ?? layer.align) || "center";
@@ -174,12 +159,10 @@ function drawTextArtwork(ctx, area, slot, canvasWidth, canvasHeight) {
     ctx.translate(box.x + box.width / 2, box.y + box.height / 2);
     ctx.rotate(box.rotation);
     ctx.globalAlpha = opacity;
-
     if (backgroundColor) {
       ctx.fillStyle = backgroundColor;
       ctx.fillRect(-box.width / 2, -box.height / 2, box.width, box.height);
     }
-
     ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
     ctx.textAlign = ["left", "center", "right"].includes(align) ? align : "center";
     ctx.textBaseline = "top";
@@ -208,11 +191,44 @@ function drawTextArtwork(ctx, area, slot, canvasWidth, canvasHeight) {
       }
       ctx.fillText(line, x, y);
     });
-
     ctx.restore();
   });
-
   return true;
+}
+
+function getActiveArtworkScreens(template, variation, group) {
+  const screens = activeTemplateScreens(template, variation);
+  const printAreas = activeTemplatePrintAreas(template, variation);
+  const artworkSlots = asArray(group?.artworks).filter((slot) => slot.original_url || slot.text_layer || slot.text_content);
+  if (!artworkSlots.length) return [];
+
+  const activeScreenIds = new Set();
+  artworkSlots.forEach((slot) => {
+    if (text(slot.screen_id)) {
+      activeScreenIds.add(text(slot.screen_id));
+      return;
+    }
+    const area = findAreaForSlot(printAreas, slot);
+    if (text(area?.screen_id)) activeScreenIds.add(text(area.screen_id));
+  });
+
+  if (!activeScreenIds.size) {
+    return screens.filter((screen) => artworkSlots.some((slot) => {
+      const area = findAreaForSlot(printAreas, slot);
+      return slotBelongsToScreen(slot, screen, area);
+    }));
+  }
+
+  return screens.filter((screen) => activeScreenIds.has(text(screen.id)));
+}
+
+function getColourRepresentatives(variations) {
+  const representatives = new Map();
+  asArray(variations).forEach((variation) => {
+    const key = colourKey(variation);
+    if (!representatives.has(key)) representatives.set(key, variation);
+  });
+  return [...representatives.values()];
 }
 
 async function generateVariationView(template, variation, group, screen) {
@@ -242,15 +258,11 @@ async function generateVariationView(template, variation, group, screen) {
   for (const slot of slots) {
     const area = findAreaForSlot(printAreas, slot);
     if (!area) continue;
-
     if (slot.original_url) {
       const artwork = await loadImage(slot.original_url);
       drawArtwork(ctx, artwork, area, slot, canvas.width, canvas.height);
     }
-
-    if (slot.text_layer || slot.text_content) {
-      drawTextArtwork(ctx, area, slot, canvas.width, canvas.height);
-    }
+    if (slot.text_layer || slot.text_content) drawTextArtwork(ctx, area, slot, canvas.width, canvas.height);
   }
 
   const scopeLabel = group?.scope_type === "attribute"
@@ -266,6 +278,7 @@ async function generateVariationView(template, variation, group, screen) {
     variation_id: variation.id,
     variation_ids: [variation.id],
     variation_label: variationLabel,
+    variation_colour: getVariationColour(variation),
     scope_type: group?.scope_type || "custom",
     scope_label: group?.label || "Artwork scope",
     attribute_key: group?.attribute_key || "",
@@ -293,47 +306,54 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
     const ids = group.scope_type === "all" ? variations.map((variation) => variation.id) : asArray(group.variation_ids);
     const scoped = variations.filter((variation) => ids.includes(variation.id));
     if (!scoped.length) return null;
-    return {
-      group,
-      variations: scoped,
-    };
-  }).filter(Boolean), [groups, variations]);
+
+    const representatives = getColourRepresentatives(scoped);
+    const viewTargets = [];
+    const seen = new Set();
+
+    representatives.forEach((variation) => {
+      getActiveArtworkScreens(template, variation, group).forEach((screen) => {
+        const key = `${colourKey(variation)}::${text(screen.id) || normalise(screen.view_key || screen.name)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        viewTargets.push({ variation, screen });
+      });
+    });
+
+    return { group, variations: scoped, viewTargets };
+  }).filter(Boolean), [groups, variations, template]);
 
   const readyTargets = useMemo(
-    () => targets.filter((target) => asArray(target.group.artworks).some((slot) => slot.original_url || slot.text_layer || slot.text_content)),
+    () => targets.filter((target) => asArray(target.group.artworks).some((slot) => slot.original_url || slot.text_layer || slot.text_content) && target.viewTargets.length),
     [targets]
   );
 
-  const totalViews = readyTargets.reduce(
-    (sum, target) => sum + target.variations.reduce((variationSum, variation) => variationSum + activeTemplateScreens(template, variation).length, 0),
-    0
-  );
+  const totalViews = readyTargets.reduce((sum, target) => sum + target.viewTargets.length, 0);
 
   const generateAll = async () => {
     if (!readyTargets.length) {
-      toast.error("Add artwork to an artwork scope before generating mockups.");
+      toast.error("Add artwork to an artwork scope and make sure the artwork is attached to an active print view.");
       return;
     }
+
     setGenerating(true);
     setLastResult(null);
     setProgress({ done: 0, total: totalViews });
+
     try {
       const generated = [];
       let done = 0;
 
       for (const target of readyTargets) {
-        for (const variation of target.variations) {
-          const screens = activeTemplateScreens(template, variation);
-          for (const screen of screens) {
-            const result = await generateVariationView(template, variation, target.group, screen);
-            if (result) generated.push(result);
-            done += 1;
-            setProgress({ done, total: totalViews });
-          }
+        for (const { variation, screen } of target.viewTargets) {
+          const result = await generateVariationView(template, variation, target.group, screen);
+          if (result) generated.push(result);
+          done += 1;
+          setProgress({ done, total: totalViews });
         }
       }
 
-      if (!generated.length) throw new Error("No variation mockups could be generated. Check artwork, views and variation images.");
+      if (!generated.length) throw new Error("No variation mockups could be generated. Check artwork, active print views and variation images.");
 
       const byGroup = new Map();
       generated.forEach((row) => {
@@ -345,10 +365,10 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
         const rows = byGroup.get(group.id) || [];
         if (!rows.length) return group;
 
-        const generatedKeys = new Set(rows.map((row) => `${row.variation_id}::${row.view_key}`));
+        const generatedKeys = new Set(rows.map((row) => `${colourKey({ attributes: { Colour: row.variation_colour } })}::${row.view_key}`));
         const existing = asArray(group.variation_mockups).filter((row) => {
-          const key = `${row.variation_id || ""}::${row.view_key || ""}`;
-          return !generatedKeys.has(key);
+          const existingColour = row.variation_colour || row.colour || row.variation_label || "";
+          return !generatedKeys.has(`${normalise(existingColour)}::${row.view_key || ""}`);
         });
         const allRows = [...existing, ...rows];
         const first = rows[0]?.image_url || group.primary_mockup_image_url || "";
@@ -367,11 +387,12 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
       onArtworkGroupsChange(nextGroups);
       setLastResult({
         generated: generated.length,
-        variations: new Set(generated.map((row) => row.variation_id)).size,
+        colours: new Set(generated.map((row) => normalise(row.variation_colour))).size,
         scopes: readyTargets.length,
+        views: new Set(generated.map((row) => row.view_key)).size,
         uniqueImages: new Set(generated.map((row) => row.image_url)).size,
       });
-      toast.success(`${generated.length} variation mockups generated for ${new Set(generated.map((row) => row.variation_id)).size} variation(s) across ${readyTargets.length} artwork scope(s)`);
+      toast.success(`${generated.length} mockup(s) generated from active artwork views across ${new Set(generated.map((row) => normalise(row.variation_colour))).size} colour(s)`);
     } catch (error) {
       toast.error(error.message || "Could not generate variation mockups");
     } finally {
@@ -384,8 +405,8 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <div className="overline mb-1">Variation Mockup Generation</div>
-          <h2 className="font-display text-3xl uppercase">Generate every selected variation</h2>
-          <p className="text-sm text-zinc-400 mt-2 max-w-3xl">Artwork scope controls which artwork is reused. Mockup generation is always variation-specific, so every selected variation gets its own mockup against that variation's actual base view.</p>
+          <h2 className="font-display text-3xl uppercase">Generate required mockups</h2>
+          <p className="text-sm text-zinc-400 mt-2 max-w-3xl">Mockups follow the artwork scope and active print views. Sizes do not create extra mockups. When the same artwork is used across all selected variations, FandomForge generates one mockup per colour and active view using that colour's actual base view.</p>
         </div>
         <button type="button" className="btn-primary shrink-0" disabled={generating || !readyTargets.length} onClick={generateAll}>
           <RefreshCw size={15} className={generating ? "animate-spin" : ""} />
@@ -396,20 +417,20 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
       <div className="grid md:grid-cols-4 gap-3 text-xs">
         <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Selected variations</div><div className="font-display text-2xl mt-1">{variations.length}</div></div>
         <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Artwork scopes</div><div className="font-display text-2xl mt-1">{targets.length}</div></div>
-        <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Variation views</div><div className="font-display text-2xl mt-1">{totalViews}</div></div>
-        <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Generation model</div><div className="font-display text-lg mt-1">1 / variation / view</div></div>
+        <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Required mockups</div><div className="font-display text-2xl mt-1">{totalViews}</div></div>
+        <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Generation model</div><div className="font-display text-lg mt-1">1 / colour / active view</div></div>
       </div>
 
       {generating && <div className="h-2 rounded-full bg-white/10 overflow-hidden"><div className="h-full bg-[#FF3B30] transition-all" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} /></div>}
-      {lastResult && <div className="border border-[#34C759]/30 bg-[#0A1B10] rounded-lg p-3 flex items-center gap-2 text-sm text-[#B8F5C3]"><CheckCircle2 size={16} /> {lastResult.generated} variation mockups generated for {lastResult.variations} variation(s) across {lastResult.scopes} artwork scope(s), using {lastResult.uniqueImages} unique uploaded image(s).</div>}
-      {!readyTargets.length && <div className="border border-[#FFCC00]/30 bg-[#FFCC00]/10 rounded-lg p-3 text-xs text-[#FFE08A] flex gap-2"><AlertTriangle size={15} /> Add artwork to the selected artwork scope(s) before generating mockups.</div>}
+      {lastResult && <div className="border border-[#34C759]/30 bg-[#0A1B10] rounded-lg p-3 flex items-center gap-2 text-sm text-[#B8F5C3]"><CheckCircle2 size={16} /> {lastResult.generated} mockups generated for {lastResult.colours} colour(s), across {lastResult.views} active view(s) and {lastResult.scopes} artwork scope(s), using {lastResult.uniqueImages} unique uploaded image(s).</div>}
+      {!readyTargets.length && <div className="border border-[#FFCC00]/30 bg-[#FFCC00]/10 rounded-lg p-3 text-xs text-[#FFE08A] flex gap-2"><AlertTriangle size={15} /> Add artwork to the selected scope and attach it to an active print view before generating mockups.</div>}
 
       {groups.some((group) => asArray(group.variation_mockups).length) && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {groups.flatMap((group) => asArray(group.variation_mockups)).filter((row, index, rows) => rows.findIndex((item) => item.image_url === row.image_url && item.view_key === row.view_key && item.variation_id === row.variation_id) === index).slice(-24).map((row) => (
-            <div key={row.id || `${row.image_url}-${row.variation_id}-${row.view_key}`} className="border border-white/10 bg-black/30 rounded-lg p-2">
-              <img src={assetUrl(row.image_url)} alt={`${row.variation_label || row.scope_label || "Variation"} ${row.view_key || "mockup"}`} className="w-full aspect-square object-contain bg-black rounded" />
-              <div className="text-[10px] uppercase tracking-widest text-zinc-500 mt-2 truncate">{row.variation_label || row.scope_label}</div>
+          {groups.flatMap((group) => asArray(group.variation_mockups)).filter((row, index, rows) => rows.findIndex((item) => item.image_url === row.image_url && item.view_key === row.view_key && (item.variation_colour || item.variation_label) === (row.variation_colour || row.variation_label)) === index).slice(-24).map((row) => (
+            <div key={row.id || `${row.image_url}-${row.variation_colour}-${row.view_key}`} className="border border-white/10 bg-black/30 rounded-lg p-2">
+              <img src={assetUrl(row.image_url)} alt={`${row.variation_colour || row.variation_label || row.scope_label || "Variation"} ${row.view_key || "mockup"}`} className="w-full aspect-square object-contain bg-black rounded" />
+              <div className="text-[10px] uppercase tracking-widest text-zinc-500 mt-2 truncate">{row.variation_colour || row.variation_label || row.scope_label}</div>
               <div className="text-[9px] text-zinc-600 mt-1 truncate">{row.view_key || "view"}</div>
             </div>
           ))}
