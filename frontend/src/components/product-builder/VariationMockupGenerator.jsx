@@ -48,29 +48,171 @@ function slotBelongsToScreen(slot, screen, area) {
   return true;
 }
 
-function drawArtwork(ctx, image, area, slot, canvasWidth, canvasHeight) {
-  const geometry = normalisePrintAreaGeometry(area || {});
-  const areaX = (Number(area?.x_pct ?? area?.x ?? 0) / 100) * canvasWidth;
-  const areaY = (Number(area?.y_pct ?? area?.y ?? 0) / 100) * canvasHeight;
-  const areaW = (Number(area?.width_pct ?? area?.width ?? 0) / 100) * canvasWidth;
-  const areaH = (Number(area?.height_pct ?? area?.height ?? 0) / 100) * canvasHeight;
-  if (areaW <= 0 || areaH <= 0) return;
+function getAreaBox(area, canvasWidth, canvasHeight) {
+  return {
+    x: (Number(area?.x_pct ?? area?.x ?? 0) / 100) * canvasWidth,
+    y: (Number(area?.y_pct ?? area?.y ?? 0) / 100) * canvasHeight,
+    width: (Number(area?.width_pct ?? area?.width ?? 0) / 100) * canvasWidth,
+    height: (Number(area?.height_pct ?? area?.height ?? 0) / 100) * canvasHeight,
+  };
+}
+
+function getPlacementBox(area, slot, canvasWidth, canvasHeight) {
+  const areaBox = getAreaBox(area, canvasWidth, canvasHeight);
   const placement = slot?.placement || {};
-  const x = areaX + (Number(placement.x ?? 0) / 100) * areaW;
-  const y = areaY + (Number(placement.y ?? 0) / 100) * areaH;
-  const w = (Number(placement.width ?? 100) / 100) * areaW;
-  const h = (Number(placement.height ?? 100) / 100) * areaH;
-  const rotation = (Number(placement.rotation || 0) * Math.PI) / 180;
+  return {
+    areaBox,
+    x: areaBox.x + (Number(placement.x ?? 0) / 100) * areaBox.width,
+    y: areaBox.y + (Number(placement.y ?? 0) / 100) * areaBox.height,
+    width: (Number(placement.width ?? 100) / 100) * areaBox.width,
+    height: (Number(placement.height ?? 100) / 100) * areaBox.height,
+    rotation: (Number(placement.rotation || 0) * Math.PI) / 180,
+  };
+}
+
+function withPrintAreaClip(ctx, area, canvasWidth, canvasHeight, draw) {
+  const geometry = normalisePrintAreaGeometry(area || {});
+  const { x, y, width, height } = getAreaBox(area, canvasWidth, canvasHeight);
+  if (width <= 0 || height <= 0) return;
 
   ctx.save();
   if (geometry.geometry_type !== "mask") {
-    traceCanvasPrintAreaPath(ctx, geometry, areaX, areaY, areaW, areaH);
+    traceCanvasPrintAreaPath(ctx, geometry, x, y, width, height);
     ctx.clip();
   }
-  ctx.translate(x + w / 2, y + h / 2);
-  ctx.rotate(rotation);
-  ctx.drawImage(image, -w / 2, -h / 2, w, h);
+  draw({ x, y, width, height });
   ctx.restore();
+}
+
+function drawArtwork(ctx, image, area, slot, canvasWidth, canvasHeight) {
+  const box = getPlacementBox(area, slot, canvasWidth, canvasHeight);
+  if (box.width <= 0 || box.height <= 0) return;
+
+  withPrintAreaClip(ctx, area, canvasWidth, canvasHeight, () => {
+    ctx.save();
+    ctx.translate(box.x + box.width / 2, box.y + box.height / 2);
+    ctx.rotate(box.rotation);
+    ctx.drawImage(image, -box.width / 2, -box.height / 2, box.width, box.height);
+    ctx.restore();
+  });
+}
+
+function parseTextLayer(slot) {
+  const raw = slot?.text_layer;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch (_) {
+      return { text: raw };
+    }
+  }
+  if (text(slot?.text_content)) return { text: slot.text_content };
+  return null;
+}
+
+function wrapCanvasText(ctx, value, maxWidth) {
+  const words = text(value).split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const lines = [];
+  let line = words[0];
+
+  words.slice(1).forEach((word) => {
+    const candidate = `${line} ${word}`;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      line = candidate;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  });
+
+  lines.push(line);
+  return lines;
+}
+
+function drawTextArtwork(ctx, area, slot, canvasWidth, canvasHeight) {
+  const layer = parseTextLayer(slot);
+  if (!layer) return false;
+
+  const content = text(layer.text ?? layer.content ?? layer.value ?? slot?.text_content);
+  if (!content) return false;
+
+  const box = getPlacementBox(area, slot, canvasWidth, canvasHeight);
+  if (box.width <= 0 || box.height <= 0) return false;
+
+  const fontFamily = text(layer.font_family ?? layer.fontFamily) || "Arial, sans-serif";
+  const fontWeight = text(layer.font_weight ?? layer.fontWeight) || "700";
+  const fontStyle = text(layer.font_style ?? layer.fontStyle) || "normal";
+  const fontSize = Math.max(
+    8,
+    Number(
+      layer.font_size_px ??
+      layer.fontSizePx ??
+      layer.font_size ??
+      layer.fontSize ??
+      Math.min(box.width, box.height) * 0.18
+    ) || 8
+  );
+  const lineHeight = Math.max(1, Number(layer.line_height ?? layer.lineHeight ?? 1.15) || 1.15);
+  const color = text(layer.color ?? layer.fill ?? layer.text_color) || "#000000";
+  const align = text(layer.text_align ?? layer.textAlign ?? layer.align) || "center";
+  const verticalAlign = text(layer.vertical_align ?? layer.verticalAlign) || "middle";
+  const opacity = Math.max(0, Math.min(1, Number(layer.opacity ?? 1)));
+  const strokeColor = text(layer.stroke_color ?? layer.strokeColor);
+  const strokeWidth = Math.max(0, Number(layer.stroke_width ?? layer.strokeWidth ?? 0) || 0);
+  const shadowColor = text(layer.shadow_color ?? layer.shadowColor);
+  const shadowBlur = Math.max(0, Number(layer.shadow_blur ?? layer.shadowBlur ?? 0) || 0);
+  const shadowX = Number(layer.shadow_x ?? layer.shadowX ?? 0) || 0;
+  const shadowY = Number(layer.shadow_y ?? layer.shadowY ?? 0) || 0;
+  const backgroundColor = text(layer.background_color ?? layer.backgroundColor);
+  const padding = Math.max(0, Number(layer.padding ?? 0) || 0);
+
+  withPrintAreaClip(ctx, area, canvasWidth, canvasHeight, () => {
+    ctx.save();
+    ctx.translate(box.x + box.width / 2, box.y + box.height / 2);
+    ctx.rotate(box.rotation);
+    ctx.globalAlpha = opacity;
+
+    if (backgroundColor) {
+      ctx.fillStyle = backgroundColor;
+      ctx.fillRect(-box.width / 2, -box.height / 2, box.width, box.height);
+    }
+
+    ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+    ctx.textAlign = ["left", "center", "right"].includes(align) ? align : "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = color;
+    ctx.shadowColor = shadowColor || "transparent";
+    ctx.shadowBlur = shadowBlur;
+    ctx.shadowOffsetX = shadowX;
+    ctx.shadowOffsetY = shadowY;
+
+    const maxTextWidth = Math.max(1, box.width - padding * 2);
+    const lines = wrapCanvasText(ctx, content, maxTextWidth);
+    const totalHeight = lines.length * fontSize * lineHeight;
+    const startY = verticalAlign === "top"
+      ? -box.height / 2 + padding
+      : verticalAlign === "bottom"
+        ? box.height / 2 - padding - totalHeight
+        : -totalHeight / 2;
+    const x = ctx.textAlign === "left" ? -box.width / 2 + padding : ctx.textAlign === "right" ? box.width / 2 - padding : 0;
+
+    lines.forEach((line, index) => {
+      const y = startY + index * fontSize * lineHeight;
+      if (strokeColor && strokeWidth > 0) {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth;
+        ctx.strokeText(line, x, y);
+      }
+      ctx.fillText(line, x, y);
+    });
+
+    ctx.restore();
+  });
+
+  return true;
 }
 
 async function generateScopeView(template, representative, group, screen) {
@@ -99,9 +241,16 @@ async function generateScopeView(template, representative, group, screen) {
 
   for (const slot of slots) {
     const area = findAreaForSlot(printAreas, slot);
-    if (!area || !slot.original_url || slot.text_layer) continue;
-    const artwork = await loadImage(slot.original_url);
-    drawArtwork(ctx, artwork, area, slot, canvas.width, canvas.height);
+    if (!area) continue;
+
+    if (slot.original_url) {
+      const artwork = await loadImage(slot.original_url);
+      drawArtwork(ctx, artwork, area, slot, canvas.width, canvas.height);
+    }
+
+    if (slot.text_layer || slot.text_content) {
+      drawTextArtwork(ctx, area, slot, canvas.width, canvas.height);
+    }
   }
 
   const scopeLabel = group?.scope_type === "attribute"
