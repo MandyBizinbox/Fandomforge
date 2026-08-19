@@ -9588,6 +9588,11 @@ async def admin_create_product(
         allow_admin_publish=True,
     )
 
+    # Ownership is supplied explicitly to Product below. The template normalizer
+    # may preserve legacy ownership fields, so remove any reintroduced band_id
+    # before constructing Product to avoid passing band_id twice via **data.
+    data.pop("band_id", None)
+
     if not assigned_printer_id:
         default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})
         assigned_printer_id = default_printer["id"] if default_printer else None
