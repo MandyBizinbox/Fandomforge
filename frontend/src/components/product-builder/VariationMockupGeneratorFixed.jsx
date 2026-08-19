@@ -12,7 +12,30 @@ import { asArray, getAreaPreviewImage, getVariationColour, getVariationLabel } f
 
 const text = (value) => String(value ?? "").trim();
 const normalise = (value) => text(value).toLowerCase().replace(/[^a-z0-9]+/g, "-");
-const colourKey = (variation) => normalise(getVariationColour(variation) || variation?.color || "default");
+
+function getAttributeEntries(variation = {}) {
+  const attrs = variation?.attributes || variation?.attribute_values || {};
+  return Object.entries(attrs || {}).filter(([, value]) => value !== undefined && value !== null && text(value));
+}
+
+function getColourIdentity(variation = {}) {
+  const entries = getAttributeEntries(variation);
+  const colourEntry = entries.find(([key]) => /colou?r/i.test(key));
+  if (colourEntry) return normalise(colourEntry[1]);
+
+  if (variation?.color || variation?.colour) return normalise(variation.color || variation.colour);
+
+  const nonSize = entries.filter(([key]) => !/size/i.test(key));
+  if (nonSize.length === 1) return normalise(nonSize[0][1]);
+
+  return "default";
+}
+
+const colourLabel = (variation) => {
+  const entries = getAttributeEntries(variation);
+  const colourEntry = entries.find(([key]) => /colou?r/i.test(key));
+  return text(colourEntry?.[1] || variation?.color || variation?.colour || "Default");
+};
 
 const semanticKeys = (item = {}) => [
   item.id,
@@ -146,56 +169,66 @@ function drawText(ctx, area, slot, width, height) {
 }
 
 function getArtworkSlots(group) {
-  return asArray(group?.artworks).filter((slot) => slot?.original_url || slot?.text_layer || slot?.text_content);
+  return asArray(group?.artworks).filter((slot) => {
+    if (!slot) return false;
+    if (slot.status === "archived" || slot.archived || slot.deleted || slot.disabled === true || slot.enabled === false) return false;
+    return Boolean(slot?.print_area_id || slot?.area_key || slot?.view_key || slot?.screen_view) && Boolean(slot?.original_url || slot?.text_layer || slot?.text_content);
+  });
+}
+
+function getSlotArea(template, variation, slot) {
+  const variationAreas = activeTemplatePrintAreas(template, variation);
+  const templateAreas = asArray(template?.print_areas).filter((area) => area?.id && area?.screen_id);
+  return findArea(variationAreas, slot) || findArea(templateAreas, slot) || null;
+}
+
+function getActiveArtworkViewKeys(template, group, representatives) {
+  const slots = getArtworkSlots(group);
+  const views = new Map();
+  representatives.forEach((variation) => {
+    slots.forEach((slot) => {
+      const area = getSlotArea(template, variation, slot);
+      if (!area || !area.screen_id) return;
+      const screens = asArray(template?.mockup_screens).filter((screen) => screen?.id);
+      const screen = screens.find((item) => text(item.id) === text(area.screen_id)) || screens.find((item) => sameSemantic(item, area));
+      if (!screen) return;
+      const viewKey = normalise(screen.view_key || screen.screen_view || screen.name || screen.id);
+      if (!views.has(viewKey)) views.set(viewKey, { screen, area });
+    });
+  });
+  return [...views.values()];
 }
 
 /**
- * Resolve mockup targets from the artwork that actually exists.
+ * Mockup targets are colour x active artwork view.
  *
- * Important rule: selected sizes never create mockups. A shared artwork scope
- * produces one target per selected colour and per print view that actually has
- * an artwork slot. Template screens that have no artwork are never targets.
- *
- * We deliberately resolve the artwork area against the template's canonical
- * print areas first. Variation-specific production configurations are then
- * used only to obtain that colour's actual base image.
+ * Sizes are deliberately discarded. The artwork scope and its actual print
+ * area determine the view; the representative variation supplies the base
+ * image for that colour.
  */
 function resolveArtworkViewTargets(template, scopedVariations, group) {
   const slots = getArtworkSlots(group);
   if (!slots.length) return [];
 
-  const templateAreas = asArray(template?.print_areas).filter((area) => area?.id && area?.screen_id);
-  const templateScreens = asArray(template?.mockup_screens).filter((screen) => screen?.id);
   const representatives = new Map();
-
   asArray(scopedVariations).forEach((variation) => {
-    const key = colourKey(variation);
+    const key = getColourIdentity(variation);
     if (!representatives.has(key)) representatives.set(key, variation);
   });
 
+  const activeViews = getActiveArtworkViewKeys(template, group, [...representatives.values()]);
   const targets = [];
-  const seen = new Set();
 
-  [...representatives.values()].forEach((variation) => {
+  representatives.forEach((variation) => {
     const variationAreas = activeTemplatePrintAreas(template, variation);
     const variationScreens = activeTemplateScreens(template, variation);
 
-    slots.forEach((slot) => {
-      const canonicalArea = findArea(templateAreas, slot) || findArea(variationAreas, slot);
-      if (!canonicalArea) return;
-
-      const canonicalScreen = templateScreens.find((screen) => text(screen.id) === text(canonicalArea.screen_id))
-        || templateScreens.find((screen) => sameSemantic(screen, canonicalArea));
-      if (!canonicalScreen) return;
-
+    activeViews.forEach(({ screen: canonicalScreen, area: canonicalArea }) => {
       const actualScreen = variationScreens.find((screen) => sameSemantic(screen, canonicalScreen))
         || variationScreens.find((screen) => text(screen.id) === text(canonicalScreen.id))
         || canonicalScreen;
-
-      const key = `${colourKey(variation)}::${normalise(canonicalScreen.view_key || canonicalScreen.screen_view || canonicalScreen.name || canonicalScreen.id)}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      targets.push({ variation, screen: actualScreen, canonicalScreen, canonicalArea });
+      const actualArea = findArea(variationAreas, canonicalArea) || canonicalArea;
+      targets.push({ variation, screen: actualScreen, canonicalScreen, canonicalArea, actualArea });
     });
   });
 
@@ -203,11 +236,11 @@ function resolveArtworkViewTargets(template, scopedVariations, group) {
 }
 
 async function generateMockup(template, variation, group, target) {
-  const variationAreas = activeTemplatePrintAreas(template, variation);
-  const area = findArea(variationAreas, target.canonicalArea) || target.canonicalArea;
+  const area = target.actualArea || getSlotArea(template, variation, target.canonicalArea) || target.canonicalArea;
   const slots = getArtworkSlots(group).filter((slot) => {
-    const slotArea = findArea(variationAreas, slot) || findArea([target.canonicalArea], slot);
-    return slotArea && (text(slotArea.screen_id) === text(area.screen_id) || sameSemantic(slotArea, area));
+    const slotArea = getSlotArea(template, variation, slot);
+    if (!slotArea) return false;
+    return text(slotArea.id) === text(area.id) || text(slotArea.screen_id) === text(area.screen_id) || sameSemantic(slotArea, area);
   });
   if (!slots.length) return null;
 
@@ -227,14 +260,13 @@ async function generateMockup(template, variation, group, target) {
   ctx.drawImage(base, 0, 0, canvas.width, canvas.height);
 
   for (const slot of slots) {
-    const slotArea = findArea(variationAreas, slot) || findArea([target.canonicalArea], slot);
-    if (!slotArea) continue;
+    const slotArea = getSlotArea(template, variation, slot) || area;
     if (slot.original_url) drawArtwork(ctx, await loadImage(slot.original_url), slotArea, slot, canvas.width, canvas.height);
     if (slot.text_layer || slot.text_content) drawText(ctx, slotArea, slot, canvas.width, canvas.height);
   }
 
   const viewKey = target.canonicalScreen.view_key || target.canonicalScreen.screen_view || target.canonicalScreen.name || target.canonicalScreen.id;
-  const safe = `${group?.label || group?.scope_type || "scope"}-${getVariationColour(variation)}-${viewKey}`.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const safe = `${group?.label || group?.scope_type || "scope"}-${colourLabel(variation)}-${viewKey}`.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const imageUrl = await uploadCanvas(canvas, `variation-mockup-${safe}.png`);
 
   return {
@@ -242,7 +274,7 @@ async function generateMockup(template, variation, group, target) {
     variation_id: variation.id,
     variation_ids: [variation.id],
     variation_label: getVariationLabel(variation),
-    variation_colour: getVariationColour(variation),
+    variation_colour: colourLabel(variation),
     scope_type: group?.scope_type || "custom",
     scope_label: group?.label || "Artwork scope",
     attribute_key: group?.attribute_key || "",
@@ -274,6 +306,8 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
 
   const readyTargets = targets.filter((target) => target.viewTargets.length);
   const totalViews = readyTargets.reduce((sum, target) => sum + target.viewTargets.length, 0);
+  const colourCount = readyTargets.reduce((sum, target) => sum + new Set(target.viewTargets.map((item) => getColourIdentity(item.variation))).size, 0);
+  const activeViewCount = new Set(readyTargets.flatMap((target) => target.viewTargets.map((item) => normalise(item.canonicalScreen.view_key || item.canonicalScreen.screen_view || item.canonicalScreen.name || item.canonicalScreen.id)))).size;
 
   const generateAll = async () => {
     if (!readyTargets.length) {
@@ -334,7 +368,7 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
         <div>
           <div className="overline mb-1">Variation Mockup Generation</div>
           <h2 className="font-display text-3xl uppercase">Generate required mockups</h2>
-          <p className="text-sm text-zinc-400 mt-2 max-w-3xl">Mockups are generated from artwork scope and artwork-backed print views. Sizes never create mockups. Shared artwork generates one mockup per selected colour and active artwork view, using that colour's own base image.</p>
+          <p className="text-sm text-zinc-400 mt-2 max-w-3xl">Mockups are generated from artwork scope and active artwork-backed print views. Sizes never create mockups. Shared artwork generates one mockup per selected colour and active artwork view, using that colour's own base image.</p>
         </div>
         <button type="button" className="btn-primary shrink-0" disabled={generating || !readyTargets.length} onClick={generateAll}>
           <RefreshCw size={15} className={generating ? "animate-spin" : ""} />
@@ -344,8 +378,8 @@ export default function VariationMockupGenerator({ template, artworkGroups, sele
       <div className="grid md:grid-cols-4 gap-3 text-xs">
         <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Selected variations</div><div className="font-display text-2xl mt-1">{variations.length}</div></div>
         <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Artwork scopes</div><div className="font-display text-2xl mt-1">{targets.length}</div></div>
+        <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Colours × active views</div><div className="font-display text-2xl mt-1">{colourCount} × {activeViewCount}</div></div>
         <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Required mockups</div><div className="font-display text-2xl mt-1">{totalViews}</div></div>
-        <div className="border border-white/10 bg-black/30 rounded-lg p-3"><div className="overline">Generation model</div><div className="font-display text-lg mt-1">1 / colour / artwork view</div></div>
       </div>
       {generating && <div className="h-2 rounded-full bg-white/10 overflow-hidden"><div className="h-full bg-[#FF3B30] transition-all" style={{ width: `${progress.total ? progress.done / progress.total * 100 : 0}%` }} /></div>}
       {lastResult && <div className="border border-[#34C759]/30 bg-[#0A1B10] rounded-lg p-3 flex items-center gap-2 text-sm text-[#B8F5C3]"><CheckCircle2 size={16} /> {lastResult.generated} mockups generated for {lastResult.colours} colour(s), across {lastResult.views} active artwork view(s) and {lastResult.scopes} scope(s).</div>}
