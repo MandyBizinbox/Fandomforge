@@ -32,9 +32,6 @@ def _sanitise_variation_payload(row: Any) -> dict:
         return {}
 
     cleaned = deepcopy(row)
-    # Artwork-scope mockups are authoritative on artwork_groups. Repeating
-    # them on every colour/size combination can multiply the request payload
-    # dramatically (and gives the backend duplicate sources of truth).
     for key in VARIATION_MOCKUP_KEYS:
         cleaned.pop(key, None)
     return cleaned
@@ -84,8 +81,6 @@ def install_builder_product_save_patch(routes_main_module) -> None:
                 },
             ) from exc
 
-        # The model compatibility layer allows these fields to persist even
-        # though the legacy Product model has not yet been fully typed for V2.
         normalized["variation_pricing_mode"] = clean_input.get("variation_pricing_mode") or normalized.get("variation_pricing_mode") or "by_attribute"
         if clean_input.get("pricing_attribute"):
             normalized["pricing_attribute"] = clean_input.get("pricing_attribute")
@@ -95,3 +90,13 @@ def install_builder_product_save_patch(routes_main_module) -> None:
     routes_main_module._builder_product_save_base_normalize = original_normalize
     routes_main_module.normalize_template_product_payload = wrapped_normalize_template_product_payload
     routes_main_module._builder_product_save_patch_installed = True
+
+    # The normalization wrapper cannot see failures that happen later while
+    # constructing the Product model or inserting into Mongo. Install a route
+    # guard as well so the next failing save reports the real exception instead
+    # of another opaque Cloudflare 500.
+    try:
+        from builder_product_save_debug_patch import install_builder_product_save_debug_patch
+        install_builder_product_save_debug_patch(routes_main_module)
+    except Exception:
+        logger.exception("Could not install Product Builder save diagnostics")
