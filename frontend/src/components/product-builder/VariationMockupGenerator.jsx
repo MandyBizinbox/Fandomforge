@@ -1,1 +1,1 @@
-export { default } from "./VariationMockupGeneratorFixed";
+export { default } from "./VariationMockupGeneratorColourScoped";
