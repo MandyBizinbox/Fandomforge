@@ -26,9 +26,7 @@ export function effectiveCreatorPricingStatus(product = {}) {
 
 export function canPublishCreatorProduct(product = {}) {
   if (isCreatorProductPublished(product) || needsCreatorPricingApproval(product)) return false;
-  if (!product?.id) {
-    return Boolean(product?.title) && Number(product?.estimated_creator_profit ?? 0) >= 0;
-  }
+  if (!product?.id) return Boolean(product?.title) && Number(product?.estimated_creator_profit ?? 0) >= 0;
   const artworkStatus = getCreatorProductArtworkStatus(product);
   return artworkStatus === "approved" || artworkStatus === "not_required";
 }
@@ -53,8 +51,13 @@ export function getCreatorProductRejectionReason(product = {}) {
 
 export async function setCreatorProductPublished(httpClientOrProductId, productOrPublished, publishedValue) {
   if (typeof httpClientOrProductId === "string") {
-    const response = await http.patch(`/products/${httpClientOrProductId}`, { published: Boolean(productOrPublished) });
-    return response;
+    const current = (await http.get(`/products/${httpClientOrProductId}`)).data;
+    if (Boolean(productOrPublished) && !canPublishCreatorProduct(current)) {
+      const error = new Error("Creator product is not ready to publish.");
+      error.response = { data: { detail: "Creator product is not ready to publish. Artwork and pricing approval requirements must be complete first." } };
+      throw error;
+    }
+    return http.patch(`/products/${httpClientOrProductId}`, { published: Boolean(productOrPublished) });
   }
   const response = await httpClientOrProductId.patch(`/products/${productOrPublished.id}`, { published: Boolean(publishedValue) });
   return response.data;
