@@ -17,13 +17,8 @@ export function isSizeKey(key = "") {
 export function getVariationAttributes(variation = {}) {
   const values = { ...(variation.attribute_values || {}) };
 
-  if (variation.size && !Object.keys(values).some(isSizeKey)) {
-    values.Size = variation.size;
-  }
-
-  if (variation.color && !Object.keys(values).some(isColourKey)) {
-    values.Colour = variation.color;
-  }
+  if (variation.size && !Object.keys(values).some(isSizeKey)) values.Size = variation.size;
+  if (variation.color && !Object.keys(values).some(isColourKey)) values.Colour = variation.color;
 
   return values;
 }
@@ -36,8 +31,7 @@ export function getVariationLabel(variation = {}) {
 
   if (values.length > 0) return values.join(" / ");
 
-  const legacy = [variation.size, variation.color].filter(Boolean).join(" / ");
-  return legacy || variation.sku || "Default";
+  return [variation.size, variation.color].filter(Boolean).join(" / ") || variation.sku || "Default";
 }
 
 export function getVariationColour(variation = {}) {
@@ -67,7 +61,6 @@ export function uniqueValues(values = []) {
 
 export function getProductAttributeNames(product = {}) {
   const names = [];
-
   (product.variations || []).forEach((variation) => {
     Object.keys(getVariationAttributes(variation)).forEach((key) => {
       if (!names.includes(key)) names.push(key);
@@ -84,26 +77,19 @@ export function getProductAttributeNames(product = {}) {
 }
 
 export function getAttributeOptions(product = {}, attrName = "") {
-  return uniqueValues(
-    (product.variations || []).map((variation) => getVariationAttributes(variation)[attrName])
-  );
+  return uniqueValues((product.variations || []).map((variation) => getVariationAttributes(variation)[attrName]));
 }
 
 export function variationMatchesSelected(variation = {}, selected = {}) {
   const attrs = getVariationAttributes(variation);
-  return Object.entries(selected).every(([key, value]) => {
-    if (!value) return true;
-    return attrs[key] === value;
-  });
+  return Object.entries(selected).every(([key, value]) => !value || attrs[key] === value);
 }
 
 export function findSelectedVariation(product = {}, selected = {}) {
   const variations = product.variations || [];
   if (variations.length === 0) return null;
-
   const selectedKeys = Object.keys(selected).filter((key) => selected[key]);
   if (selectedKeys.length === 0) return variations[0];
-
   return variations.find((variation) => variationMatchesSelected(variation, selected)) || null;
 }
 
@@ -115,14 +101,30 @@ export function buildInitialSelection(product = {}) {
 
 function getGroupMockups(group = {}) {
   const images = [];
-
   if (group.primary_mockup_image_url) images.push(group.primary_mockup_image_url);
-
   (group.artworks || []).forEach((artwork) => {
     if (artwork.mockup_image_url) images.push(artwork.mockup_image_url);
   });
-
   return uniqueValues(images);
+}
+
+function getVariationMockups(group = {}, variation = null) {
+  if (!variation) return [];
+
+  return uniqueValues(
+    (group.variation_mockups || [])
+      .filter((row) => {
+        if (!row || row.status === "rejected" || row.status === "archived") return false;
+        if (String(row.variation_id || "") === String(variation.id || "")) return true;
+        return Array.isArray(row.variation_ids) && row.variation_ids.some((id) => String(id) === String(variation.id || ""));
+      })
+      .sort((a, b) => {
+        const aOrder = Number(a.sort_order ?? 0);
+        const bOrder = Number(b.sort_order ?? 0);
+        return aOrder - bOrder;
+      })
+      .map((row) => row.image_url)
+  );
 }
 
 export function resolveArtworkGroup(product = {}, variation = null) {
@@ -137,25 +139,24 @@ export function resolveArtworkGroup(product = {}, variation = null) {
   });
   if (exactVariation) return exactVariation;
 
-  const customVariation = groups.find((group) => {
-    if (!Array.isArray(group.variation_ids)) return false;
-    return group.variation_ids.includes(variation.id);
-  });
+  const customVariation = groups.find((group) => Array.isArray(group.variation_ids) && group.variation_ids.includes(variation.id));
   if (customVariation) return customVariation;
 
   const attributeMatch = groups.find((group) => {
     if (group.scope_type !== "attribute") return false;
     if (!group.attribute_key || group.attribute_value === undefined || group.attribute_value === null) return false;
-    return attrs[group.attribute_key] === group.attribute_value;
+    const actualKey = Object.keys(attrs).find((key) => normalizeAttrKey(key) === normalizeAttrKey(group.attribute_key));
+    return actualKey && String(attrs[actualKey]) === String(group.attribute_value);
   });
   if (attributeMatch) return attributeMatch;
 
   const colourValue = getVariationColour(variation);
   if (colourValue) {
-    const colourMatch = groups.find((group) => {
-      if (group.scope_type !== "attribute") return false;
-      return isColourKey(group.attribute_key) && String(group.attribute_value) === String(colourValue);
-    });
+    const colourMatch = groups.find((group) => (
+      group.scope_type === "attribute"
+      && isColourKey(group.attribute_key)
+      && String(group.attribute_value) === String(colourValue)
+    ));
     if (colourMatch) return colourMatch;
   }
 
@@ -174,8 +175,16 @@ export function getFallbackProductImages(product = {}) {
 
 export function getProductGalleryImages(product = {}, variation = null) {
   const group = resolveArtworkGroup(product, variation);
+  const variationMockups = group ? getVariationMockups(group, variation) : [];
   const groupImages = group ? getGroupMockups(group) : [];
   const fallbackImages = getFallbackProductImages(product);
+
+  // Variation-specific generated mockups must win. A product-level primary image
+  // must never hide a mockup generated for the exact selected variation.
+  if (variationMockups.length) {
+    return uniqueValues([...variationMockups, ...groupImages, ...fallbackImages]);
+  }
+
   return uniqueValues([...groupImages, ...fallbackImages]);
 }
 
@@ -189,25 +198,13 @@ export function getProductPrimaryImageUrl(product = {}, variation = null) {
 }
 
 export function getCartImage(item = {}) {
-  return (
-    item.customization?.preview_image ||
-    item.mockup_url ||
-    item.primary_mockup_image_url ||
-    (item.mockup_images || [])[0] ||
-    ""
-  );
+  return item.customization?.preview_image || item.mockup_url || item.primary_mockup_image_url || (item.mockup_images || [])[0] || "";
 }
 
 export function getCartVariationLabel(item = {}) {
   if (item.variation_label) return item.variation_label;
-
   const attrs = item.attribute_values || {};
-  const label = Object.entries(attrs)
-    .filter(([, value]) => value)
-    .map(([key, value]) => `${key}: ${value}`)
-    .join(" / ");
-
+  const label = Object.entries(attrs).filter(([, value]) => value).map(([key, value]) => `${key}: ${value}`).join(" / ");
   if (label) return label;
-
   return [item.size, item.color].filter(Boolean).join(" / ") || "Default";
 }
