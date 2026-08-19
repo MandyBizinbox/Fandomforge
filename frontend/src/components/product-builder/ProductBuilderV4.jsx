@@ -69,9 +69,7 @@ function getVariationLabel(variation) {
   const values = Object.values(attrs).filter((value) => value !== undefined && value !== null && String(value).trim() !== "");
   return values.length ? values.join(" / ") : variation.name || variation.sku || "Variation";
 }
-function getVariationAttributes(variation) {
-  return variation?.attributes || variation?.attribute_values || variation?.options || {};
-}
+function getVariationAttributes(variation) { return variation?.attributes || variation?.attribute_values || variation?.options || {}; }
 function getAttributeValue(variation, key) {
   const attrs = getVariationAttributes(variation);
   const entry = Object.entries(attrs).find(([name]) => normalise(name) === normalise(key));
@@ -91,10 +89,11 @@ function inferPricingAttribute(variations) {
   });
   return scored.sort((a, b) => b.score - a.score)[0]?.key || keys[0];
 }
+function getVariationId(variation) { return variation?.template_variation_id || variation?.id || variation?.sku; }
 function getScopedPriceMap(variations, overrides, attribute) {
   const result = {};
   asArray(variations).forEach((variation) => {
-    const id = variation.template_variation_id || variation.id || variation.sku;
+    const id = getVariationId(variation);
     const value = getAttributeValue(variation, attribute);
     if (!id || !value) return;
     if (overrides?.[id] !== undefined && overrides[id] !== "") result[value] = overrides[id];
@@ -104,11 +103,26 @@ function getScopedPriceMap(variations, overrides, attribute) {
 function expandScopedPrice(variations, attribute, value, price, current) {
   const next = { ...(current || {}) };
   asArray(variations).forEach((variation) => {
-    const id = variation.template_variation_id || variation.id || variation.sku;
+    const id = getVariationId(variation);
     if (!id) return;
     if (String(getAttributeValue(variation, attribute)) === String(value)) next[id] = price;
   });
   return next;
+}
+function expandUniformPrice(variations, price) {
+  const next = {};
+  asArray(variations).forEach((variation) => {
+    const id = getVariationId(variation);
+    if (id) next[id] = price;
+  });
+  return next;
+}
+function formatCostRange(costs) {
+  const values = costs.map(Number).filter((value) => Number.isFinite(value));
+  if (!values.length) return "—";
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return Math.abs(max - min) < 0.005 ? money(min) : `${money(min)} – ${money(max)}`;
 }
 
 export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/products" }) {
@@ -130,7 +144,7 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
   const [selectedProductTypeId, setSelectedProductTypeId] = useState("");
   const [form, setForm] = useState({
     band_id: "", template_id: "", title: "", slug: "", description: "", specs: "", category: "", brand: "", active: true,
-    selected_template_variation_ids: [], variation_price_overrides: {}, selling_price: 0, published: false,
+    selected_template_variation_ids: [], variation_price_overrides: {}, variation_pricing_mode: "by_attribute", selling_price: 0, published: false,
     artwork_groups: [], mockup_images: [], mockup_image_url: "", primary_mockup_image_url: "",
   });
 
@@ -147,9 +161,10 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
   const commissionSource = useMemo(() => creatorAccount?.id ? creatorAccount : product, [creatorAccount, product]);
   const commissionRate = useMemo(() => resolveCreatorCommissionRate(commissionSource), [commissionSource]);
   const effectiveSellingPrice = useMemo(() => {
+    if (form.variation_pricing_mode === "uniform") return Number(form.selling_price || 0);
     const values = Object.values(scopedPriceMap).map(Number).filter((value) => value > 0);
     return values.length ? Math.max(...values) : Number(form.selling_price || 0);
-  }, [scopedPriceMap, form.selling_price]);
+  }, [form.variation_pricing_mode, scopedPriceMap, form.selling_price]);
   const pricing = useMemo(() => calculatePricing({ sellingPrice: effectiveSellingPrice, blankCost, printCost, commissionRate, commissionSource, pricingOverrideApproved: Boolean(product?.pricing_override_approved) }), [blankCost, commissionRate, commissionSource, effectiveSellingPrice, printCost, product]);
   const artworkSlots = useMemo(() => form.artwork_groups.flatMap((group) => asArray(group.artworks)).filter((slot) => slot?.original_url), [form.artwork_groups]);
   const readyArtworkSlots = useMemo(() => artworkSlots.filter((slot) => slot.print_option_id), [artworkSlots]);
@@ -175,11 +190,15 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
           const existing = responses[cursor].data;
           setProduct(existing);
           const groups = asArray(existing.artwork_groups).length ? asArray(existing.artwork_groups) : asArray(existing.artworks).length ? [{ ...createDefaultArtworkGroup(), artworks: asArray(existing.artworks), primary_mockup_image_url: existing.primary_mockup_image_url || existing.mockup_image_url || "" }] : [];
+          const existingVariationPrices = Object.fromEntries(asArray(existing.variations).map((variation) => [variation.template_variation_id || variation.id || variation.sku, variation.price_override ?? ""]).filter(([key]) => key));
+          const existingPriceValues = Object.values(existingVariationPrices).map(Number).filter((value) => Number.isFinite(value) && value > 0);
+          const inferredUniformPricing = existingVariationPrices && existingPriceValues.length > 0 && new Set(existingPriceValues.map((value) => value.toFixed(2))).size === 1;
           setForm({
             band_id: existing.band_id || "", template_id: existing.template_id || "", title: existing.title || "", slug: existing.slug || "", description: existing.description || "", specs: existing.specs || "", category: existing.category || "", brand: existing.brand || "", active: existing.active !== false,
             selected_template_variation_ids: asArray(existing.selected_template_variation_ids),
-            variation_price_overrides: Object.fromEntries(asArray(existing.variations).map((variation) => [variation.template_variation_id || variation.id || variation.sku, variation.price_override ?? ""]).filter(([key]) => key)),
-            selling_price: existing.selling_price || 0, published: Boolean(existing.published), artwork_groups: groups,
+            variation_price_overrides: existingVariationPrices,
+            variation_pricing_mode: existing.variation_pricing_mode || (inferredUniformPricing ? "uniform" : "by_attribute"),
+            selling_price: existing.selling_price || (inferredUniformPricing ? existingPriceValues[0] : 0), published: Boolean(existing.published), artwork_groups: groups,
             mockup_images: asArray(existing.mockup_images), mockup_image_url: existing.mockup_image_url || "", primary_mockup_image_url: existing.primary_mockup_image_url || existing.mockup_image_url || "",
           });
           const type = asArray(responses[2].data).find((row) => normalise(row.id) === normalise(existing.product_type_id) || normalise(row.category) === normalise(existing.category));
@@ -194,16 +213,28 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const chooseType = (typeId) => {
     const type = productTypes.find((row) => row.id === typeId); setSelectedProductTypeId(typeId);
-    setForm((current) => ({ ...current, template_id: "", selected_template_variation_ids: [], variation_price_overrides: {}, artwork_groups: [], mockup_images: [], mockup_image_url: "", primary_mockup_image_url: "", category: type?.category || current.category, specs: "" }));
+    setForm((current) => ({ ...current, template_id: "", selected_template_variation_ids: [], variation_price_overrides: {}, variation_pricing_mode: "by_attribute", selling_price: 0, artwork_groups: [], mockup_images: [], mockup_image_url: "", primary_mockup_image_url: "", category: type?.category || current.category, specs: "" }));
   };
   const chooseTemplate = (template) => {
     const templateSpecs = getTemplateSpecs(template);
-    setForm((current) => ({ ...current, template_id: template.id, selected_template_variation_ids: [], variation_price_overrides: {}, artwork_groups: [], mockup_images: [], mockup_image_url: "", primary_mockup_image_url: "", title: current.title || template.name || "", description: current.description || template.description || "", specs: templateSpecs || current.specs || "", category: template.category || current.category }));
+    setForm((current) => ({ ...current, template_id: template.id, selected_template_variation_ids: [], variation_price_overrides: {}, variation_pricing_mode: "by_attribute", selling_price: 0, artwork_groups: [], mockup_images: [], mockup_image_url: "", primary_mockup_image_url: "", title: current.title || template.name || "", description: current.description || template.description || "", specs: templateSpecs || current.specs || "", category: template.category || current.category }));
   };
   const setVariations = (ids) => setForm((current) => ({ ...current, selected_template_variation_ids: ids, variation_price_overrides: Object.fromEntries(Object.entries(current.variation_price_overrides || {}).filter(([key]) => ids.includes(key))), artwork_groups: [], mockup_images: [], mockup_image_url: "", primary_mockup_image_url: "" }));
   const setScopedPrice = (attributeValue, price) => {
     const nextOverrides = expandScopedPrice(selectedVariations, pricingAttribute, attributeValue, price, form.variation_price_overrides);
-    setForm((current) => ({ ...current, variation_price_overrides: nextOverrides, selling_price: Number(price || 0) > 0 ? Number(price) : current.selling_price }));
+    setForm((current) => ({ ...current, variation_pricing_mode: "by_attribute", variation_price_overrides: nextOverrides, selling_price: Number(price || 0) > 0 ? Number(price) : current.selling_price }));
+  };
+  const setUniformPrice = (price) => {
+    const numeric = Number(price || 0);
+    setForm((current) => ({ ...current, variation_pricing_mode: "uniform", variation_price_overrides: expandUniformPrice(selectedVariations, price), selling_price: numeric > 0 ? numeric : price }));
+  };
+  const setPricingMode = (mode) => {
+    if (mode === "uniform") {
+      const currentPrice = Number(form.selling_price || Object.values(scopedPriceMap).map(Number).find((value) => value > 0) || 0);
+      setUniformPrice(currentPrice);
+      return;
+    }
+    setForm((current) => ({ ...current, variation_pricing_mode: "by_attribute" }));
   };
   const setArtworkGroups = (groups) => {
     const flattened = flattenArtworkGroups(groups); const primary = flattened.find((slot) => slot.original_url) || flattened[0] || null; const generatedPrimary = getPrimaryMockupFromGroups(groups);
@@ -234,7 +265,7 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
     form.artwork_groups.flatMap((group) => asArray(group.variation_mockups)).filter((mockup) => mockup?.image_url).forEach((mockup) => { const ids = asArray(mockup.variation_ids).length ? asArray(mockup.variation_ids) : [mockup.variation_id]; ids.filter(Boolean).forEach((id) => mockupMap.set(id, [...(mockupMap.get(id) || []), mockup])); });
     const variations = baseVariations.map((variation) => { const mockups = mockupMap.get(variation.template_variation_id || variation.id) || []; return { ...variation, variation_mockups: mockups, mockup_images: mockups.map((item) => item.image_url).filter(Boolean), mockup_image_url: mockups[0]?.image_url || "", primary_mockup_image_url: mockups[0]?.image_url || "" }; });
     const selectedGallery = asArray(form.mockup_images).filter(Boolean); const primaryMockup = selectedGallery.includes(form.primary_mockup_image_url) ? form.primary_mockup_image_url : selectedGallery[0] || getPrimaryMockupFromGroups(form.artwork_groups) || ""; const mockupImages = primaryMockup ? [primaryMockup, ...selectedGallery.filter((url) => url !== primaryMockup)] : selectedGallery;
-    return { ...(isAdmin ? { band_id: form.band_id } : {}), template_id: form.template_id, title: form.title.trim(), slug: form.slug.trim(), description: form.description || "", specs: form.specs || "", category: form.category || selectedTemplate?.category || "", brand: form.brand || "", active: form.active !== false, selling_price: Number(form.selling_price || 0), print_cost: pricing.print, mockup_images: mockupImages, mockup_image_url: primaryMockup, primary_mockup_image_url: primaryMockup, variations, attribute_ids: asArray(selectedTemplate?.attribute_ids), spec_attributes: {}, customization_enabled: false, published: isAdmin ? Boolean(form.published) : false, publish_on_approval: false, selected_template_variation_ids: form.selected_template_variation_ids, selected_print_area_id: primary?.print_area_id || "", selected_print_option_id: primary?.print_option_id || "", artwork: primary?.original_url ? { original_url: primary.original_url, file_name: primary.file_name || "artwork", mime_type: primary.mime_type || "", status: primary.status || (isAdmin ? "approved" : "pending_review") } : EMPTY_ARTWORK, artworks: flattenArtworkGroups(form.artwork_groups), artwork_groups: form.artwork_groups, placement: primary?.placement || EMPTY_PLACEMENT, estimated_blank_cost: pricing.blank, estimated_print_cost: pricing.print, estimated_total_cost: pricing.production, commission_rate: pricing.rate, estimated_commission: pricing.commission, estimated_creator_profit: pricing.profit };
+    return { ...(isAdmin ? { band_id: form.band_id } : {}), template_id: form.template_id, title: form.title.trim(), slug: form.slug.trim(), description: form.description || "", specs: form.specs || "", category: form.category || selectedTemplate?.category || "", brand: form.brand || "", active: form.active !== false, selling_price: Number(form.selling_price || 0), variation_pricing_mode: form.variation_pricing_mode, print_cost: pricing.print, mockup_images: mockupImages, mockup_image_url: primaryMockup, primary_mockup_image_url: primaryMockup, variations, attribute_ids: asArray(selectedTemplate?.attribute_ids), spec_attributes: {}, customization_enabled: false, published: isAdmin ? Boolean(form.published) : false, publish_on_approval: false, selected_template_variation_ids: form.selected_template_variation_ids, selected_print_area_id: primary?.print_area_id || "", selected_print_option_id: primary?.print_option_id || "", artwork: primary?.original_url ? { original_url: primary.original_url, file_name: primary.file_name || "artwork", mime_type: primary.mime_type || "", status: primary.status || (isAdmin ? "approved" : "pending_review") } : EMPTY_ARTWORK, artworks: flattenArtworkGroups(form.artwork_groups), artwork_groups: form.artwork_groups, placement: primary?.placement || EMPTY_PLACEMENT, estimated_blank_cost: pricing.blank, estimated_print_cost: pricing.print, estimated_total_cost: pricing.production, commission_rate: pricing.rate, estimated_commission: pricing.commission, estimated_creator_profit: pricing.profit };
   };
   const publishCreator = async (target) => { if (!target?.id) return; setPublishing(true); try { const response = await setCreatorProductPublished(target.id, true); setProduct(response?.data || { ...target, published: true }); update("published", true); toast.success("Product published"); } catch (error) { toast.error(error.response?.data?.detail || "Could not publish product"); } finally { setPublishing(false); } };
   const save = async ({ publish = false } = {}) => {
@@ -256,7 +287,7 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
       {activeStep === "variations" && <VariationsStep template={selectedTemplate} selectedIds={form.selected_template_variation_ids} onChange={setVariations} hasVariations={hasVariations} />}
       {activeStep === "artwork" && <ArtworkStep template={selectedTemplate} printOptions={printOptions} artworkGroups={form.artwork_groups} onArtworkGroupsChange={setArtworkGroups} selectedVariations={selectedVariations} isAdmin={isAdmin} />}
       {activeStep === "mockups" && <MockupsStep template={selectedTemplate} artworkGroups={form.artwork_groups} selectedVariations={selectedVariations} onArtworkGroupsChange={setArtworkGroups} candidates={galleryCandidates} selectedImages={form.mockup_images} primaryImage={form.primary_mockup_image_url} toggleImage={toggleGalleryImage} setPrimary={(url) => { update("primary_mockup_image_url", url); update("mockup_image_url", url); }} generatedMockups={generatedMockups} />}
-      {activeStep === "pricing" && <PricingStep form={form} update={update} pricing={pricing} selectedVariations={selectedVariations} pricingAttribute={pricingAttribute} scopedPriceMap={scopedPriceMap} setScopedPrice={setScopedPrice} isAdmin={isAdmin} />}
+      {activeStep === "pricing" && <PricingStep form={form} update={update} pricing={pricing} selectedVariations={selectedVariations} pricingAttribute={pricingAttribute} scopedPriceMap={scopedPriceMap} setScopedPrice={setScopedPrice} setUniformPrice={setUniformPrice} setPricingMode={setPricingMode} isAdmin={isAdmin} />}
       {activeStep === "review" && <ReviewStep form={form} selectedType={selectedType} selectedTemplate={selectedTemplate} selectedVariations={selectedVariations} readyArtworkSlots={readyArtworkSlots} generatedMockups={generatedMockups} pricing={pricing} readyToPublish={readyToPublish} isAdmin={isAdmin} saving={saving} publishing={publishing} save={save} product={product} publishCreator={publishCreator} />}
     </main>
     <footer className="mt-6 sticky bottom-0 z-20 border-t border-white/10 bg-black/90 backdrop-blur-xl py-3 flex items-center justify-between gap-3"><button type="button" className="builder-nav-button builder-nav-button-secondary" onClick={prevStep} disabled={stepIndex === 0}><ChevronLeft size={15} /> Previous</button><button type="button" className="builder-nav-button builder-nav-button-save" onClick={() => save()} disabled={saving}><Save size={14} /> Save</button>{stepIndex < STEPS.length - 1 ? <button type="button" className="builder-nav-button builder-nav-button-primary" onClick={nextStep}>Next <ChevronRight size={15} /></button> : <button type="button" className="builder-nav-button builder-nav-button-primary" onClick={() => save({ publish: true })} disabled={saving || publishing || !readyToPublish}>{isAdmin ? "Save & Publish" : "Submit / Publish"}</button>}</footer>
@@ -276,26 +307,62 @@ function BasicsStep({ form, update, productTypes, selectedProductTypeId, chooseT
     <label className="flex items-center gap-3 text-sm text-white"><input type="checkbox" checked={form.active !== false} onChange={(e) => update("active", e.target.checked)} /> Active product</label>
   </section></div>;
 }
-
 function VariationsStep({ template, selectedIds, onChange, hasVariations }) { return <div className="space-y-5"><ProductVariationMatrix template={template} selectedIds={selectedIds} onChange={onChange} hasTemplateVariations={hasVariations} /></div>; }
 function ArtworkStep({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin }) { return <div className="space-y-6"><ArtworkScopeSelector selectedVariations={selectedVariations} hasTemplateVariations={Boolean(asArray(template?.variations).length)} groups={artworkGroups} onChange={onArtworkGroupsChange} /><div className="border-t border-white/10 pt-6"><ScopedProductArtworkStudio template={template} printOptions={printOptions} artworkGroups={artworkGroups} onArtworkGroupsChange={onArtworkGroupsChange} selectedVariations={selectedVariations} isAdmin={isAdmin} /></div></div>; }
 function MockupsStep({ template, artworkGroups, selectedVariations, onArtworkGroupsChange, candidates, selectedImages, primaryImage, toggleImage, setPrimary, generatedMockups }) { return <div className="space-y-6"><ScopedArtworkMockupGenerator template={template} artworkGroups={artworkGroups} selectedVariations={selectedVariations} onArtworkGroupsChange={onArtworkGroupsChange} /><section className="card"><div className="overline mb-1">Storefront gallery</div><p className="text-sm text-zinc-500">Select which template and artwork-scope images appear on the storefront. One generated image can represent every size inside its artwork scope.</p><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-5">{candidates.map((candidate) => { const url = candidate.url; const selected = selectedImages.includes(url); const primary = primaryImage === url; return <button key={`${url}-${candidate.key || candidate.id || "image"}`} type="button" onClick={() => toggleImage(url)} className={`relative text-left rounded-xl overflow-hidden border ${selected ? "border-emerald-400" : "border-white/10"}`}><img src={assetUrl(url)} alt={candidate.label || "Product mockup"} className="w-full aspect-square object-contain bg-black" /><div className="p-3 bg-black/60"><div className="text-xs font-bold text-white">{candidate.label || "Mockup"}</div><div className="text-[10px] text-zinc-500 mt-1">{selected ? "Selected for storefront" : "Not selected"}</div></div>{selected && <span className="absolute top-2 left-2 text-[9px] uppercase tracking-widest bg-emerald-400 text-black px-2 py-1 rounded-full">Selected</span>}{primary && <span className="absolute top-2 right-2 text-[9px] uppercase tracking-widest bg-white text-black px-2 py-1 rounded-full">Primary</span>}<span className="absolute bottom-14 right-2"><span onClick={(event) => { event.stopPropagation(); setPrimary(url); }} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-black/80 text-[9px] uppercase tracking-widest text-white"><Star size={10} /> Make primary</span></span></button>; })}</div>{!candidates.length && <div className="mt-4 border border-dashed border-white/15 rounded-xl p-5 text-sm text-zinc-500">Generate an artwork-scope mockup first.</div>}<div className="mt-5 text-xs text-zinc-500">Generated images: {generatedMockups.length}. Storefront images selected: {selectedImages.length}.</div></section></div>; }
 
-function PricingStep({ form, update, pricing, selectedVariations, pricingAttribute, scopedPriceMap, setScopedPrice, isAdmin }) {
+function PricingStep({ form, update, pricing, selectedVariations, pricingAttribute, scopedPriceMap, setScopedPrice, setUniformPrice, setPricingMode, isAdmin }) {
   const values = useMemo(() => [...new Set(asArray(selectedVariations).map((variation) => String(getAttributeValue(variation, pricingAttribute) || "")).filter(Boolean))], [selectedVariations, pricingAttribute]);
+  const productionByValue = useMemo(() => values.map((value) => {
+    const matching = asArray(selectedVariations).filter((variation) => String(getAttributeValue(variation, pricingAttribute)) === String(value));
+    const costs = matching.map((variation) => Number(getVariationCost(variation, null)) + Number(pricing.print || 0));
+    return { value, costs, production: formatCostRange(costs), maxProduction: costs.length ? Math.max(...costs) : 0 };
+  }), [selectedVariations, pricingAttribute, values, pricing.print]);
+  const uniformPrice = Number(form.selling_price || 0);
+  const currentScopedPrice = (value) => Number(scopedPriceMap[value] || 0);
   return <div className="space-y-6">
-    <section className="card"><div className="overline mb-1">Scoped variation pricing</div><h2 className="text-2xl font-display uppercase mt-1">Price by {pricingAttribute || "attribute"}</h2><p className="text-sm text-zinc-500 mt-2">Set each price once. FandomForge applies it to every colour or other variation sharing that attribute value. You do not need to price 75 combinations individually.</p>
-      {pricingAttribute ? <div className="mt-5 space-y-2">{values.map((value) => <div key={value} className="grid grid-cols-[1fr_auto] items-center gap-4 border border-white/10 rounded-xl p-3 bg-black/20"><div><div className="font-bold text-white">{value}</div><div className="text-[10px] uppercase tracking-widest text-zinc-500">Applies to every selected variation with {pricingAttribute} = {value}</div></div><div className="flex items-center gap-2"><span className="text-zinc-500">R</span><input className="input-base w-32 text-right font-bold" type="number" min="0" step="0.01" value={scopedPriceMap[value] ?? ""} onChange={(event) => setScopedPrice(value, event.target.value)} placeholder="0.00" /></div></div>)}</div> : <div className="mt-5 flex items-center gap-2"><span className="text-zinc-500">R</span><input className="input-base max-w-xs text-xl font-bold" type="number" min="0" step="0.01" value={form.selling_price} onChange={(e) => update("selling_price", e.target.value)} /></div>}
-      <div className="mt-5 grid sm:grid-cols-3 gap-3"><Info label="Selected variations" value={String(selectedVariations.length || 1)} /><Info label="Pricing rules" value={String(values.length || 1)} /><Info label="Resolved prices" value={String(Object.keys(form.variation_price_overrides || {}).length || (selectedVariations.length ? selectedVariations.length : 1))} /></div>
+    <section className="card">
+      <div className="overline mb-1">Scoped variation pricing</div>
+      <h2 className="text-2xl font-display uppercase mt-1">Price by {pricingAttribute || "attribute"}</h2>
+      <p className="text-sm text-zinc-500 mt-2">Choose one simple pricing rule. Production cost is shown separately because different sizes can cost FandomForge different amounts to manufacture.</p>
+      <div className="mt-5 grid sm:grid-cols-2 gap-3">
+        <button type="button" onClick={() => setPricingMode("by_attribute")} className={`text-left rounded-xl border p-4 transition ${form.variation_pricing_mode !== "uniform" ? "border-emerald-400 bg-emerald-500/10" : "border-white/10 bg-black/20"}`}>
+          <div className="font-bold text-white">Price by {pricingAttribute || "attribute"}</div>
+          <div className="text-xs text-zinc-500 mt-1">Different sizes can have different selling prices.</div>
+        </button>
+        <button type="button" onClick={() => setPricingMode("uniform")} className={`text-left rounded-xl border p-4 transition ${form.variation_pricing_mode === "uniform" ? "border-emerald-400 bg-emerald-500/10" : "border-white/10 bg-black/20"}`}>
+          <div className="font-bold text-white">Same price for all sizes</div>
+          <div className="text-xs text-zinc-500 mt-1">One selling price is applied to every selected variation.</div>
+        </button>
+      </div>
+
+      {form.variation_pricing_mode === "uniform" ? <div className="mt-5 border border-white/10 rounded-xl p-4 bg-black/20">
+        <div className="text-xs uppercase tracking-widest text-zinc-500">Selling price for every selected variation</div>
+        <div className="flex items-center gap-2 mt-2"><span className="text-zinc-500">R</span><input className="input-base max-w-xs text-xl font-bold" type="number" min="0" step="0.01" value={uniformPrice || ""} onChange={(event) => setUniformPrice(event.target.value)} placeholder="0.00" /></div>
+        <div className="text-xs text-zinc-500 mt-2">Colours and sizes all use this same selling price. Production cost remains variation-specific below.</div>
+      </div> : pricingAttribute ? <div className="mt-5 space-y-2">
+        {productionByValue.map(({ value, production, maxProduction }) => {
+          const selling = currentScopedPrice(value);
+          const margin = selling > 0 ? selling - maxProduction : 0;
+          return <div key={value} className="grid lg:grid-cols-[1fr_auto_auto] items-center gap-4 border border-white/10 rounded-xl p-3 bg-black/20">
+            <div><div className="font-bold text-white">{value}</div><div className="text-[10px] uppercase tracking-widest text-zinc-500">Applies to every selected variation with {pricingAttribute} = {value}</div></div>
+            <div className="text-right"><div className="text-[10px] uppercase tracking-widest text-zinc-500">Production cost</div><div className="font-bold text-amber-200">{production}</div><div className="text-[10px] text-zinc-600">highest cost used for safety: {money(maxProduction)}</div></div>
+            <div className="flex items-center gap-2"><span className="text-zinc-500">R</span><input aria-label={`${value} selling price`} className="input-base w-32 text-right font-bold" type="number" min="0" step="0.01" value={scopedPriceMap[value] ?? ""} onChange={(event) => setScopedPrice(value, event.target.value)} placeholder="0.00" /></div>
+            {selling > 0 && <div className={`lg:col-start-2 lg:col-span-2 text-xs ${margin >= 0 ? "text-emerald-300" : "text-red-300"}`}>Selling price {money(selling)} {margin >= 0 ? "covers" : "is below"} the highest production cost by {money(Math.abs(margin))} before platform/commission costs.</div>}
+          </div>;
+        })}
+      </div> : <div className="mt-5 flex items-center gap-2"><span className="text-zinc-500">R</span><input className="input-base max-w-xs text-xl font-bold" type="number" min="0" step="0.01" value={form.selling_price} onChange={(e) => update("selling_price", e.target.value)} /></div>}
+      <div className="mt-5 grid sm:grid-cols-3 gap-3"><Info label="Selected variations" value={String(selectedVariations.length || 1)} /><Info label="Pricing rules" value={String(form.variation_pricing_mode === "uniform" ? 1 : values.length || 1)} /><Info label="Resolved variation prices" value={String(Object.keys(form.variation_price_overrides || {}).length || (selectedVariations.length ? selectedVariations.length : 1))} /></div>
     </section>
-    <section className="card"><div className="overline mb-1">Live economics</div><div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4"><Metric label="Base product" value={money(pricing.blank)} /><Metric label="Printing" value={money(pricing.print)} /><Metric label="Production total" value={money(pricing.production)} /><Metric label="Platform / commission" value={money(pricing.commission)} /></div><div className="mt-5 border border-white/10 rounded-xl p-5"><div className="text-xs uppercase tracking-widest text-zinc-500">Representative selling price</div><div className="text-2xl font-bold text-white mt-2">{money(Math.max(...Object.values(scopedPriceMap).map(Number).filter((value) => value > 0), Number(form.selling_price || 0)))}</div><div className={`mt-3 text-lg font-bold ${pricing.profit >= 0 ? "text-emerald-300" : "text-red-300"}`}>Creator / fundraising amount: {money(pricing.profit)}</div><div className="text-xs text-zinc-500 mt-1">Minimum profitable price: {money(pricing.minimumSellingPrice || 0)}</div></div></section>
+    <section className="card"><div className="overline mb-1">Live economics</div><div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4"><Metric label="Highest base cost" value={money(pricing.blank)} /><Metric label="Printing" value={money(pricing.print)} /><Metric label="Highest production total" value={money(pricing.production)} /><Metric label="Platform / commission" value={money(pricing.commission)} /></div><div className="mt-5 border border-white/10 rounded-xl p-5"><div className="text-xs uppercase tracking-widest text-zinc-500">Representative selling price</div><div className="text-2xl font-bold text-white mt-2">{money(effectiveRepresentativePrice(form, scopedPriceMap))}</div><div className={`mt-3 text-lg font-bold ${pricing.profit >= 0 ? "text-emerald-300" : "text-red-300"}`}>Creator / fundraising amount: {money(pricing.profit)}</div><div className="text-xs text-zinc-500 mt-1">Minimum profitable price: {money(pricing.minimumSellingPrice || 0)}</div></div></section>
     {isAdmin && <label className="card flex items-center gap-3 text-sm"><input type="checkbox" checked={form.published} onChange={(e) => update("published", e.target.checked)} /> Publish when saved</label>}
   </div>;
 }
+function effectiveRepresentativePrice(form, scopedPriceMap) { if (form.variation_pricing_mode === "uniform") return Number(form.selling_price || 0); const values = Object.values(scopedPriceMap).map(Number).filter((value) => value > 0); return values.length ? Math.max(...values) : Number(form.selling_price || 0); }
 
 function ReviewStep({ form, product, selectedType, selectedTemplate, selectedVariations, readyArtworkSlots, generatedMockups, pricing, readyToPublish, isAdmin, saving, publishing, save, publishCreator }) {
   const published = Boolean(product && isCreatorProductPublished(product));
-  return <div className="space-y-6"><section className="card"><div className="overline mb-1">Final product check</div><div className="grid md:grid-cols-2 gap-4 mt-5"><Info label="Product" value={form.title || "Untitled"} /><Info label="Type" value={selectedType?.name || form.category || "Not selected"} /><Info label="Template" value={selectedTemplate?.name || "Not selected"} /><Info label="Variations" value={selectedVariations.length ? `${selectedVariations.length} selected` : "Standard product"} /><Info label="Artwork scopes" value={`${asArray(form.artwork_groups).length}`} /><Info label="Artwork ready" value={`${readyArtworkSlots.length}`} /><Info label="Mockups" value={`${generatedMockups.length} generated`} /><Info label="Storefront gallery" value={`${form.mockup_images.length} selected`} /><Info label="Selling price" value={money(form.selling_price)} /></div></section><section className="card"><div className="overline mb-3">Readiness</div><Checklist done={Boolean(form.title.trim()) && Boolean(selectedType)} label="Product basics complete" /><Checklist done={Boolean(form.template_id)} label="Template selected and specs loaded" /><Checklist done={!asArray(selectedTemplate?.variations).length || selectedVariations.length > 0} label="Attribute combinations selected" /><Checklist done={readyArtworkSlots.length > 0} label="Artwork uploaded and routed" /><Checklist done={generatedMockups.length > 0} label="Artwork-scope mockups generated" /><Checklist done={form.mockup_images.length > 0} label="Storefront gallery selected" /><Checklist done={pricing.canPublishWithOverride} label="Pricing covers required costs" /></section><section className="card"><div className="overline mb-3">Action</div>{isAdmin ? <button type="button" className="btn-primary" disabled={saving} onClick={() => save({ publish: true })}>Save & Publish</button> : published ? <div className="text-sm text-emerald-300">Product is published.</div> : <div className="flex flex-wrap gap-3"><button type="button" className="btn-primary" disabled={saving} onClick={() => save()}>Save Product</button><button type="button" className="btn-secondary" disabled={saving || publishing || !readyToPublish} onClick={() => save({ publish: true })}>{publishing ? "Publishing…" : "Save & Submit / Publish"}</button></div>}{!readyToPublish && !isAdmin && <div className="text-xs text-zinc-500 mt-3">Complete artwork, scope mockups and profitable pricing before publishing.</div>}</section></div>;
+  return <div className="space-y-6"><section className="card"><div className="overline mb-1">Final product check</div><div className="grid md:grid-cols-2 gap-4 mt-5"><Info label="Product" value={form.title || "Untitled"} /><Info label="Type" value={selectedType?.name || form.category || "Not selected"} /><Info label="Template" value={selectedTemplate?.name || "Not selected"} /><Info label="Variations" value={selectedVariations.length ? `${selectedVariations.length} selected` : "Standard product"} /><Info label="Artwork scopes" value={`${asArray(form.artwork_groups).length}`} /><Info label="Artwork ready" value={`${readyArtworkSlots.length}`} /><Info label="Mockups" value={`${generatedMockups.length} generated`} /><Info label="Storefront gallery" value={`${form.mockup_images.length} selected`} /><Info label="Selling price" value={money(effectiveRepresentativePrice(form, getScopedPriceMap(selectedVariations, form.variation_price_overrides, inferPricingAttribute(selectedVariations))))} /></div></section><section className="card"><div className="overline mb-3">Readiness</div><Checklist done={Boolean(form.title.trim()) && Boolean(selectedType)} label="Product basics complete" /><Checklist done={Boolean(form.template_id)} label="Template selected and specs loaded" /><Checklist done={!asArray(selectedTemplate?.variations).length || selectedVariations.length > 0} label="Attribute combinations selected" /><Checklist done={readyArtworkSlots.length > 0} label="Artwork uploaded and routed" /><Checklist done={generatedMockups.length > 0} label="Artwork-scope mockups generated" /><Checklist done={form.mockup_images.length > 0} label="Storefront gallery selected" /><Checklist done={pricing.canPublishWithOverride} label="Pricing covers required costs" /></section><section className="card"><div className="overline mb-3">Action</div>{isAdmin ? <button type="button" className="btn-primary" disabled={saving} onClick={() => save({ publish: true })}>Save & Publish</button> : published ? <div className="text-sm text-emerald-300">Product is published.</div> : <div className="flex flex-wrap gap-3"><button type="button" className="btn-primary" disabled={saving} onClick={() => save()}>Save Product</button><button type="button" className="btn-secondary" disabled={saving || publishing || !readyToPublish} onClick={() => save({ publish: true })}>{publishing ? "Publishing…" : "Save & Submit / Publish"}</button></div>}{!readyToPublish && !isAdmin && <div className="text-xs text-zinc-500 mt-3">Complete artwork, scope mockups and profitable pricing before publishing.</div>}</section></div>;
 }
 function Field({ label, children }) { return <div><label className="label">{label}</label>{children}</div>; }
 function Info({ label, value }) { return <div className="border border-white/10 rounded-xl p-3"><div className="text-[10px] uppercase tracking-widest text-zinc-500">{label}</div><div className="text-sm text-white mt-1 break-words">{value || "—"}</div></div>; }
