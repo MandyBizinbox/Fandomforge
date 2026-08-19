@@ -15,7 +15,7 @@ import {
 } from "../../lib/creatorProductPublishing";
 import ProductVariationMatrix from "./ProductVariationMatrix";
 import ArtworkScopeSelector from "./ArtworkScopeSelector";
-import ProductArtworkStudio from "./ProductArtworkStudio";
+import ScopedProductArtworkStudio from "./ScopedProductArtworkStudio";
 import VariationMockupGenerator from "./VariationMockupGenerator";
 import {
   asArray,
@@ -567,17 +567,20 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
         form.variation_price_overrides
       )
       : [buildStandardProductVariation(selectedTemplate)];
-    const variationMockupMap = new Map(
-      asArray(form.artwork_groups)
-        .flatMap((group) => asArray(group.variation_mockups))
-        .filter((mockup) => mockup?.variation_id && mockup?.image_url)
-        .reduce((rows, mockup) => {
-          const current = rows.get(mockup.variation_id) || [];
-          current.push(mockup);
-          rows.set(mockup.variation_id, current);
-          return rows;
-        }, new Map())
-    );
+    const variationMockupMap = new Map();
+    asArray(form.artwork_groups)
+      .flatMap((group) => asArray(group.variation_mockups))
+      .filter((mockup) => mockup?.image_url)
+      .forEach((mockup) => {
+        const ids = asArray(mockup.variation_ids).length
+          ? asArray(mockup.variation_ids)
+          : [mockup.variation_id];
+        ids.filter(Boolean).forEach((variationId) => {
+          const current = variationMockupMap.get(variationId) || [];
+          if (!current.some((row) => row.image_url === mockup.image_url && row.view_key === mockup.view_key)) current.push(mockup);
+          variationMockupMap.set(variationId, current);
+        });
+      });
     const variations = baseVariations.map((variation) => {
       const mockups = variationMockupMap.get(variation.template_variation_id || variation.id) || [];
       return {
@@ -936,7 +939,7 @@ export default function ProductBuilder({ mode = "creator", backTo = "/creator/pr
 
           {activeStep === "artwork" && selectedTemplate && (
             <div className="space-y-6">
-              <ProductArtworkStudio
+              <ScopedProductArtworkStudio
                 template={selectedTemplate}
                 printOptions={printOptions}
                 artworkGroups={form.artwork_groups}
