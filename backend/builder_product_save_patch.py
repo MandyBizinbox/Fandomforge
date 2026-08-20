@@ -4,7 +4,8 @@ Keeps the new scoped-pricing builder payload lean and server-authoritative:
 - variation mockup records live on artwork groups, not every generated variation;
 - variation pricing mode survives normalization;
 - per-variation price overrides remain intact;
-- save failures expose a useful API error instead of an opaque 500.
+- save failures expose a useful API error instead of an opaque 500;
+- server-owned Product fields cannot collide with explicit Product(...) fields.
 """
 from __future__ import annotations
 
@@ -22,6 +23,20 @@ VARIATION_MOCKUP_KEYS = {
     "mockup_images",
     "mockup_image_url",
     "primary_mockup_image_url",
+}
+
+# These fields are supplied explicitly by the create/update route after
+# template normalization.  If the normalizer returns any of them, passing
+# both **data and an explicit keyword into Product(...) raises Python's
+# "multiple values for keyword argument" TypeError.
+SERVER_OWNED_PRODUCT_FIELDS = {
+    "band_id",
+    "slug",
+    "assigned_printer_id",
+    "created_by_user_id",
+    "created_by_role",
+    "created_at",
+    "updated_at",
 }
 
 
@@ -45,6 +60,14 @@ def _sanitise_product_payload(data: dict) -> dict:
             if row
         ]
     return payload
+
+
+def _strip_server_owned_product_fields(data: dict) -> dict:
+    """Remove fields that the Product route supplies explicitly."""
+    cleaned = dict(data or {})
+    for key in SERVER_OWNED_PRODUCT_FIELDS:
+        cleaned.pop(key, None)
+    return cleaned
 
 
 def install_builder_product_save_patch(routes_main_module) -> None:
@@ -81,6 +104,7 @@ def install_builder_product_save_patch(routes_main_module) -> None:
                 },
             ) from exc
 
+        normalized = _strip_server_owned_product_fields(normalized)
         normalized["variation_pricing_mode"] = clean_input.get("variation_pricing_mode") or normalized.get("variation_pricing_mode") or "by_attribute"
         if clean_input.get("pricing_attribute"):
             normalized["pricing_attribute"] = clean_input.get("pricing_attribute")
