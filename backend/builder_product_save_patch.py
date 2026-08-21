@@ -5,7 +5,10 @@ Keeps the new scoped-pricing builder payload lean and server-authoritative:
 - variation pricing mode survives normalization;
 - per-variation price overrides remain intact;
 - save failures expose a useful API error instead of an opaque 500;
-- server-owned Product fields cannot collide with explicit Product(...) fields.
+- server-owned Product fields cannot collide with explicit Product(...) fields;
+- the admin creator-product route is guarded so the sanitization wrapper is
+  active at request time, even if a later compatibility layer replaces the
+  module-level normalizer reference.
 """
 from __future__ import annotations
 
@@ -26,7 +29,7 @@ VARIATION_MOCKUP_KEYS = {
 }
 
 # These fields are supplied explicitly by the create/update route after
-# template normalization.  If the normalizer returns any of them, passing
+# template normalization. If the normalizer returns any of them, passing
 # both **data and an explicit keyword into Product(...) raises Python's
 # "multiple values for keyword argument" TypeError.
 SERVER_OWNED_PRODUCT_FIELDS = {
@@ -56,7 +59,11 @@ def _sanitise_product_payload(data: dict) -> dict:
     payload = deepcopy(data or {})
     if "variations" in payload:
         payload["variations"] = [
-            row for row in (_sanitise_variation_payload(value) for value in (payload.get("variations") or []))
+            row
+            for row in (
+                _sanitise_variation_payload(value)
+                for value in (payload.get("variations") or [])
+            )
             if row
         ]
     return payload
@@ -70,6 +77,63 @@ def _strip_server_owned_product_fields(data: dict) -> dict:
     return cleaned
 
 
+def _find_admin_product_create_route(routes_main_module):
+    """Find the admin POST /products route before router inclusion."""
+    admin_router = getattr(routes_main_module, "admin_router", None)
+    for route in getattr(admin_router, "routes", []) or []:
+        path = getattr(route, "path", "")
+        methods = getattr(route, "methods", set()) or set()
+        if path in {"/products", "/admin/products"} and "POST" in methods:
+            return route
+    return None
+
+
+def _install_admin_product_route_guard(routes_main_module, normalized_normalizer) -> None:
+    """Force the server-owned-field sanitizer at the actual admin route boundary.
+
+    The normalizer is patched at module level below, but this second guard is
+    intentionally attached to the route endpoint itself. That protects the
+    admin creator-product path from any later compatibility layer that might
+    replace ``routes_main_module.normalize_template_product_payload`` after
+    this patch has installed it.
+    """
+    if getattr(routes_main_module, "_builder_product_save_route_guard_installed", False):
+        return
+
+    route = _find_admin_product_create_route(routes_main_module)
+    if route is None:
+        logger.warning(
+            "Could not locate admin POST /products route for Product Builder save guard"
+        )
+        return
+
+    original_endpoint = route.endpoint
+
+    async def guarded_endpoint(*args, __original=original_endpoint, **kwargs):
+        previous_normalize = routes_main_module.normalize_template_product_payload
+        routes_main_module.normalize_template_product_payload = normalized_normalizer
+        try:
+            return await __original(*args, **kwargs)
+        finally:
+            routes_main_module.normalize_template_product_payload = previous_normalize
+
+    route.endpoint = guarded_endpoint
+
+    # FastAPI has already created a dependant for the original endpoint. Rebuild
+    # it so dependency injection continues to work after replacing endpoint.
+    from fastapi.dependencies.utils import get_dependant
+
+    route.dependant = get_dependant(
+        path=route.path_format,
+        call=guarded_endpoint,
+    )
+    routes_main_module._builder_product_save_route_guard_installed = True
+    logger.info(
+        "Installed Product Builder admin creator-product save guard on %s",
+        getattr(route, "path", "/products"),
+    )
+
+
 def install_builder_product_save_patch(routes_main_module) -> None:
     """Install the save-payload compatibility wrapper exactly once."""
     if getattr(routes_main_module, "_builder_product_save_patch_installed", False):
@@ -77,7 +141,9 @@ def install_builder_product_save_patch(routes_main_module) -> None:
 
     original_normalize = routes_main_module.normalize_template_product_payload
 
-    async def wrapped_normalize_template_product_payload(*, db, data, creator, user, allow_admin_publish=False):
+    async def wrapped_normalize_template_product_payload(
+        *, db, data, creator, user, allow_admin_publish=False
+    ):
         clean_input = _sanitise_product_payload(data)
         try:
             normalized = await original_normalize(
@@ -105,7 +171,11 @@ def install_builder_product_save_patch(routes_main_module) -> None:
             ) from exc
 
         normalized = _strip_server_owned_product_fields(normalized)
-        normalized["variation_pricing_mode"] = clean_input.get("variation_pricing_mode") or normalized.get("variation_pricing_mode") or "by_attribute"
+        normalized["variation_pricing_mode"] = (
+            clean_input.get("variation_pricing_mode")
+            or normalized.get("variation_pricing_mode")
+            or "by_attribute"
+        )
         if clean_input.get("pricing_attribute"):
             normalized["pricing_attribute"] = clean_input.get("pricing_attribute")
 
@@ -114,6 +184,15 @@ def install_builder_product_save_patch(routes_main_module) -> None:
     routes_main_module._builder_product_save_base_normalize = original_normalize
     routes_main_module.normalize_template_product_payload = wrapped_normalize_template_product_payload
     routes_main_module._builder_product_save_patch_installed = True
+
+    # The route-level guard makes the admin creator path deterministic: it
+    # temporarily restores this exact sanitized normalizer for the duration of
+    # the request, so server-owned fields cannot reach Product(...) even when
+    # another compatibility layer changes the module-level symbol later.
+    _install_admin_product_route_guard(
+        routes_main_module,
+        wrapped_normalize_template_product_payload,
+    )
 
     # The normalization wrapper cannot see failures that happen later while
     # constructing the Product model or inserting into Mongo. Install a route
