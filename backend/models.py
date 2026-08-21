@@ -836,6 +836,13 @@ class ProductTemplateBase(BaseModel):
 
     attribute_ids: List[str] = Field(default_factory=list)
     selected_attribute_values: dict = Field(default_factory=dict)
+
+    # Attribute-owned variation production profiles.
+    # Example: colour owns editor images while size owns print geometry.
+    variation_inheritance: Dict[str, Any] = Field(default_factory=dict)
+    attribute_image_profiles: Dict[str, Any] = Field(default_factory=dict)
+    attribute_production_profiles: Dict[str, Any] = Field(default_factory=dict)
+
     variations: List[ProductTemplateVariation] = Field(default_factory=list)
 
     print_option_ids: List[str] = Field(default_factory=list)
@@ -892,6 +899,9 @@ class ProductTemplateUpdate(BaseModel):
 
     attribute_ids: Optional[List[str]] = None
     selected_attribute_values: Optional[dict] = None
+    variation_inheritance: Optional[Dict[str, Any]] = None
+    attribute_image_profiles: Optional[Dict[str, Any]] = None
+    attribute_production_profiles: Optional[Dict[str, Any]] = None
     variations: Optional[List[ProductTemplateVariation]] = None
 
     print_option_ids: Optional[List[str]] = None

@@ -1,0 +1,192 @@
+name: Template Production Routing V3 CI
+
+on:
+  push:
+    branches:
+      - feature/template-production-routing-v3
+      - refactor/unified-manufacturing-costing-engine
+      - feature/profile-stocked-colours
+      - feature/seed-classic-htv-colours
+      - feature/seed-puff-htv-colours
+      - feature/seed-metallic-glow-htv-colours
+      - feature/seed-glitter-htv-colours
+      - feature/template-delete-lifecycle
+      - feature/production-geometry-profile-copy
+      - fix/authoritative-htv-profile-colours
+      - fix/preserve-profile-colour-restrictions
+      - fix/template-attribute-generation-and-image-preview
+      - fix/variation-print-area-csv-import
+      - fix/profile-copy-color-image-source-v2
+      - fix/profile-copy-missing-color-view-warning
+  pull_request:
+    branches:
+      - feature/template-production-routing-v3
+    paths:
+      - "frontend/src/components/template-studio/**"
+      - "frontend/src/components/product-builder/**"
+      - "frontend/src/components/product/**"
+      - "frontend/src/pages/admin/AdminManufacturingRulesUnified.jsx"
+      - "frontend/src/pages/admin/ManufacturingProfilesPanel.jsx"
+      - "frontend/src/pages/admin/manufacturingRulesShared.jsx"
+      - "frontend/src/routes/AdminManufacturingRulesRoute.jsx"
+      - "frontend/src/components/orders/ManualOrderBuilder.jsx"
+      - "frontend/src/lib/**"
+      - "frontend/src/index.js"
+      - "frontend/src/routes/AdminDashboardRoute.jsx"
+      - "frontend/src/routes/AdminTemplateStudioRoute.jsx"
+      - "backend/platform_fee_pricing.py"
+      - "backend/models.py"
+      - "backend/artwork_print_job_pricing.py"
+      - "backend/builder_artwork_costing_patch.py"
+      - "backend/outsourced_production_rates.py"
+      - "backend/outsourced_rate_runtime_patch.py"
+      - "backend/profile_stocked_colours_patch.py"
+      - "backend/profile_colour_projection_repair.py"
+      - "backend/classic_htv_colour_seed.py"
+      - "backend/glitter_htv_colour_seed.py"
+      - "backend/puff_htv_colour_seed.py"
+      - "backend/metallic_htv_colour_seed.py"
+      - "backend/glow_htv_colour_seed.py"
+      - "backend/htv_profile_colour_assignment.py"
+      - "backend/template_lifecycle.py"
+      - "backend/template_lifecycle_routes.py"
+      - "backend/product_template_csv.py"
+      - "backend/product_template_geometry_csv_patch.py"
+      - "backend/production_geometry_profile_copy_patch.py"
+      - "backend/production_geometry_profile_copy_color_patch.py"
+      - "backend/production_geometry_profile_copy_warning_patch.py"
+      - "backend/unified_manufacturing_costing.py"
+      - "backend/production_method_profiles.py"
+      - "backend/production_profile_resolution_patch.py"
+      - "backend/routes_production_rules.py"
+      - "backend/routes_main.py"
+      - "backend/server.py"
+      - "backend/production_rules_engine.py"
+      - "backend/production_operation_pricing.py"
+      - "backend/launch_integrity/pricing.py"
+      - "backend/tests/test_platform_fee_pricing.py"
+      - "backend/tests/test_artwork_print_job_pricing.py"
+      - "backend/tests/test_outsourced_production_rates.py"
+      - "backend/tests/test_unified_manufacturing_costing.py"
+      - "backend/tests/test_profile_stocked_colours.py"
+      - "backend/tests/test_classic_htv_colour_seed.py"
+      - "backend/tests/test_glitter_htv_colour_seed.py"
+      - "backend/tests/test_puff_htv_colour_seed.py"
+      - "backend/tests/test_speciality_htv_colour_seeds.py"
+      - "backend/tests/test_htv_profile_colour_assignment.py"
+      - "backend/tests/test_production_profile_resolution_patch.py"
+      - "backend/tests/test_template_lifecycle_routes.py"
+      - "backend/tests/test_product_template_csv.py"
+      - "backend/tests/test_product_template_geometry_csv_patch.py"
+      - "backend/tests/test_production_geometry_profile_copy_patch.py"
+      - "backend/tests/test_production_geometry_profile_copy_color_patch.py"
+      - "backend/tests/test_production_geometry_profile_copy_warning_patch.py"
+      - ".github/workflows/template-production-routing-v3-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Run frontend production tests
+        working-directory: frontend
+        env:
+          CI: "true"
+        run: >-
+          npm test -- --watchAll=false --runInBand
+          variationProductionConfig.test.js
+          variationProductionRouting.test.js
+          attributeProductionComposition.test.js
+          templateVariationRegeneration.test.js
+          printAreaGeometry.test.js
+          templateProductionResolver.test.js
+          cataloguePricingUtils.test.js
+          templateReadiness.test.js
+          derivedMockupRenderer.test.js
+          productBuilderPricingGallery.test.js
+          outsourcedProductionPricing.test.js
+          unifiedManufacturingCosting.test.js
+
+      - name: Run backend pricing tests
+        working-directory: backend
+        run: |
+          PYTHONPATH=. python tests/test_platform_fee_pricing.py
+          PYTHONPATH=. python tests/test_artwork_print_job_pricing.py
+          PYTHONPATH=. python tests/test_outsourced_production_rates.py
+          PYTHONPATH=. python tests/test_unified_manufacturing_costing.py
+          PYTHONPATH=. python tests/test_profile_stocked_colours.py
+          PYTHONPATH=. python tests/test_classic_htv_colour_seed.py
+          PYTHONPATH=. python tests/test_glitter_htv_colour_seed.py
+          PYTHONPATH=. python tests/test_puff_htv_colour_seed.py
+          PYTHONPATH=. python tests/test_speciality_htv_colour_seeds.py
+          PYTHONPATH=. python tests/test_htv_profile_colour_assignment.py
+          PYTHONPATH=. python tests/test_production_profile_resolution_patch.py
+          PYTHONPATH=. python tests/test_template_lifecycle_routes.py
+          PYTHONPATH=. python tests/test_product_template_csv.py
+          PYTHONPATH=. python tests/test_product_template_geometry_csv_patch.py
+          PYTHONPATH=. python tests/test_production_geometry_profile_copy_patch.py
+          PYTHONPATH=. python tests/test_production_geometry_profile_copy_color_patch.py
+          PYTHONPATH=. python tests/test_production_geometry_profile_copy_warning_patch.py
+
+      - name: Compile changed backend modules
+        working-directory: backend
+        run: >-
+          python -m py_compile
+          platform_fee_pricing.py
+          artwork_print_job_pricing.py
+          builder_artwork_costing_patch.py
+          outsourced_production_rates.py
+          outsourced_rate_runtime_patch.py
+          profile_stocked_colours_patch.py
+          profile_colour_projection_repair.py
+          classic_htv_colour_seed.py
+          glitter_htv_colour_seed.py
+          puff_htv_colour_seed.py
+          metallic_htv_colour_seed.py
+          glow_htv_colour_seed.py
+          htv_profile_colour_assignment.py
+          template_lifecycle.py
+          template_lifecycle_routes.py
+          product_template_csv.py
+          product_template_geometry_csv_patch.py
+          production_geometry_profile_copy_patch.py
+          production_geometry_profile_copy_color_patch.py
+          production_geometry_profile_copy_warning_patch.py
+          unified_manufacturing_costing.py
+          production_method_profiles.py
+          production_profile_resolution_patch.py
+          routes_production_rules.py
+          models.py
+          routes_main.py
+          server.py
+          production_rules_engine.py
+          production_operation_pricing.py
+          launch_integrity/pricing.py
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          CI: "false"
+        run: npm run build

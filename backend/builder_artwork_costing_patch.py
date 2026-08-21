@@ -1,8 +1,10 @@
-"""Backend patch for Builder V2 artwork payloads and combined layer costing."""
+"""Backend patch for Builder V2 artwork payloads and outsourced area costing."""
 from __future__ import annotations
 
 from copy import deepcopy
 from urllib.parse import quote
+
+from outsourced_production_rates import calculate_outsourced_area_cost, number
 
 
 def _method_key(value) -> str:
@@ -38,7 +40,7 @@ def _option_policy(option: dict | None, method: str) -> bool:
         return False
     if policy in {"separate", "additive", "per_layer"}:
         return False
-    if policy in {"combined", "bounding_area", "per_area"}:
+    if policy in {"combined", "bounding_area", "per_area", "summed_area"}:
         return True
     return method in {"dtf", "sublimation", "uv_dtf"}
 
@@ -94,48 +96,110 @@ def _ensure_text_slot_file(slot: dict) -> None:
     slot["artwork_aspect_ratio"] = slot.get("artwork_aspect_ratio") or 2.85
 
 
-def _bounds(slot: dict) -> dict:
-    placement = slot.get("placement") or {}
-    x = float(placement.get("x") if placement.get("x") is not None else placement.get("x_pct") or 0)
-    y = float(placement.get("y") if placement.get("y") is not None else placement.get("y_pct") or 0)
-    width = float(placement.get("width") if placement.get("width") is not None else placement.get("width_pct") or 100)
-    height = float(placement.get("height") if placement.get("height") is not None else placement.get("height_pct") or 100)
-    return {"x": x, "y": y, "right": x + width, "bottom": y + height}
+def _pricing_row(option: dict | None, slot: dict | None) -> dict:
+    return {**dict(slot or {}), **dict(option or {})}
 
 
-def _combined_slot(slots: list[dict]) -> dict:
-    first = deepcopy(slots[0] or {})
-    bounds = [_bounds(slot) for slot in slots]
-    x = min(item["x"] for item in bounds)
-    y = min(item["y"] for item in bounds)
-    right = max(item["right"] for item in bounds)
-    bottom = max(item["bottom"] for item in bounds)
-    placement = dict(first.get("placement") or {})
-    placement.update({"x": x, "y": y, "width": max(1, right - x), "height": max(1, bottom - y), "rotation": 0})
-    first["placement"] = placement
-    return first
+def _patched_calculation(original_calculate, slot: dict, area: dict, option: dict) -> dict:
+    original = original_calculate(slot, area, option)
+    calculation_type = str(option.get("calculation_type") or slot.get("calculation_type") or original.get("calculation_type") or "fixed").lower()
+    actual_area = number(slot.get("combined_area_cm2") or original.get("area_cm2") or original.get("charged_area_cm2") or 0)
+    pricing = _pricing_row(option, slot)
+    pricing["calculation_type"] = calculation_type
+    costing = calculate_outsourced_area_cost(
+        actual_area,
+        pricing,
+        fallback_cost=original.get("calculated_print_cost") or option.get("print_cost_max") or slot.get("print_cost_max") or 0,
+    )
+
+    result = {
+        **original,
+        **costing,
+        "calculation_type": calculation_type,
+        "area_cm2": costing["actual_area_cm2"],
+        "charged_area_cm2": costing["chargeable_area_cm2"],
+        "chargeable_area_cm2": costing["chargeable_area_cm2"],
+        "raw_print_cost": costing["raw_print_cost"],
+        "calculated_print_cost": costing["calculated_print_cost"],
+        "calculated_profile_cost": costing["raw_print_cost"],
+        "final_artwork_production_cost": costing["calculated_print_cost"],
+        "pricing_source": "outsourced_area_rate" if calculation_type in {"area_fixed_rate", "area", "cm2", "sheet", "area_from_sheet"} else original.get("pricing_source"),
+    }
+    if slot.get("combined_area_cm2"):
+        result["combined_area_cm2"] = round(actual_area, 2)
+    return result
 
 
-def _apply_costing_to_slot(routes_main_module, slot: dict, costing: dict, option: dict | None, area: dict | None, zero: bool = False) -> None:
+def _apply_costing_to_slot(routes_main_module, slot: dict, costing: dict, option: dict | None, zero: bool = False) -> None:
     option = option or {}
     for key in (
-        "calculation_type", "placement_box_width_mm", "placement_box_height_mm", "artwork_aspect_ratio",
-        "print_width_mm", "print_height_mm", "area_cm2", "print_area_width_mm", "print_area_height_mm",
-        "artwork_width_mm", "artwork_height_mm", "charged_width_mm", "charged_height_mm", "charged_area_cm2",
+        "calculation_type",
+        "placement_box_width_mm",
+        "placement_box_height_mm",
+        "artwork_aspect_ratio",
+        "print_width_mm",
+        "print_height_mm",
+        "area_cm2",
+        "print_area_width_mm",
+        "print_area_height_mm",
+        "artwork_width_mm",
+        "artwork_height_mm",
+        "charged_width_mm",
+        "charged_height_mm",
+        "charged_area_cm2",
+        "chargeable_area_cm2",
+        "combined_area_cm2",
         "pricing_source",
+        "minimum_area_cm2",
+        "minimum_area_applied",
+        "cost_per_cm2",
+        "material_cost",
+        "base_production_cost",
+        "waste_amount",
+        "application_cost",
+        "production_subtotal_before_markup",
+        "markup_amount",
+        "minimum_print_cost",
+        "minimum_print_cost_applied",
+        "calculated_profile_cost",
+        "final_artwork_production_cost",
     ):
         if key in costing:
             slot[key] = costing.get(key)
+
+    for key in (
+        "minimum_area_cm2",
+        "application_cost",
+        "cost_per_cm2",
+        "minimum_print_cost",
+        "waste_percentage",
+        "markup_percentage",
+        "outsourced_rate_profile_key",
+        "outsourced_rate_profile_label",
+        "outsourced_rate_version",
+    ):
+        if key in option:
+            slot[key] = option.get(key)
+
     raw_cost = 0 if zero else float(costing.get("raw_print_cost") or 0)
     final_cost = 0 if zero else float(costing.get("calculated_print_cost") or 0)
     slot["raw_print_cost"] = round(raw_cost, 2)
     slot["calculated_print_cost"] = round(final_cost, 2)
     slot["print_cost_max"] = round(final_cost, 2)
     resolved = routes_main_module._resolve_print_costing(option, slot, final_cost)
-    slot["platform_print_cost"] = resolved["platform_print_cost"]
-    slot["creator_print_price"] = resolved["creator_print_price"]
-    slot["platform_print_profit"] = resolved["platform_print_profit"]
-    slot["platform_print_margin_percent"] = resolved["platform_print_margin_percent"]
+    slot["platform_print_cost"] = 0 if zero else round(float(resolved.get("platform_print_cost") or final_cost), 2)
+    slot["creator_print_price"] = 0 if zero else round(float(resolved.get("creator_print_price") or final_cost), 2)
+    slot["platform_print_profit"] = 0 if zero else resolved.get("platform_print_profit", 0)
+    slot["platform_print_margin_percent"] = resolved.get("platform_print_margin_percent", 0)
+
+
+def _individual_area_costings(routes_main_module, slots: list[dict], area_map: dict, option_map: dict) -> list[dict]:
+    costings = []
+    for slot in slots:
+        area = area_map.get(str(slot.get("print_area_id"))) or {}
+        option = option_map.get(str(slot.get("print_option_id"))) or {}
+        costings.append(routes_main_module._calculate_area_print_cost(slot, area, option))
+    return costings
 
 
 def _adjust_combined_costing(routes_main_module, template: dict, global_print_options: list, groups: list) -> None:
@@ -157,7 +221,7 @@ def _adjust_combined_costing(routes_main_module, template: dict, global_print_op
                 str(slot.get("screen_id") or "screen"),
                 str(slot.get("print_area_id") or "area"),
                 method,
-                str(slot.get("print_option_id") or "option"),
+                str(slot.get("manufacturing_profile_id") or slot.get("production_profile_id") or slot.get("print_option_id") or "option"),
             ])
             buckets.setdefault(key, []).append(slot)
 
@@ -167,14 +231,26 @@ def _adjust_combined_costing(routes_main_module, template: dict, global_print_op
             first = slots[0]
             area = area_map.get(str(first.get("print_area_id"))) or {}
             option = option_map.get(str(first.get("print_option_id"))) or {}
-            combined = _combined_slot(slots)
+            layer_costings = _individual_area_costings(routes_main_module, slots, area_map, option_map)
+            combined_area = round(sum(number(row.get("area_cm2")) for row in layer_costings), 2)
+            combined = deepcopy(first)
+            combined["combined_area_cm2"] = combined_area
+            combined["combined_layer_count"] = len(slots)
+            combined["combined_layer_areas"] = [
+                {"slot_id": slots[index].get("id"), "area_cm2": number(costing.get("area_cm2"))}
+                for index, costing in enumerate(layer_costings)
+            ]
             costing = routes_main_module._calculate_area_print_cost(combined, area, option)
-            _apply_costing_to_slot(routes_main_module, first, costing, option, area, zero=False)
+            _apply_costing_to_slot(routes_main_module, first, costing, option, zero=False)
             first["combined_layer_count"] = len(slots)
             first["combined_layer_pricing"] = True
-            for duplicate in slots[1:]:
-                duplicate_costing = routes_main_module._calculate_area_print_cost(duplicate, area_map.get(str(duplicate.get("print_area_id"))) or area, option_map.get(str(duplicate.get("print_option_id"))) or option)
-                _apply_costing_to_slot(routes_main_module, duplicate, duplicate_costing, option_map.get(str(duplicate.get("print_option_id"))) or option, area, zero=True)
+            first["combined_layer_areas"] = combined["combined_layer_areas"]
+            first["combined_area_cm2"] = combined_area
+
+            for index, duplicate in enumerate(slots[1:], start=1):
+                duplicate_option = option_map.get(str(duplicate.get("print_option_id"))) or option
+                duplicate_costing = layer_costings[index]
+                _apply_costing_to_slot(routes_main_module, duplicate, duplicate_costing, duplicate_option, zero=True)
                 duplicate["combined_layer_pricing"] = True
                 duplicate["combined_priced_on_slot_id"] = first.get("id")
 
@@ -187,6 +263,10 @@ def install_builder_artwork_costing_patch(routes_main_module):
     original_has_file = routes_main_module._artwork_slot_has_file
     original_normalize_slot = routes_main_module._normalize_product_artwork_slot
     original_enrich = routes_main_module._enrich_and_validate_product_artwork_slots
+    original_calculate = routes_main_module._calculate_area_print_cost
+
+    def patched_calculate(slot: dict, area: dict, option: dict) -> dict:
+        return _patched_calculation(original_calculate, slot, area, option)
 
     def patched_has_file(slot: dict) -> bool:
         return bool(original_has_file(slot) or _slot_has_artwork(slot))
@@ -209,6 +289,7 @@ def install_builder_artwork_costing_patch(routes_main_module):
             if slot.get("id") in by_id:
                 slot.update(by_id[slot.get("id")])
 
+    routes_main_module._calculate_area_print_cost = patched_calculate
     routes_main_module._artwork_slot_has_file = patched_has_file
     routes_main_module._normalize_product_artwork_slot = patched_normalize_slot
     routes_main_module._enrich_and_validate_product_artwork_slots = patched_enrich

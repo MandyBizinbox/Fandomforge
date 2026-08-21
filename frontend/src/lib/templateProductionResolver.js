@@ -3,6 +3,10 @@ import {
   hasUsablePrintArea,
   normalisePrintAreaGeometry,
 } from "./printAreaGeometry";
+import {
+  PRODUCTION_CONFIG_KEY,
+  getVariationProductionConfiguration,
+} from "./variationProductionConfig";
 
 export function normaliseProductionKey(value) {
   return String(value || "")
@@ -33,14 +37,36 @@ export function activeTemplateVariations(template = {}) {
   );
 }
 
-export function activeTemplatePrintAreas(template = {}) {
-  return safeArray(template.print_areas).filter(
-    (area) =>
-      area
-      && area.status !== "archived"
-      && !area.archived
-      && !area.deleted
+function hasStoredProductionConfiguration(variation = {}) {
+  return Boolean(
+    variation?.print_area_overrides?.[PRODUCTION_CONFIG_KEY]
+    && typeof variation.print_area_overrides[PRODUCTION_CONFIG_KEY] === "object"
   );
+}
+
+function activeRows(rows) {
+  return safeArray(rows).filter(
+    (row) =>
+      row
+      && row.status !== "archived"
+      && !row.archived
+      && !row.deleted
+      && row.disabled !== true
+  );
+}
+
+export function activeTemplatePrintAreas(template = {}, variation = null) {
+  if (variation && hasStoredProductionConfiguration(variation)) {
+    return activeRows(getVariationProductionConfiguration(variation, template).print_areas);
+  }
+  return activeRows(template.print_areas);
+}
+
+export function activeTemplateScreens(template = {}, variation = null) {
+  if (variation && hasStoredProductionConfiguration(variation)) {
+    return activeRows(getVariationProductionConfiguration(variation, template).screens);
+  }
+  return activeRows(template.mockup_screens);
 }
 
 export function variationAttributeValue(variation = {}, attributeKey = "") {
@@ -130,7 +156,7 @@ function areaOverrideForSource(source = {}, area = {}) {
 
   for (const key of keys) {
     const value = overrides[key];
-    if (value && typeof value === "object") return value;
+    if (value && typeof value === "object" && key !== PRODUCTION_CONFIG_KEY) return value;
   }
 
   return source.print_area_override || {};
@@ -150,11 +176,139 @@ export function screenOverrideUrl(source = {}, screen = {}) {
   );
 }
 
+function matchingConfigurationScreen(configuration = {}, wanted = {}, area = {}) {
+  const screens = activeRows(configuration.screens);
+  const wantedKeys = [
+    wanted.id,
+    wanted.view_key,
+    wanted.view,
+    wanted.screen_view,
+    wanted.name,
+    area.screen_id,
+    area.view_key,
+    area.screen_view,
+  ].filter(Boolean).map(normaliseProductionKey);
+
+  return screens.find((screen) => {
+    const screenKeys = [screen.id, screen.view_key, screen.view, screen.screen_view, screen.name]
+      .filter(Boolean)
+      .map(normaliseProductionKey);
+    return wantedKeys.some((key) => screenKeys.includes(key));
+  }) || screens[0] || {};
+}
+
+function matchingConfigurationArea(configuration = {}, wanted = {}, option = {}) {
+  const areas = activeRows(configuration.print_areas);
+  const optionId = option?.id ? String(option.id) : "";
+  const wantedKeys = [wanted.id, wanted.area_key, wanted.view_key, wanted.screen_view, wanted.name]
+    .filter(Boolean)
+    .map(normaliseProductionKey);
+  const optionMatch = areas.find(
+    (area) => optionId && safeArray(area.allowed_print_option_ids).map(String).includes(optionId)
+  );
+  if (optionMatch) return optionMatch;
+
+  const semanticMatch = areas.find((area) => {
+    const areaKeys = [area.id, area.area_key, area.view_key, area.screen_view, area.name]
+      .filter(Boolean)
+      .map(normaliseProductionKey);
+    return wantedKeys.some((key) => areaKeys.includes(key));
+  });
+  if (semanticMatch) return semanticMatch;
+
+  return wantedKeys.length ? null : areas[0] || null;
+}
+
+function disabledRuntimeArea(defaultArea = {}) {
+  return normalisePrintAreaGeometry({
+    id: defaultArea.id || "disabled-variation-area",
+    name: defaultArea.name || "Unavailable for this variation",
+    area_key: defaultArea.area_key || "disabled",
+    view_key: defaultArea.view_key || defaultArea.screen_view || "",
+    screen_view: defaultArea.screen_view || defaultArea.view_key || "",
+    screen_id: "__disabled__",
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    x_pct: 0,
+    y_pct: 0,
+    width_pct: 0,
+    height_pct: 0,
+    width_mm: 0,
+    height_mm: 0,
+    allowed_print_option_ids: [],
+    status: "archived",
+    archived: true,
+    disabled: true,
+  });
+}
+
+function resolveStoredVariationConfiguration(template = {}, variation = {}, options = {}) {
+  const configuration = getVariationProductionConfiguration(variation, template);
+  const defaultArea = options.area || options.defaultPrintArea || {};
+  const configuredArea = matchingConfigurationArea(configuration, defaultArea, options.printOption || options.option || {});
+  const configuredScreen = matchingConfigurationScreen(configuration, options.screen || {}, configuredArea || defaultArea);
+  const printAreaOverride = configuredArea
+    ? normalisePrintAreaGeometry({
+        ...configuredArea,
+        id: defaultArea.id || configuredArea.id,
+        screen_id: defaultArea.screen_id || configuredArea.screen_id,
+      })
+    : disabledRuntimeArea(defaultArea);
+  const imageUrl = firstTruthy(
+    configuredScreen.image_url,
+    variation.image_url,
+    template.product_image_url,
+    template.mockup_url,
+    safeArray(template.mockup_images)[0]
+  );
+  const platformBlankCost = Number(
+    variation.platform_blank_cost
+      || variation.base_blank_cost
+      || variation.cost
+      || template.platform_blank_cost
+      || template.base_blank_cost
+      || template.base_price
+      || 0
+  );
+  const creatorBlankPrice = Number(
+    variation.creator_blank_price
+      || template.creator_blank_price
+      || platformBlankCost * 1.1
+      || 0
+  );
+
+  return {
+    variation,
+    matchingRules: [],
+    productionConfiguration: configuration,
+    imageUrl,
+    viewImageUrl: imageUrl,
+    canvasImageUrl: imageUrl,
+    printAreaOverride,
+    printAreaGeometry: printAreaOverride,
+    platformBlankCost,
+    creatorBlankPrice,
+    sourceMap: {
+      image: "variation production configuration",
+      viewImage: "variation production configuration",
+      printArea: configuredArea ? "variation production configuration" : "variation production configuration: unavailable",
+      blankCost: "exact variation",
+      creatorBlankPrice: "exact variation",
+    },
+  };
+}
+
 export function resolveEffectiveProductionSetup(
   template = {},
   variation = {},
   options = {}
 ) {
+  if (hasStoredProductionConfiguration(variation)) {
+    return resolveStoredVariationConfiguration(template, variation, options);
+  }
+
   const screen = options.screen || {};
   const defaultArea = options.area || options.defaultPrintArea || {};
   const rules = matchingProductionRules(template, variation);
@@ -313,6 +467,18 @@ export function resolveEffectiveProductionSetup(
 }
 
 export function resolveEffectivePrintAreas(template = {}, variation = {}) {
+  if (hasStoredProductionConfiguration(variation)) {
+    const configuration = getVariationProductionConfiguration(variation, template);
+    return activeRows(configuration.print_areas).map((area) => {
+      const screen = matchingConfigurationScreen(configuration, {}, area);
+      return {
+        ...area,
+        effective_source: "variation production configuration",
+        effective_image_url: screen.image_url || variation.image_url || template.product_image_url || "",
+      };
+    });
+  }
+
   const areas = activeTemplatePrintAreas(template);
 
   if (!areas.length) {
@@ -384,7 +550,11 @@ export function resolveTemplateArtworkModes(template = {}) {
   const explicit = safeArray(template.artwork_modes).filter(Boolean);
   if (explicit.length) return explicit;
 
-  const keys = activeTemplatePrintAreas(template).map((area) =>
+  const variations = activeTemplateVariations(template);
+  const areas = variations.length
+    ? variations.flatMap((variation) => activeTemplatePrintAreas(template, variation))
+    : activeTemplatePrintAreas(template);
+  const keys = areas.map((area) =>
     normaliseProductionKey(
       area.area_key || area.view_key || area.screen_view
     )

@@ -425,13 +425,13 @@ async def _production_operation_breakdown(db, product_data: Dict[str, Any]) -> D
     }
 
 
-def _operation_creator_price(routes_main_module: Any, platform_operation_cost: float) -> float:
-    if platform_operation_cost <= 0:
-        return 0.0
-    markup = getattr(routes_main_module, "_platform_markup", None)
-    if callable(markup):
-        return _money(markup(platform_operation_cost, 0.10))
-    return _money(platform_operation_cost * 1.10)
+def _operation_creator_price(
+    routes_main_module: Any,
+    platform_operation_cost: float,
+) -> float:
+    # Production operations are internal components of the configured
+    # printing price. They must not be charged to creators a second time.
+    return 0.0
 
 
 def _refresh_product_costing(routes_main_module: Any, product_data: Dict[str, Any], operation_breakdown: Dict[str, Any]) -> Dict[str, Any]:
@@ -447,7 +447,7 @@ def _refresh_product_costing(routes_main_module: Any, product_data: Dict[str, An
     base_creator_print_price = _money(product_data.get("creator_print_price") or product_data.get("print_cost") or product_data.get("estimated_print_cost"))
 
     platform_print_cost = _money(base_platform_print_cost + platform_operation_cost)
-    creator_print_price = _money(base_creator_print_price + operation_creator_price)
+    creator_print_price = base_creator_print_price
 
     costing_fn = getattr(routes_main_module, "_platform_costing_breakdown")
     costing = costing_fn(
@@ -487,6 +487,7 @@ def _refresh_product_costing(routes_main_module: Any, product_data: Dict[str, An
         "minimum_selling_price": costing["minimum_selling_price"],
         "production_operation_platform_cost": platform_operation_cost,
         "production_operation_creator_price": operation_creator_price,
+        "production_operation_pricing_treatment": "internal_only",
         "production_operation_lines": operation_breakdown.get("lines") or [],
     })
     product_data["costing_breakdown"] = breakdown

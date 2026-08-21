@@ -1,0 +1,335 @@
+name: Apply Product Builder V3 UX fixes
+
+on:
+  push:
+    branches:
+      - feature/template-production-routing-v3
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feature/template-production-routing-v3
+
+      - name: Apply V3 UX/data-flow fixes
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          ROOT = Path('.')
+          pb = ROOT / 'frontend/src/components/product-builder/ProductBuilderV3.jsx'
+          matrix = ROOT / 'frontend/src/components/product-builder/ProductVariationMatrix.jsx'
+          scope = ROOT / 'frontend/src/components/product-builder/ArtworkScopeSelector.jsx'
+          mockups = ROOT / 'frontend/src/components/product-builder/VariationMockupGenerator.jsx'
+
+          text = pb.read_text()
+          steps = '''const STEPS = [
+            { key: "basics", label: "1 Basics", title: "Basics", description: "Define the product, choose its template, and review the editable specifications." },
+            { key: "variations", label: "2 Variations", title: "Variations", description: "Choose attribute values such as colours and sizes. FandomForge builds the combinations for you." },
+            { key: "artwork", label: "3 Artwork", title: "Artwork", description: "Create simple artwork scopes and upload artwork once for each scope." },
+            { key: "mockups", label: "4 Mockups", title: "Mockups", description: "Generate one mockup per artwork scope and template view, not one per size." },
+            { key: "pricing", label: "5 Pricing", title: "Pricing", description: "Set the selling price and see the real production economics." },
+            { key: "review", label: "6 Review & Publish", title: "Review & Publish", description: "Check the complete product before saving or publishing it." },
+          ];'''
+          text, n = re.subn(r'const STEPS = \[.*?\n\];', steps, text, count=1, flags=re.S)
+          if n != 1: raise SystemExit('Could not replace ProductBuilderV3 STEPS')
+
+          old_choose = '''  const chooseTemplate = (template) => {
+    setForm((current) => ({ ...current, template_id: template.id, selected_template_variation_ids: [], variation_price_overrides: {}, artwork_groups: [], mockup_images: [], mockup_image_url: "", primary_mockup_image_url: "", category: template.category || current.category }));
+  };'''
+          new_choose = '''  const chooseTemplate = (template) => {
+    const templateSpecs = template?.specs ?? template?.specifications ?? template?.product_specs ?? template?.specification ?? "";
+    const editableSpecs = typeof templateSpecs === "string"
+      ? templateSpecs
+      : (templateSpecs && typeof templateSpecs === "object" ? JSON.stringify(templateSpecs, null, 2) : "");
+    setForm((current) => ({
+      ...current,
+      template_id: template.id,
+      selected_template_variation_ids: [],
+      variation_price_overrides: {},
+      artwork_groups: [],
+      mockup_images: [],
+      mockup_image_url: "",
+      primary_mockup_image_url: "",
+      category: template.category || current.category,
+      description: template.description || current.description,
+      specs: editableSpecs || current.specs,
+    }));
+  };'''
+          if old_choose not in text: raise SystemExit('Could not find chooseTemplate')
+          text = text.replace(old_choose, new_choose, 1)
+          text = text.replace('    if (key === "template" && !form.template_id) return "Select a template.";\n', '', 1)
+          text = text.replace('    const checks = ["basics", "template", "variations", "artwork", "pricing"].map(validateStep).find(Boolean);', '    const checks = ["basics", "variations", "artwork", "pricing"].map(validateStep).find(Boolean);', 1)
+
+          render_old = '<main className="product-builder-main min-w-0">\n        {activeStep === "basics" && <BasicsStep form={form} update={update} productTypes={productTypes} selectedProductTypeId={selectedProductTypeId} chooseType={chooseType} creators={creators} isAdmin={isAdmin} product={product} />}\n        {activeStep === "template" && <TemplateStep templates={filteredTemplates} selectedTemplate={selectedTemplate} chooseTemplate={chooseTemplate} selectedType={selectedType} />}\n'
+          render_new = '<main className="product-builder-main min-w-0">\n        {activeStep === "basics" && <BasicsStep form={form} update={update} productTypes={productTypes} selectedProductTypeId={selectedProductTypeId} chooseType={chooseType} creators={creators} isAdmin={isAdmin} product={product} templates={filteredTemplates} selectedTemplate={selectedTemplate} chooseTemplate={chooseTemplate} />}\n'
+          if render_old not in text: raise SystemExit('Could not replace V3 basics/template render')
+          text = text.replace(render_old, render_new, 1)
+
+          basics_start = text.find('function BasicsStep(')
+          variations_start = text.find('function VariationsStep(', basics_start)
+          if basics_start < 0 or variations_start < 0: raise SystemExit('Could not locate BasicsStep/VariationsStep')
+          combined_basics = r'''function BasicsStep({ form, update, productTypes, selectedProductTypeId, chooseType, creators, isAdmin, product, templates, selectedTemplate, chooseTemplate }) {
+  return <div className="space-y-6">
+    <section className="card space-y-5">
+      <div>
+        <div className="overline mb-1">Product basics</div>
+        <p className="text-sm text-zinc-500 max-w-3xl">Choose the product type and template in one place. Template specifications are pulled into the editable Specs / Features field so the creator can adapt them for the sellable product.</p>
+      </div>
+      {isAdmin && <Field label="Creator"><select className="input-base" value={form.band_id} onChange={(e) => update("band_id", e.target.value)} disabled={Boolean(product?.band_id)}><option value="">Select creator</option>{creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.name}</option>)}</select></Field>}
+      <Field label="Product type"><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{productTypes.map((type) => <button key={type.id} type="button" onClick={() => chooseType(type.id)} className={`text-left rounded-xl border p-4 ${selectedProductTypeId === type.id ? "border-emerald-400 bg-emerald-500/10" : "border-white/10 bg-black/20 hover:border-white/30"}`}><div className="font-bold text-white">{type.name}</div><div className="text-xs text-zinc-500 mt-1">{type.category || type.slug}</div>{selectedProductTypeId === type.id && <div className="text-[10px] uppercase tracking-widest text-emerald-300 mt-2">Selected</div>}</button>)}</div></Field>
+      <div>
+        <Field label="Template"><div className="grid lg:grid-cols-2 gap-3">{templates.map((template) => { const selected = selectedTemplate?.id === template.id; const image = getTemplateImage(template); return <button key={template.id} type="button" onClick={() => chooseTemplate(template)} className={`text-left rounded-xl border p-4 transition ${selected ? "border-emerald-400 bg-emerald-500/10" : "border-white/10 bg-black/20 hover:border-white/30"}`}><div className="flex gap-4 items-start"><div className="shrink-0">{image ? <img src={assetUrl(image)} alt={template.name} className="w-24 h-24 object-contain rounded-xl bg-black border border-white/10" /> : <div className="w-24 h-24 rounded-xl bg-black border border-white/10 flex items-center justify-center"><Package size={26} className="text-zinc-600" /></div>}</div><div className="min-w-0"><div className="flex items-center gap-2"><h3 className="font-display text-xl uppercase">{template.name}</h3>{selected && <span className="text-[10px] uppercase tracking-widest text-emerald-300">Selected</span>}</div><p className="text-xs text-zinc-400 mt-1">{getTemplateShortDescription(template)}</p><div className="mt-3 text-[11px] text-zinc-500">{getTemplateAvailableOptionsSummary(template).join(" · ") || "Production options configured in template"}</div></div></div></button>; })}</div>{!templates.length && <div className="text-sm text-zinc-500 border border-dashed border-white/10 rounded-xl p-5">Select a product type to see compatible templates.</div>}</Field>
+      </div>
+      <div className="grid md:grid-cols-2 gap-4"><Field label="Product name"><input className="input-base" value={form.title} onChange={(e) => update("title", e.target.value)} placeholder="Creator logo hoodie" /></Field><Field label="Slug"><input className="input-base" value={form.slug} onChange={(e) => update("slug", e.target.value)} placeholder="creator-logo-hoodie" /></Field></div>
+      <div className="grid md:grid-cols-2 gap-4"><Field label="Category"><input className="input-base" value={form.category} onChange={(e) => update("category", e.target.value)} /></Field><Field label="Brand"><input className="input-base" value={form.brand} onChange={(e) => update("brand", e.target.value)} placeholder="FandomForge" /></Field></div>
+      <Field label="Description"><textarea className="input-base" rows={6} value={form.description} onChange={(e) => update("description", e.target.value)} /></Field>
+      <Field label="Specs / features"><textarea className="input-base" rows={7} value={form.specs} onChange={(e) => update("specs", e.target.value)} placeholder="Select a template above to load its specifications, then edit them for this product…" /></Field>
+      <label className="flex items-center gap-3 text-sm text-white"><input type="checkbox" checked={form.active !== false} onChange={(e) => update("active", e.target.checked)} /> Active product</label>
+    </section>
+  </div>;
+}
+
+'''
+          text = text[:basics_start] + combined_basics + text[variations_start:]
+          pb.write_text(text)
+
+          matrix_content = r'''import React, { useEffect, useMemo, useState } from "react";
+import { Check, ChevronDown, Image as ImageIcon } from "lucide-react";
+import { assetUrl } from "../../lib/api";
+import "./productBuilderV2.css";
+import "./productBuilderV2Runtime";
+import { asArray, getVariationAttributes, getVariationCost, getVariationLabel, money } from "./productBuilderUtils";
+
+const normalise = (value) => String(value ?? "").trim().toLowerCase();
+
+function collectAttributeOptions(variations = []) {
+  const map = new Map();
+  asArray(variations).forEach((variation) => {
+    Object.entries(getVariationAttributes(variation)).forEach(([key, value]) => {
+      if (value === undefined || value === null || String(value).trim() === "") return;
+      if (!map.has(key)) map.set(key, new Set());
+      map.get(key).add(String(value));
+    });
+  });
+  const priority = ["Colour", "Color", "Size", "Keyring Size", "Keyring Material", "Material"];
+  return [...map.entries()].map(([key, values]) => ({ key, label: key, values: [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })) })).sort((a, b) => {
+    const ai = priority.findIndex((item) => normalise(item) === normalise(a.key));
+    const bi = priority.findIndex((item) => normalise(item) === normalise(b.key));
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.key.localeCompare(b.key, undefined, { sensitivity: "base" });
+  });
+}
+
+function variationValue(variation, key) {
+  const attrs = getVariationAttributes(variation);
+  const actual = Object.keys(attrs).find((item) => normalise(item) === normalise(key));
+  return actual ? String(attrs[actual]) : "";
+}
+
+function deriveSelectedIds(variations, options) {
+  const activeKeys = Object.keys(options).filter((key) => asArray(options[key]).length);
+  if (!activeKeys.length) return [];
+  return asArray(variations).filter((variation) => activeKeys.every((key) => asArray(options[key]).map(normalise).includes(normalise(variationValue(variation, key))))).map((variation) => variation.id);
+}
+
+function seedSelections(variations, selectedIds) {
+  const selected = new Set(asArray(selectedIds));
+  const options = collectAttributeOptions(variations);
+  return Object.fromEntries(options.map((option) => {
+    const values = option.values.filter((value) => {
+      const matching = variations.filter((variation) => normalise(variationValue(variation, option.key)) === normalise(value));
+      return matching.length > 0 && matching.every((variation) => selected.has(variation.id));
+    });
+    return [option.key, values];
+  }));
+}
+
+function getFallbackImage(template = {}) {
+  return template.creator_catalogue_thumbnail_url || template.product_image_url || template.mockup_url || asArray(template.mockup_images)[0] || asArray(template.mockup_screens).find((screen) => screen.image_url)?.image_url || "";
+}
+
+export default function ProductVariationMatrix({ template, selectedIds, onChange, hasTemplateVariations = true }) {
+  const sourceVariations = useMemo(() => asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived"), [template]);
+  const attributes = useMemo(() => collectAttributeOptions(sourceVariations), [sourceVariations]);
+  const [selectedValues, setSelectedValues] = useState(() => seedSelections(sourceVariations, selectedIds));
+
+  useEffect(() => { setSelectedValues(seedSelections(sourceVariations, selectedIds)); }, [template?.id]);
+
+  useEffect(() => {
+    const ids = deriveSelectedIds(sourceVariations, selectedValues);
+    const current = asArray(selectedIds).slice().sort();
+    const next = ids.slice().sort();
+    if (JSON.stringify(next) !== JSON.stringify(current)) onChange(ids);
+  }, [selectedValues, sourceVariations, selectedIds]);
+
+  const selectedCount = asArray(selectedIds).length;
+  const toggleValue = (key, value) => setSelectedValues((current) => {
+    const next = { ...current, [key]: asArray(current[key]) };
+    const values = new Set(next[key]);
+    if (values.has(value)) values.delete(value); else values.add(value);
+    next[key] = [...values];
+    return next;
+  });
+  const clearAll = () => setSelectedValues(Object.fromEntries(attributes.map((option) => [option.key, []])));
+
+  if (!template) return <div className="card text-sm text-zinc-500">Choose a template first.</div>;
+  if (!hasTemplateVariations || !sourceVariations.length) return <div className="card text-sm text-zinc-500">This template has no selectable variations. It will use the standard/default product setup.</div>;
+
+  return <div className="space-y-5" data-testid="product-variation-matrix">
+    <section className="card space-y-5">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3"><div><div className="overline mb-1">Choose attributes</div><p className="text-sm text-zinc-500 max-w-3xl">Pick the colours, sizes and other attribute values you want to sell. FandomForge creates the actual combinations automatically — you do not need to tick Red XS, Red S, Red M one by one.</p></div><button type="button" className="btn-secondary" onClick={clearAll}>Clear all</button></div>
+      <div className="space-y-4">{attributes.map((attribute) => { const active = new Set(asArray(selectedValues[attribute.key])); return <div key={attribute.key} className="rounded-xl border border-white/10 bg-black/20 p-4"><div className="flex items-center justify-between gap-3 mb-3"><div className="font-display text-xl uppercase">{attribute.label}</div><div className="text-[10px] uppercase tracking-widest text-zinc-500">{active.size} selected</div></div><div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">{attribute.values.map((value) => { const checked = active.has(value); return <label key={value} className={`flex items-center gap-3 rounded-lg border px-3 py-3 cursor-pointer transition ${checked ? "border-emerald-400 bg-emerald-500/10" : "border-white/10 bg-black/20 hover:border-white/30"}`}><input type="checkbox" checked={checked} onChange={() => toggleValue(attribute.key, value)} /><span className="text-sm text-white">{value}</span>{checked && <Check size={14} className="ml-auto text-emerald-300" />}</label>; })}</div></div>; })}</div>
+      <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3"><div><div className="overline">Generated combinations</div><div className="font-display text-3xl mt-1">{selectedCount}</div></div><div className="text-sm text-zinc-400 max-w-xl">Every selected attribute combination is stored as a real product variation for production, pricing and artwork scope. The creator only has to choose attributes.</div></div>
+    </section>
+    <details className="card"><summary className="flex items-center gap-2 cursor-pointer text-xs uppercase tracking-widest text-zinc-400"><ChevronDown size={14} /> Preview generated variations</summary><div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">{sourceVariations.filter((variation) => asArray(selectedIds).includes(variation.id)).slice(0, 60).map((variation) => <div key={variation.id} className="flex items-center gap-3 border border-white/10 rounded-lg p-3"><div className="w-12 h-12 shrink-0 rounded bg-black border border-white/10 flex items-center justify-center overflow-hidden">{(variation.image_url || getFallbackImage(template)) ? <img src={assetUrl(variation.image_url || getFallbackImage(template))} alt={getVariationLabel(variation)} className="w-full h-full object-contain" /> : <ImageIcon size={18} className="text-zinc-700" />}</div><div className="min-w-0"><div className="text-sm font-bold text-white truncate">{getVariationLabel(variation)}</div><div className="text-[10px] text-zinc-500">{variation.sku || variation.id}</div><div className="text-[10px] text-zinc-500 mt-1">Blank {money(getVariationCost(variation, template))}</div></div></div>)}</div></details>
+  </div>;
+}
+'''
+          matrix.write_text(matrix_content)
+
+          scope_content = r'''import React, { useEffect, useMemo, useState } from "react";
+import { Plus, Trash2 } from "lucide-react";
+import { asArray, createDefaultArtworkGroup, getVariationAttributes, getVariationLabel, makeId } from "./productBuilderUtils";
+
+const normalise = (value) => String(value ?? "").trim().toLowerCase();
+
+function collectAttributes(variations = []) {
+  const map = new Map();
+  asArray(variations).forEach((variation) => Object.entries(getVariationAttributes(variation)).forEach(([key, value]) => {
+    if (value === undefined || value === null || String(value).trim() === "") return;
+    if (!map.has(key)) map.set(key, new Set());
+    map.get(key).add(String(value));
+  }));
+  const priority = ["Colour", "Color", "Size", "Keyring Size", "Keyring Material", "Material"];
+  return [...map.entries()].map(([key, values]) => ({ key, values: [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })) })).sort((a, b) => {
+    const ai = priority.findIndex((item) => normalise(item) === normalise(a.key));
+    const bi = priority.findIndex((item) => normalise(item) === normalise(b.key));
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.key.localeCompare(b.key);
+  });
+}
+
+function matchesAttribute(variation, key, values) {
+  const attrs = getVariationAttributes(variation);
+  const actual = Object.keys(attrs).find((item) => normalise(item) === normalise(key));
+  return actual && values.map(normalise).includes(normalise(attrs[actual]));
+}
+
+function createAttributeGroup(variations, key, values, label) {
+  const ids = asArray(variations).filter((variation) => matchesAttribute(variation, key, values)).map((variation) => variation.id);
+  return { id: makeId("group"), label: label || `${key}: ${values.join(" + ")}`, scope_type: "attribute", attribute_key: key, attribute_value: values.length === 1 ? values[0] : "", attribute_values: values, variation_ids: ids, inherits_from: "default-all", artworks: [], primary_mockup_image_url: "", variation_mockups: [], derived_mockup_images: [], sort_order: 0 };
+}
+
+export default function ArtworkScopeSelector({ selectedVariations, hasTemplateVariations = true, groups, onChange }) {
+  const variations = asArray(selectedVariations);
+  const safeGroups = asArray(groups);
+  const attributes = useMemo(() => collectAttributes(variations), [variations]);
+  const [mode, setMode] = useState(safeGroups.length ? "custom" : "all");
+  const [attributeKey, setAttributeKey] = useState(attributes[0]?.key || "");
+  const [attributeValues, setAttributeValues] = useState([]);
+  useEffect(() => { if (!attributeKey && attributes[0]?.key) setAttributeKey(attributes[0].key); }, [attributes, attributeKey]);
+  useEffect(() => { if (!hasTemplateVariations && !safeGroups.length) onChange([createDefaultArtworkGroup()]); }, [hasTemplateVariations, safeGroups.length, onChange]);
+  const valuesForKey = attributes.find((item) => item.key === attributeKey)?.values || [];
+  const toggleValue = (value) => setAttributeValues((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  const applyAll = () => onChange([{ ...createDefaultArtworkGroup(), scope_type: "all", variation_ids: variations.map((variation) => variation.id), label: "Artwork A — all selected variations" }]);
+  const applyAttribute = () => { if (!attributeKey || !attributeValues.length) return; onChange([createAttributeGroup(variations, attributeKey, attributeValues, `Artwork A — ${attributeKey}: ${attributeValues.join(" + ")}`)]); };
+  const addAttributeGroup = () => { if (!attributeKey || !attributeValues.length) return; const next = createAttributeGroup(variations, attributeKey, attributeValues, `Artwork ${String.fromCharCode(65 + safeGroups.length)} — ${attributeKey}: ${attributeValues.join(" + ")}`); onChange([...safeGroups, next]); setAttributeValues([]); };
+  const addCustom = () => onChange([...safeGroups, { id: makeId("group"), label: `Artwork ${String.fromCharCode(65 + safeGroups.length)}`, scope_type: "custom", variation_ids: [], artworks: [], primary_mockup_image_url: "", variation_mockups: [], derived_mockup_images: [], sort_order: safeGroups.length }]);
+  const removeGroup = (id) => onChange(safeGroups.filter((group) => group.id !== id));
+  const patchGroup = (id, patch) => onChange(safeGroups.map((group) => group.id === id ? { ...group, ...patch } : group));
+  const toggleCustomVariation = (group, variationId) => { const ids = new Set(asArray(group.variation_ids)); if (ids.has(variationId)) ids.delete(variationId); else ids.add(variationId); patchGroup(group.id, { scope_type: "custom", variation_ids: [...ids] }); };
+  return <div className="space-y-5" data-testid="artwork-scope-selector">
+    <section className="card space-y-5"><div><div className="overline mb-1">Artwork scope</div><h2 className="font-display text-3xl uppercase">How does the artwork vary?</h2><p className="text-sm text-zinc-500 mt-2 max-w-3xl">Create artwork scopes, not artwork for every size. An artwork scope can cover one colour, several colours, every size of a colour, or an arbitrary set of exact variations.</p></div>
+      {hasTemplateVariations && <div className="grid md:grid-cols-3 gap-3"><button type="button" className={`card text-left ${mode === "all" ? "border-emerald-400 bg-emerald-500/10" : ""}`} onClick={() => { setMode("all"); applyAll(); }}><div className="font-display text-xl uppercase">Same artwork</div><p className="text-xs text-zinc-500 mt-1">One artwork scope covers every selected variation.</p></button><button type="button" className={`card text-left ${mode === "attribute" ? "border-emerald-400 bg-emerald-500/10" : ""}`} onClick={() => setMode("attribute")}><div className="font-display text-xl uppercase">By attribute</div><p className="text-xs text-zinc-500 mt-1">For example: one artwork for Red + Blue and another for Green.</p></button><button type="button" className="card text-left" onClick={addCustom}><div className="font-display text-xl uppercase">Custom variations</div><p className="text-xs text-zinc-500 mt-1">Choose exact variations when an artwork really is unique to a specific combination.</p></button></div>}
+      {hasTemplateVariations && mode === "attribute" && <div className="rounded-xl border border-white/10 bg-black/20 p-4 space-y-4"><div className="grid md:grid-cols-2 gap-3"><div><label className="label">Attribute</label><select className="input-base" value={attributeKey} onChange={(event) => { setAttributeKey(event.target.value); setAttributeValues([]); }}>{attributes.map((attribute) => <option key={attribute.key} value={attribute.key}>{attribute.key}</option>)}</select></div><div><label className="label">Values this artwork covers</label><div className="grid grid-cols-2 gap-2">{valuesForKey.map((value) => <label key={value} className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer ${attributeValues.includes(value) ? "border-emerald-400 bg-emerald-500/10" : "border-white/10"}`}><input type="checkbox" checked={attributeValues.includes(value)} onChange={() => toggleValue(value)} /><span className="text-sm">{value}</span></label>)}</div></div></div><button type="button" className="btn-primary" disabled={!attributeValues.length} onClick={safeGroups.length ? addAttributeGroup : applyAttribute}><Plus size={14} /> {safeGroups.length ? "Add artwork scope" : "Use these values"}</button></div>}
+    </section>
+    <section className="card space-y-3"><div className="flex items-center justify-between gap-3"><div><div className="overline">Artwork scopes</div><p className="text-xs text-zinc-500">Each scope is uploaded and edited once, then reused by every variation ID in its scope.</p></div>{hasTemplateVariations && <button type="button" className="btn-secondary" onClick={addCustom}><Plus size={14} /> Custom scope</button>}</div>
+      {safeGroups.map((group, index) => <div key={group.id} className="rounded-xl border border-white/10 bg-black/20 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1"><input className="input-base font-bold" value={group.label || `Artwork ${String.fromCharCode(65 + index)}`} onChange={(event) => patchGroup(group.id, { label: event.target.value })} /><div className="text-xs text-zinc-500 mt-2">{group.scope_type === "all" ? `All ${variations.length} selected variations` : group.scope_type === "attribute" ? `${group.attribute_key}: ${asArray(group.attribute_values).join(" + ") || group.attribute_value}` : `${asArray(group.variation_ids).length} exact variation(s)`}</div></div><button type="button" className="text-zinc-500 hover:text-[#FF3B30]" onClick={() => removeGroup(group.id)}><Trash2 size={16} /></button></div>{group.scope_type === "custom" && <details className="mt-4"><summary className="text-xs uppercase tracking-widest text-zinc-400 cursor-pointer">Choose exact variations</summary><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-3">{variations.map((variation) => <label key={variation.id} className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs"><input type="checkbox" checked={asArray(group.variation_ids).includes(variation.id)} onChange={() => toggleCustomVariation(group, variation.id)} /><span>{getVariationLabel(variation)}</span></label>)}</div></details>}</div>)}
+      {!safeGroups.length && <div className="border border-dashed border-white/10 rounded-xl p-6 text-center text-sm text-zinc-500">Choose a scope type above to get started.</div>}
+    </section>
+  </div>;
+}
+'''
+          scope.write_text(scope_content)
+
+          text = mockups.read_text()
+          text = text.replace('async function generateVariationView(template, variation, group, screen) {', 'async function generateScopeView(template, variation, group, screen) {', 1)
+          text = text.replace('    variation_ids: [variation.id],\n    variation_label: variationLabel,', '    variation_ids: asArray(group?.variation_ids).length ? asArray(group.variation_ids) : [variation.id],\n    variation_label: group?.label || variationLabel,\n    variation_labels: asArray(group?.variation_ids).length ? asArray(group.variation_ids).map((id) => id === variation.id ? variationLabel : id) : [variationLabel],', 1)
+          text = text.replace('    id: `variation-mockup-${group.id}-${variation.id}-${screen?.id || viewLabel}`,', '    id: `scope-mockup-${group.id}-${screen?.id || viewLabel}`,', 1)
+          text = text.replace('  const totalViews = readyTargets.reduce(\n    (sum, target) => sum + target.variations.reduce((variationSum, variation) => variationSum + activeTemplateScreens(template, variation).length, 0),\n    0\n  );', '  const totalViews = readyTargets.reduce((sum, target) => sum + activeTemplateScreens(template, target.variations[0]).length, 0);', 1)
+          old_loop = '''      for (const target of readyTargets) {
+        for (const variation of target.variations) {
+          const screens = activeTemplateScreens(template, variation);
+          for (const screen of screens) {
+            const result = await generateVariationView(template, variation, target.group, screen);
+            if (result) generated.push(result);
+            done += 1;
+            setProgress({ done, total: totalViews });
+          }
+        }
+      }'''
+          new_loop = '''      for (const target of readyTargets) {
+        const representative = target.variations[0];
+        const screens = activeTemplateScreens(template, representative);
+        for (const screen of screens) {
+          const result = await generateScopeView(template, representative, target.group, screen);
+          if (result) generated.push({
+            ...result,
+            variation_ids: target.variations.map((variation) => variation.id),
+            variation_labels: target.variations.map((variation) => getVariationLabel(variation)),
+            scope_label: target.group.label || result.scope_label,
+          });
+          done += 1;
+          setProgress({ done, total: totalViews });
+        }
+      }'''
+          if old_loop not in text: raise SystemExit('Could not replace mockup generation loop')
+          text = text.replace(old_loop, new_loop, 1)
+          text = text.replace('          const generatedKeys = new Set(rows.map((row) => `${row.variation_id}::${row.view_key}`));', '          const generatedKeys = new Set(rows.map((row) => `${row.view_key || ""}`));', 1)
+          text = text.replace('          const existing = asArray(group.variation_mockups).filter((row) => {\n          const key = `${row.variation_id || ""}::${row.view_key || ""}`;\n          return !generatedKeys.has(key);\n        });', '          const existing = asArray(group.variation_mockups).filter((row) => !generatedKeys.has(`${row.view_key || ""}`));', 1)
+          text = text.replace('        variations: new Set(generated.map((row) => row.variation_id)).size,', '        variations: new Set(generated.flatMap((row) => asArray(row.variation_ids))).size,', 1)
+          text = text.replace('      toast.success(`${generated.length} variation mockups generated for ${new Set(generated.map((row) => row.variation_id)).size} variation(s) across ${readyTargets.length} artwork scope(s)`);', '      toast.success(`${generated.length} scope mockups generated across ${readyTargets.length} artwork scope(s), covering ${new Set(generated.flatMap((row) => asArray(row.variation_ids))).size} variation(s)`);', 1)
+          text = text.replace('          <h2 className="font-display text-3xl uppercase">Generate every selected variation</h2>', '          <h2 className="font-display text-3xl uppercase">Generate mockups by artwork scope</h2>', 1)
+          text = text.replace('          <p className="text-sm text-zinc-400 mt-2 max-w-3xl">Artwork scope controls which artwork is reused. Mockup generation is always variation-specific, so every selected variation gets its own mockup against that variation\'s actual base view.</p>', '          <p className="text-sm text-zinc-400 mt-2 max-w-3xl">Each artwork scope is rendered once per template mockup view. Sizes and other variations covered by the same scope reuse that generated mockup instead of creating duplicate images.</p>', 1)
+          text = text.replace('          <div className="overline">Generation model</div><div className="font-display text-lg mt-1">1 / variation / view</div>', '          <div className="overline">Generation model</div><div className="font-display text-lg mt-1">1 / scope / view</div>', 1)
+          mockups.write_text(text)
+
+          print('Applied Product Builder V3 UX fixes')
+          PY
+
+      - name: Verify changed files
+        run: |
+          git diff --check
+          grep -n 'const STEPS' frontend/src/components/product-builder/ProductBuilderV3.jsx
+          grep -n 'ProductBuilderV3' frontend/src/components/product-builder/ProductBuilder.jsx
+          grep -n 'Generate mockups by artwork scope' frontend/src/components/product-builder/VariationMockupGenerator.jsx
+          grep -n 'Choose attributes' frontend/src/components/product-builder/ProductVariationMatrix.jsx
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          CI=true npm run build
+
+      - name: Commit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/product-builder/ProductBuilderV3.jsx frontend/src/components/product-builder/ProductVariationMatrix.jsx frontend/src/components/product-builder/ArtworkScopeSelector.jsx frontend/src/components/product-builder/VariationMockupGenerator.jsx
+          git commit -m "Fix product builder attribute scopes and mockup generation [skip ci]" || exit 0
+          git push origin HEAD:feature/template-production-routing-v3

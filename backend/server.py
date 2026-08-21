@@ -35,6 +35,12 @@ async def lifespan(app: FastAPI):
         from seed import seed_if_empty
         from seed_production_operations import seed_production_operations
         from seed_production_rules import seed_production_rules
+        from classic_htv_colour_seed import seed_classic_htv_colours
+        from glitter_htv_colour_seed import seed_glitter_htv_colours
+        from puff_htv_colour_seed import seed_puff_htv_colours
+        from metallic_htv_colour_seed import seed_metallic_htv_colours
+        from glow_htv_colour_seed import seed_glow_htv_colours
+        from htv_profile_colour_assignment import repair_htv_profile_colour_assignments
         from payout_launch_routes import ensure_payout_launch_indexes
         from email_delivery import ensure_email_delivery_indexes
         from email_settings_routes import dashboard_email_delivery_loop
@@ -42,6 +48,18 @@ async def lifespan(app: FastAPI):
         await seed_if_empty(app.state.db)
         await seed_production_operations(app.state.db)
         await seed_production_rules(app.state.db)
+        classic_htv_seed = await seed_classic_htv_colours(app.state.db)
+        logger.info("Classic HTV stocked-colour seed: %s", classic_htv_seed)
+        glitter_htv_seed = await seed_glitter_htv_colours(app.state.db)
+        logger.info("Glitter HTV stocked-colour seed: %s", glitter_htv_seed)
+        puff_htv_seed = await seed_puff_htv_colours(app.state.db)
+        logger.info("Puff HTV stocked-colour seed: %s", puff_htv_seed)
+        metallic_htv_seed = await seed_metallic_htv_colours(app.state.db)
+        logger.info("Metallic HTV stocked-colour seed: %s", metallic_htv_seed)
+        glow_htv_seed = await seed_glow_htv_colours(app.state.db)
+        logger.info("Glow HTV stocked-colour seed: %s", glow_htv_seed)
+        htv_profile_assignment = await repair_htv_profile_colour_assignments(app.state.db)
+        logger.info("Authoritative HTV profile-colour assignment: %s", htv_profile_assignment)
         await ensure_payout_launch_indexes(app.state.db)
         await ensure_email_delivery_indexes(app.state.db)
         await ensure_launch_integrity_indexes(app.state.db)
@@ -88,6 +106,21 @@ from production_model_compat import install_production_model_compat
 install_production_model_compat()
 from auth import auth_router
 import routes_main as routes_main_module
+from product_template_geometry_csv_patch import install_product_template_geometry_csv_patch
+from production_geometry_profile_copy_patch import install_production_geometry_profile_copy_patch
+from production_geometry_profile_copy_color_patch import install_production_geometry_profile_copy_color_patch
+from production_geometry_profile_copy_warning_patch import (
+    build_import_plan as build_profile_copy_import_plan,
+    apply_import_plan_to_documents as apply_profile_copy_import_plan,
+)
+install_product_template_geometry_csv_patch(routes_main_module)
+install_production_geometry_profile_copy_patch(routes_main_module)
+install_production_geometry_profile_copy_color_patch(routes_main_module)
+# Missing Color-owned editor views must not block a Size-owned geometry repair.
+# Route preview/apply through the final compatibility layer while leaving the
+# existing export/parse stack untouched.
+routes_main_module.build_import_plan = build_profile_copy_import_plan
+routes_main_module.apply_import_plan_to_documents = apply_profile_copy_import_plan
 if E2E_MODE:
     from e2e_gateway_patch import install_e2e_mock_gateway
     install_e2e_mock_gateway(routes_main_module)
@@ -96,15 +129,25 @@ from production_profile_resolution_patch import install_production_profile_resol
 from order_finance_patches import install_order_finance_patches
 from builder_artwork_costing_patch import install_builder_artwork_costing_patch
 from builder_production_rules_patch import install_builder_production_rules_patch
+from builder_product_save_patch import install_builder_product_save_patch
 from builder_text_artwork_patch import install_builder_text_artwork_patch
 from platform_launch_policy_patch import install_platform_launch_policy_patch
+from outsourced_rate_runtime_patch import install_outsourced_rate_runtime
+from profile_stocked_colours_patch import install_profile_stocked_colours_patch
+from profile_colour_projection_repair import install_profile_colour_projection_repair
+from template_lifecycle_routes import install_template_lifecycle_routes
 install_production_profile_resolution_patch()
 install_production_operation_pricing(routes_main_module)
 install_order_finance_patches(routes_main_module)
 install_builder_artwork_costing_patch(routes_main_module)
 install_builder_production_rules_patch(routes_main_module)
+install_builder_product_save_patch(routes_main_module)
 install_builder_text_artwork_patch(routes_main_module)
 install_platform_launch_policy_patch(routes_main_module)
+install_outsourced_rate_runtime(routes_main_module)
+install_profile_stocked_colours_patch()
+install_profile_colour_projection_repair()
+install_template_lifecycle_routes(routes_main_module)
 from launch_integrity.compat import ensure_core_compat
 ensure_core_compat(routes_main_module)
 from launch_integrity.install import install_launch_integrity
@@ -124,6 +167,7 @@ from builder_draft_routes import builder_drafts_router
 from creator_finance_routes import creator_finance_router
 from email_settings_routes import email_settings_router
 from routes_production_operations import production_operations_router
+import routes_production_rules as routes_production_rules_module
 from routes_production_rules import production_rules_router
 from launch_integrity.routes import integrity_router
 from launch_integrity.printer_gate_routes import printer_gate_router
@@ -131,6 +175,8 @@ from launch_integrity.printer_ops import printer_ops_router
 from launch_integrity.review_routes import review_router
 from launch_integrity.safety_routes import safety_router
 from launch_integrity.financial_gate_routes import financial_gate_router
+install_profile_stocked_colours_patch(routes_production_rules_module)
+install_profile_colour_projection_repair(routes_production_rules_module)
 install_payout_retry_guard(payout_launch_routes_module)
 
 api_router.include_router(auth_router)
