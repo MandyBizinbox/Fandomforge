@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import AdminDashboard from "../pages/AdminDashboard";
 import AdminTemplateStudioRoute from "./AdminTemplateStudioRoute";
 import AdminProductSystemRoute from "./AdminProductSystemRoute";
+import AdminPlatformSettingsRoute from "./AdminPlatformSettingsRoute";
 import "../components/product-builder/productBuilderStudioViewport.css";
 import "../components/product-builder/productBuilderV2Runtime";
 import "../components/product-builder/productBuilderPricingSimplificationRuntime";
@@ -33,6 +34,10 @@ function isProductSystemPath(pathname) {
   ]).has(path);
 }
 
+function isPlatformSettingsPath(pathname) {
+  return /^\/admin\/platform-settings(?:\/(?:general|package|branding))?\/?$/.test(String(pathname || ""));
+}
+
 export default function AdminDashboardRoute() {
   const location = useLocation();
 
@@ -42,6 +47,10 @@ export default function AdminDashboardRoute() {
 
   if (isProductSystemPath(location.pathname)) {
     return <AdminProductSystemRoute />;
+  }
+
+  if (isPlatformSettingsPath(location.pathname)) {
+    return <AdminPlatformSettingsRoute />;
   }
 
   return <AdminDashboard key={adminDashboardKey(location.pathname)} />;
