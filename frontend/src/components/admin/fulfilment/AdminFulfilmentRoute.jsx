@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -11,7 +11,14 @@ import ShippingSettings from "../ShippingSettings";
 
 const money = (value) => `R ${Number(value || 0).toFixed(2)}`;
 
-function OrdersPage() {
+function canAccess({ permission, moduleKey, modules, user, mode }) {
+  if (moduleKey && modules?.[moduleKey] === false) return false;
+  const isManager = mode === "manager" || user?.role === "manager";
+  if (permission && isManager && user?.manager_permissions?.[permission] === false) return false;
+  return true;
+}
+
+function OrdersPage({ basePath }) {
   const [rows, setRows] = useState([]);
   const [printers, setPrinters] = useState([]);
   const navigate = useNavigate();
@@ -52,7 +59,7 @@ function OrdersPage() {
     <div data-testid="admin-orders-page" className="space-y-6">
       <div className="flex items-end justify-between gap-4">
         <div><div className="overline mb-2">Orders</div><h2 className="font-display text-4xl uppercase">Order Queue</h2></div>
-        <button onClick={() => navigate("/admin/fulfilment/manual")} className="btn-primary"><Plus size={14} /> New Order</button>
+        <button onClick={() => navigate(`${basePath}/fulfilment/manual`)} className="btn-primary"><Plus size={14} /> New Order</button>
       </div>
       <div className="border border-[var(--ff-card-border)] overflow-x-auto">
         <table className="table-brutal min-w-[900px]">
@@ -66,7 +73,7 @@ function OrdersPage() {
                 <td>{money(order.total)}</td>
                 <td><StatusBadge status={order.status} /></td>
                 <td><select className="input-base py-1 text-xs" defaultValue="" onChange={(event) => event.target.value && reassign(order.id, event.target.value)}><option value="">Assign / reassign</option>{printers.map((printer) => <option key={printer.id} value={printer.id}>{printer.company_name}</option>)}</select></td>
-                <td className="text-right whitespace-nowrap"><button onClick={() => navigate(`/admin/fulfilment/orders/${order.id}`)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] mr-3">View</button><button onClick={() => remove(order)} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)]">Delete</button></td>
+                <td className="text-right whitespace-nowrap"><button onClick={() => navigate(`${basePath}/fulfilment/orders/${order.id}`)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] mr-3">View</button><button onClick={() => remove(order)} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)]">Delete</button></td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={7} className="p-10 text-center overline text-[var(--ff-muted-text)]">No orders</td></tr>}
@@ -77,7 +84,7 @@ function OrdersPage() {
   );
 }
 
-function ProductionPage() {
+function ProductionPage({ basePath }) {
   const [jobs, setJobs] = useState([]);
   const [status, setStatus] = useState("all");
   const [printers, setPrinters] = useState([]);
@@ -113,7 +120,7 @@ function ProductionPage() {
       <div className="grid gap-4">
         {jobs.map((job) => (
           <div key={`${job.order_id}-${job.item_id}`} className="grid gap-3 lg:grid-cols-[1fr_280px]">
-            <ProductionJobCard job={job} basePath="/admin/fulfilment/orders" />
+            <ProductionJobCard job={job} basePath={`${basePath}/fulfilment/orders`} />
             <div className="card p-4">
               <div className="overline mb-3">Admin Controls</div>
               <div className="text-xs text-[var(--ff-muted-text)] mb-2">Current printer: <span className="text-[var(--ff-card-text)]">{job.printer_name || "Unassigned"}</span></div>
@@ -129,26 +136,32 @@ function ProductionPage() {
   );
 }
 
-const tabs = [
-  ["/admin/fulfilment/orders", "Orders"],
-  ["/admin/fulfilment/manual", "Manual Order"],
-  ["/admin/fulfilment/production", "Production Jobs"],
-  ["/admin/fulfilment/shipping", "Shipping"],
-];
+export default function AdminFulfilmentRoute({ modules = {}, user = null, mode = "admin", basePath = "/admin" }) {
+  const root = `${basePath}/fulfilment`;
+  const tabs = useMemo(() => [
+    { to: `${root}/orders`, label: "Orders", permission: "manage_orders" },
+    { to: `${root}/manual`, label: "Manual Order", permission: "manage_orders", moduleKey: "manual_orders_enabled" },
+    { to: `${root}/production`, label: "Production Jobs", permission: "manage_orders" },
+    { to: `${root}/shipping`, label: "Shipping", permission: "manage_shipping", moduleKey: "shipping_enabled" },
+  ].filter((tab) => canAccess({ ...tab, modules, user, mode })), [mode, modules, root, user]);
 
-export default function AdminFulfilmentRoute() {
+  const canOrders = canAccess({ permission: "manage_orders", modules, user, mode });
+  const canManual = canAccess({ permission: "manage_orders", moduleKey: "manual_orders_enabled", modules, user, mode });
+  const canShipping = canAccess({ permission: "manage_shipping", moduleKey: "shipping_enabled", modules, user, mode });
+  const fallback = tabs[0]?.to || basePath;
+
   return (
     <div data-testid="admin-fulfilment-workspace" className="space-y-6">
-      <div><p className="overline mb-2">Operations</p><h1 className="font-display text-5xl uppercase">Orders & Fulfilment</h1><p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Mongo-backed orders, production jobs and fulfilment settings are separated into route-owned operational pages.</p></div>
-      <nav className="flex flex-wrap gap-2 border-b border-[var(--ff-card-border)] pb-4">{tabs.map(([to, label]) => <NavLink key={to} to={to} className={({ isActive }) => `px-4 py-3 border text-xs uppercase tracking-widest font-bold ${isActive ? "border-[var(--ff-primary)] bg-[var(--ff-primary)] text-[var(--ff-card-text)]" : "border-[var(--ff-card-border)] text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)]"}`}>{label}</NavLink>)}</nav>
+      <div><p className="overline mb-2">Operations</p><h1 className="font-display text-5xl uppercase">Orders & Fulfilment</h1><p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Orders, manual creation, production jobs and shipping remain API-backed while each operational view owns a concrete route.</p></div>
+      {!!tabs.length && <nav className="flex flex-wrap gap-2 border-b border-[var(--ff-card-border)] pb-4">{tabs.map(({ to, label }) => <NavLink key={to} to={to} className={({ isActive }) => `px-4 py-3 border text-xs uppercase tracking-widest font-bold ${isActive ? "border-[var(--ff-primary)] bg-[var(--ff-primary)] text-[var(--ff-card-text)]" : "border-[var(--ff-card-border)] text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)]"}`}>{label}</NavLink>)}</nav>}
       <Routes>
-        <Route path="/admin/fulfilment" element={<Navigate to="/admin/fulfilment/orders" replace />} />
-        <Route path="/admin/fulfilment/orders" element={<OrdersPage />} />
-        <Route path="/admin/fulfilment/orders/:id" element={<OrderDetail mode="admin" backTo="/admin/fulfilment/orders" testidPrefix="admin-order" />} />
-        <Route path="/admin/fulfilment/manual" element={<ManualOrderBuilder mode="admin" backTo="/admin/fulfilment/orders" />} />
-        <Route path="/admin/fulfilment/production" element={<ProductionPage />} />
-        <Route path="/admin/fulfilment/shipping" element={<ShippingSettings />} />
-        <Route path="/admin/fulfilment/*" element={<Navigate to="/admin/fulfilment/orders" replace />} />
+        <Route path={root} element={<Navigate to={fallback} replace />} />
+        {canOrders && <Route path={`${root}/orders`} element={<OrdersPage basePath={basePath} />} />}
+        {canOrders && <Route path={`${root}/orders/:id`} element={<OrderDetail mode="admin" backTo={`${root}/orders`} testidPrefix="admin-order" />} />}
+        {canManual && <Route path={`${root}/manual`} element={<ManualOrderBuilder mode="admin" backTo={`${root}/orders`} />} />}
+        {canOrders && <Route path={`${root}/production`} element={<ProductionPage basePath={basePath} />} />}
+        {canShipping && <Route path={`${root}/shipping`} element={<ShippingSettings />} />}
+        <Route path={`${root}/*`} element={<Navigate to={fallback} replace />} />
       </Routes>
     </div>
   );
