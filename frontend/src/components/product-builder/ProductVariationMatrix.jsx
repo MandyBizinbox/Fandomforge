@@ -6,6 +6,8 @@ import "./productBuilderV2Runtime";
 import { asArray, getVariationAttributes, getVariationCost, getVariationLabel, money } from "./productBuilderUtils";
 
 const normalise = (value) => String(value ?? "").trim().toLowerCase();
+const variationId = (variation) => String(variation?.template_variation_id || variation?.id || variation?.sku || "");
+const idKey = (values) => asArray(values).map(String).filter(Boolean).sort().join("|");
 
 function collectAttributeOptions(variations = []) {
   const map = new Map();
@@ -36,16 +38,19 @@ function variationValue(variation, key) {
 function deriveSelectedIds(variations, options) {
   const activeKeys = Object.keys(options).filter((key) => asArray(options[key]).length);
   if (!activeKeys.length) return [];
-  return asArray(variations).filter((variation) => activeKeys.every((key) => asArray(options[key]).map(normalise).includes(normalise(variationValue(variation, key))))).map((variation) => variation.id);
+  return asArray(variations)
+    .filter((variation) => activeKeys.every((key) => asArray(options[key]).map(normalise).includes(normalise(variationValue(variation, key)))))
+    .map(variationId)
+    .filter(Boolean);
 }
 
 function seedSelections(variations, selectedIds) {
-  const selected = new Set(asArray(selectedIds));
+  const selected = new Set(asArray(selectedIds).map(String));
   const options = collectAttributeOptions(variations);
   return Object.fromEntries(options.map((option) => {
     const values = option.values.filter((value) => {
       const matching = variations.filter((variation) => normalise(variationValue(variation, option.key)) === normalise(value));
-      return matching.length > 0 && matching.every((variation) => selected.has(variation.id));
+      return matching.length > 0 && matching.every((variation) => selected.has(variationId(variation)));
     });
     return [option.key, values];
   }));
@@ -58,16 +63,20 @@ function getFallbackImage(template = {}) {
 export default function ProductVariationMatrix({ template, selectedIds, onChange, hasTemplateVariations = true }) {
   const sourceVariations = useMemo(() => asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived"), [template]);
   const attributes = useMemo(() => collectAttributeOptions(sourceVariations), [sourceVariations]);
+  const selectedIdsKey = idKey(selectedIds);
   const [selectedValues, setSelectedValues] = useState(() => seedSelections(sourceVariations, selectedIds));
 
-  useEffect(() => { setSelectedValues(seedSelections(sourceVariations, selectedIds)); }, [template?.id]);
+  // Edit mode can hydrate selected IDs after the template is already present.
+  // Keep the local checkbox state aligned with the persisted product instead of
+  // letting stale local state emit an empty/different selection back upstream.
+  useEffect(() => {
+    setSelectedValues(seedSelections(sourceVariations, selectedIds));
+  }, [template?.id, selectedIdsKey, sourceVariations]);
 
   useEffect(() => {
     const ids = deriveSelectedIds(sourceVariations, selectedValues);
-    const current = asArray(selectedIds).slice().sort();
-    const next = ids.slice().sort();
-    if (JSON.stringify(next) !== JSON.stringify(current)) onChange(ids);
-  }, [selectedValues, sourceVariations, selectedIds]);
+    if (idKey(ids) !== selectedIdsKey) onChange(ids);
+  }, [selectedValues, sourceVariations, selectedIdsKey, onChange]);
 
   const selectedCount = asArray(selectedIds).length;
   const toggleValue = (key, value) => setSelectedValues((current) => {
@@ -88,6 +97,6 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
       <div className="space-y-4">{attributes.map((attribute) => { const active = new Set(asArray(selectedValues[attribute.key])); return <div key={attribute.key} className="rounded-xl border border-white/10 bg-black/20 p-4"><div className="flex items-center justify-between gap-3 mb-3"><div className="font-display text-xl uppercase">{attribute.label}</div><div className="text-[10px] uppercase tracking-widest text-zinc-500">{active.size} selected</div></div><div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">{attribute.values.map((value) => { const checked = active.has(value); return <label key={value} className={`flex items-center gap-3 rounded-lg border px-3 py-3 cursor-pointer transition ${checked ? "border-emerald-400 bg-emerald-500/10" : "border-white/10 bg-black/20 hover:border-white/30"}`}><input type="checkbox" checked={checked} onChange={() => toggleValue(attribute.key, value)} /><span className="text-sm text-white">{value}</span>{checked && <Check size={14} className="ml-auto text-emerald-300" />}</label>; })}</div></div>; })}</div>
       <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3"><div><div className="overline">Generated combinations</div><div className="font-display text-3xl mt-1">{selectedCount}</div></div><div className="text-sm text-zinc-400 max-w-xl">Every selected attribute combination is stored as a real product variation for production, pricing and artwork scope. The creator only has to choose attributes.</div></div>
     </section>
-    <details className="card"><summary className="flex items-center gap-2 cursor-pointer text-xs uppercase tracking-widest text-zinc-400"><ChevronDown size={14} /> Preview generated variations</summary><div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">{sourceVariations.filter((variation) => asArray(selectedIds).includes(variation.id)).slice(0, 60).map((variation) => <div key={variation.id} className="flex items-center gap-3 border border-white/10 rounded-lg p-3"><div className="w-12 h-12 shrink-0 rounded bg-black border border-white/10 flex items-center justify-center overflow-hidden">{(variation.image_url || getFallbackImage(template)) ? <img src={assetUrl(variation.image_url || getFallbackImage(template))} alt={getVariationLabel(variation)} className="w-full h-full object-contain" /> : <ImageIcon size={18} className="text-zinc-700" />}</div><div className="min-w-0"><div className="text-sm font-bold text-white truncate">{getVariationLabel(variation)}</div><div className="text-[10px] text-zinc-500">{variation.sku || variation.id}</div><div className="text-[10px] text-zinc-500 mt-1">Blank {money(getVariationCost(variation, template))}</div></div></div>)}</div></details>
+    <details className="card"><summary className="flex items-center gap-2 cursor-pointer text-xs uppercase tracking-widest text-zinc-400"><ChevronDown size={14} /> Preview generated variations</summary><div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">{sourceVariations.filter((variation) => asArray(selectedIds).map(String).includes(variationId(variation))).slice(0, 60).map((variation) => <div key={variationId(variation)} className="flex items-center gap-3 border border-white/10 rounded-lg p-3"><div className="w-12 h-12 shrink-0 rounded bg-black border border-white/10 flex items-center justify-center overflow-hidden">{(variation.image_url || getFallbackImage(template)) ? <img src={assetUrl(variation.image_url || getFallbackImage(template))} alt={getVariationLabel(variation)} className="w-full h-full object-contain" /> : <ImageIcon size={18} className="text-zinc-700" />}</div><div className="min-w-0"><div className="text-sm font-bold text-white truncate">{getVariationLabel(variation)}</div><div className="text-[10px] text-zinc-500">{variation.sku || variationId(variation)}</div><div className="text-[10px] text-zinc-500 mt-1">Blank {money(getVariationCost(variation, template))}</div></div></div>)}</div></details>
   </div>;
 }
