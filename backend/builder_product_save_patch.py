@@ -123,8 +123,13 @@ def _install_admin_product_update_put_alias(routes_main_module) -> None:
         return
 
     route_path = getattr(patch_route, "path", "/admin/products/{product_id}")
+    router_prefix = getattr(admin_router, "prefix", "") or ""
+    registration_path = route_path
+    if router_prefix and route_path.startswith(f"{router_prefix}/"):
+        registration_path = route_path[len(router_prefix):]
+
     admin_router.add_api_route(
-        route_path,
+        registration_path,
         patch_route.endpoint,
         methods=["PUT"],
         response_model=getattr(patch_route, "response_model", None),
