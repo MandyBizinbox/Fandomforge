@@ -1,0 +1,43 @@
+name: Temporary Phase 9 CI Path Guard
+
+on:
+  push:
+    branches:
+      - refactor/admin-fulfilment-inside-shell-phase-9
+
+permissions:
+  contents: write
+
+jobs:
+  update-ci-paths:
+    if: github.event.head_commit.message != 'Cover admin fulfilment refactor in production CI'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/admin-fulfilment-inside-shell-phase-9
+          fetch-depth: 0
+      - name: Add exact CI path coverage
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/template-production-routing-v3-ci.yml')
+          text = path.read_text()
+          anchor = '      - "frontend/src/routes/AdminDashboardRoute.jsx"\n'
+          addition = anchor + '      - "frontend/src/pages/AdminDashboard.jsx"\n      - "frontend/src/components/admin/fulfilment/**"\n'
+          if 'frontend/src/components/admin/fulfilment/**' not in text:
+              if text.count(anchor) != 1:
+                  raise SystemExit(f'Expected one AdminDashboardRoute path anchor, found {text.count(anchor)}')
+              text = text.replace(anchor, addition, 1)
+          path.write_text(text)
+          PY
+          grep -F 'frontend/src/pages/AdminDashboard.jsx' .github/workflows/template-production-routing-v3-ci.yml
+          grep -F 'frontend/src/components/admin/fulfilment/**' .github/workflows/template-production-routing-v3-ci.yml
+      - name: Commit CI path coverage
+        run: |
+          git config user.name "FandomForge Refactor Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/workflows/template-production-routing-v3-ci.yml
+          git diff --cached --check
+          git commit -m "Cover admin fulfilment refactor in production CI"
+          git push origin HEAD:refactor/admin-fulfilment-inside-shell-phase-9
