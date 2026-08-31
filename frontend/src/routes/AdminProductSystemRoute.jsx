@@ -66,7 +66,7 @@ function ProductSystemPage({ children }) {
               className={({ isActive }) => [
                 "px-3 py-2 border text-xs uppercase tracking-widest font-bold transition",
                 isActive
-                  ? "border-[var(--ff-primary)] bg-[color-mix(in_srgb,var(--ff-primary)_12%,transparent)] text-[var(--ff-card-text)]"
+                  ? "border-[var(--ff-primary)] bg-[var(--ff-surface-bg)] text-[var(--ff-card-text)]"
                   : "border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] text-[var(--ff-muted-text)] hover:border-[var(--ff-primary)] hover:text-[var(--ff-card-text)]",
               ].join(" ")}
             >
