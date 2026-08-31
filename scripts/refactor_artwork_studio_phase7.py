@@ -3,7 +3,8 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 studio_path = ROOT / "frontend/src/components/product-builder/ProductArtworkStudio.jsx"
-route_path = ROOT / "frontend/src/routes/AdminDashboardRoute.jsx"
+admin_route_path = ROOT / "frontend/src/routes/AdminDashboardRoute.jsx"
+creator_route_path = ROOT / "frontend/src/routes/CreatorDashboardRoute.jsx"
 runtime_path = ROOT / "frontend/src/components/product-builder/productBuilderTextColourRuntime.js"
 
 studio = studio_path.read_text()
@@ -143,13 +144,25 @@ if count != 1:
 
 studio_path.write_text(studio)
 
-route = route_path.read_text()
-old_import = 'import "../components/product-builder/productBuilderTextColourRuntime";\n'
-if old_import not in route:
-    raise SystemExit("text colour runtime import not found")
-route_path.write_text(route.replace(old_import, "", 1))
+runtime_imports = [
+    'import "../components/product-builder/productBuilderV2Runtime";\n',
+    'import "../components/product-builder/productBuilderPricingSimplificationRuntime";\n',
+    'import "../components/product-builder/productBuilderTextColourRuntime";\n',
+    'import "../components/product-builder/productBuilderDraftButtonRuntime";\n',
+]
+removed = 0
+for route_path in (admin_route_path, creator_route_path):
+    route = route_path.read_text()
+    for runtime_import in runtime_imports:
+        if runtime_import in route:
+            route = route.replace(runtime_import, "")
+            removed += 1
+    route_path.write_text(route)
+
+if removed < 5:
+    raise SystemExit(f"Expected to remove at least five legacy runtime imports, removed {removed}")
 
 if runtime_path.exists():
     runtime_path.unlink()
 
-print("Applied Artwork Studio native text-control refactor")
+print(f"Applied Artwork Studio native text-control refactor; removed {removed} legacy runtime imports")
