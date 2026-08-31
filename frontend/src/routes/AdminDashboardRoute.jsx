@@ -29,6 +29,7 @@ function isProductSystemPath(pathname) {
     "/admin/products",
     "/admin/categories",
     "/admin/attributes",
+    "/admin/print-options",
   ]).has(path);
 }
 
