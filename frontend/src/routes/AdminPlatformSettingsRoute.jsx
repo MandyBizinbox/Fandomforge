@@ -38,7 +38,11 @@ const adminLinks = [
 const settingsLinks = [
   { to: "/admin/platform-settings/general", label: "General" },
   { to: "/admin/platform-settings/package", label: "Package & Modules" },
-  { to: "/admin/platform-settings/branding", label: "Branding / Instance" },
+  { to: "/admin/platform-settings/branding", label: "Brand & Theme" },
+  { to: "/admin/platform-settings/homepage", label: "Homepage Copy" },
+  { to: "/admin/platform-settings/homepage-builder", label: "Homepage Builder" },
+  { to: "/admin/platform-settings/signup", label: "Signup" },
+  { to: "/admin/platform-settings/legal", label: "Legal" },
 ];
 
 function SettingsPage({ children }) {
@@ -49,7 +53,7 @@ function SettingsPage({ children }) {
           <p className="overline mb-2">Owner controls</p>
           <h1 className="font-display text-5xl uppercase">Platform Settings</h1>
           <p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">
-            Platform settings now use URL-backed pages. Persistent values continue to load from and save to the Mongo platform settings document.
+            Each settings domain has a concrete URL while persistent values continue to load from and save to the Mongo platform settings document.
           </p>
         </div>
         <nav className="flex flex-wrap gap-2" aria-label="Platform settings">
@@ -81,7 +85,11 @@ export default function AdminPlatformSettingsRoute() {
         <Route path="platform-settings" element={<Navigate to="/admin/platform-settings/branding" replace />} />
         <Route path="platform-settings/general" element={<SettingsPage><PlatformGeneralSettingsPage /></SettingsPage>} />
         <Route path="platform-settings/package" element={<SettingsPage><FeaturePackageSettings /></SettingsPage>} />
-        <Route path="platform-settings/branding" element={<SettingsPage><InstanceBrandingSettings /></SettingsPage>} />
+        <Route path="platform-settings/branding" element={<SettingsPage><InstanceBrandingSettings section="branding" /></SettingsPage>} />
+        <Route path="platform-settings/homepage" element={<SettingsPage><InstanceBrandingSettings section="homepage" /></SettingsPage>} />
+        <Route path="platform-settings/homepage-builder" element={<SettingsPage><InstanceBrandingSettings section="builder" /></SettingsPage>} />
+        <Route path="platform-settings/signup" element={<SettingsPage><InstanceBrandingSettings section="signup" /></SettingsPage>} />
+        <Route path="platform-settings/legal" element={<SettingsPage><InstanceBrandingSettings section="legal" /></SettingsPage>} />
       </Route>
     </Routes>
   );
