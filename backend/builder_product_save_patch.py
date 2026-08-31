@@ -178,7 +178,14 @@ def _install_admin_product_route_guard(routes_main_module, normalized_normalizer
 
 
 def install_builder_product_save_patch(routes_main_module) -> None:
-    """Install the save-payload compatibility wrapper exactly once."""
+    """Install the save-payload compatibility wrapper exactly once.
+
+    The PUT compatibility route is always ensured first. This matters because
+    the main sanitizer may already have been installed by an earlier startup
+    layer; repeated calls must still repair missing HTTP method aliases.
+    """
+    _install_admin_product_update_put_alias(routes_main_module)
+
     if getattr(routes_main_module, "_builder_product_save_patch_installed", False):
         return
 
@@ -236,10 +243,6 @@ def install_builder_product_save_patch(routes_main_module) -> None:
         routes_main_module,
         wrapped_normalize_template_product_payload,
     )
-
-    # Product Builder V4 sends PUT for edit saves. Keep the existing PATCH route
-    # canonical and expose PUT as a method alias to the exact same handler.
-    _install_admin_product_update_put_alias(routes_main_module)
 
     # The normalization wrapper cannot see failures that happen later while
     # constructing the Product model or inserting into Mongo. Install a route
