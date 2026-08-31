@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import DashboardLayout from "../components/DashboardLayout";
 import FeaturePackageSettings from "../components/admin/FeaturePackageSettings";
-import InstanceBrandingSettings from "../components/admin/InstanceBrandingSettings";
+import InstanceSettingsSectionPage from "../components/admin/InstanceSettingsSectionPage";
 import PlatformGeneralSettingsPage from "../components/admin/PlatformGeneralSettingsPage";
 
 const adminLinks = [
@@ -85,11 +85,11 @@ export default function AdminPlatformSettingsRoute() {
         <Route path="platform-settings" element={<Navigate to="/admin/platform-settings/branding" replace />} />
         <Route path="platform-settings/general" element={<SettingsPage><PlatformGeneralSettingsPage /></SettingsPage>} />
         <Route path="platform-settings/package" element={<SettingsPage><FeaturePackageSettings /></SettingsPage>} />
-        <Route path="platform-settings/branding" element={<SettingsPage><InstanceBrandingSettings section="branding" /></SettingsPage>} />
-        <Route path="platform-settings/homepage" element={<SettingsPage><InstanceBrandingSettings section="homepage" /></SettingsPage>} />
-        <Route path="platform-settings/homepage-builder" element={<SettingsPage><InstanceBrandingSettings section="builder" /></SettingsPage>} />
-        <Route path="platform-settings/signup" element={<SettingsPage><InstanceBrandingSettings section="signup" /></SettingsPage>} />
-        <Route path="platform-settings/legal" element={<SettingsPage><InstanceBrandingSettings section="legal" /></SettingsPage>} />
+        <Route path="platform-settings/branding" element={<SettingsPage><InstanceSettingsSectionPage section="branding" /></SettingsPage>} />
+        <Route path="platform-settings/homepage" element={<SettingsPage><InstanceSettingsSectionPage section="homepage" /></SettingsPage>} />
+        <Route path="platform-settings/homepage-builder" element={<SettingsPage><InstanceSettingsSectionPage section="builder" /></SettingsPage>} />
+        <Route path="platform-settings/signup" element={<SettingsPage><InstanceSettingsSectionPage section="signup" /></SettingsPage>} />
+        <Route path="platform-settings/legal" element={<SettingsPage><InstanceSettingsSectionPage section="legal" /></SettingsPage>} />
       </Route>
     </Routes>
   );
