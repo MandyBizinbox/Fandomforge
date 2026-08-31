@@ -4,6 +4,7 @@ import AdminDashboard from "../pages/AdminDashboard";
 import AdminTemplateStudioRoute from "./AdminTemplateStudioRoute";
 import AdminProductSystemRoute from "./AdminProductSystemRoute";
 import AdminPlatformSettingsRoute from "./AdminPlatformSettingsRoute";
+import AdminFulfilmentRoute from "../components/admin/fulfilment/AdminFulfilmentRoute";
 import "../components/product-builder/productBuilderStudioViewport.css";
 import "../components/admin/adminManufacturingRulesThemeRuntime";
 
@@ -34,6 +35,10 @@ function isPlatformSettingsPath(pathname) {
   return /^\/admin\/platform-settings(?:\/(?:general|package|branding|homepage|homepage-builder|signup|legal))?\/?$/.test(String(pathname || ""));
 }
 
+function isFulfilmentPath(pathname) {
+  return /^\/admin\/fulfilment(?:\/(?:orders(?:\/[^/]+)?|manual|production|shipping))?\/?$/.test(String(pathname || ""));
+}
+
 export default function AdminDashboardRoute() {
   const location = useLocation();
 
@@ -47,6 +52,10 @@ export default function AdminDashboardRoute() {
 
   if (isPlatformSettingsPath(location.pathname)) {
     return <AdminPlatformSettingsRoute />;
+  }
+
+  if (isFulfilmentPath(location.pathname)) {
+    return <AdminFulfilmentRoute />;
   }
 
   return <AdminDashboard key={adminDashboardKey(location.pathname)} />;
