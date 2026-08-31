@@ -37,6 +37,8 @@ jobs:
         run: CI=true npm test -- --watchAll=false
       - name: Build frontend
         working-directory: frontend
+        env:
+          CI: "false"
         run: npm run build
       - name: Commit refactor result
         run: |
