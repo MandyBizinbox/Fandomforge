@@ -5,10 +5,7 @@ import AdminTemplateStudioRoute from "./AdminTemplateStudioRoute";
 import AdminProductSystemRoute from "./AdminProductSystemRoute";
 import AdminPlatformSettingsRoute from "./AdminPlatformSettingsRoute";
 import "../components/product-builder/productBuilderStudioViewport.css";
-import "../components/product-builder/productBuilderV2Runtime";
-import "../components/product-builder/productBuilderPricingSimplificationRuntime";
 import "../components/product-builder/productBuilderTextColourRuntime";
-import "../components/product-builder/productBuilderDraftButtonRuntime";
 import "../components/admin/adminManufacturingRulesThemeRuntime";
 
 function adminDashboardKey(pathname) {
