@@ -2,6 +2,7 @@
 
 Keeps the new scoped-pricing builder payload lean and server-authoritative:
 - variation mockup records live on artwork groups, not every generated variation;
+- Product Builder extension state survives Pydantic validation;
 - variation pricing mode survives normalization;
 - per-variation price overrides remain intact;
 - save failures expose a useful API error instead of an opaque 500;
@@ -43,6 +44,30 @@ SERVER_OWNED_PRODUCT_FIELDS = {
     "created_at",
     "updated_at",
 }
+
+
+def _enable_builder_extension_state() -> None:
+    """Preserve V4 builder fields that are intentionally ahead of Product schema.
+
+    Product Builder V4 stores some edit-state metadata that is not yet declared
+    on the canonical Product models (for example ``variation_pricing_mode`` and
+    ``brand``), while artwork groups currently use ``variation_mockups`` rather
+    than the older ``derived_mockup_images`` field. Pydantic's default
+    ``extra=ignore`` silently discarded those values, which made an existing
+    product reopen as though parts of the form had never been configured.
+
+    Allow extras on only the builder-facing product models. This is deliberately
+    narrow and keeps the established schema intact while allowing the current V4
+    payload to round-trip through validation and Mongo unchanged.
+    """
+    try:
+        from models import Product, ProductCreate, ProductUpdate, ProductArtworkGroup
+
+        for model in (Product, ProductCreate, ProductUpdate, ProductArtworkGroup):
+            model.model_config["extra"] = "allow"
+            model.model_rebuild(force=True)
+    except Exception:
+        logger.exception("Could not enable Product Builder extension-state persistence")
 
 
 def _sanitise_variation_payload(row: Any) -> dict:
@@ -187,10 +212,12 @@ def _install_admin_product_route_guard(routes_main_module, normalized_normalizer
 def install_builder_product_save_patch(routes_main_module) -> None:
     """Install the save-payload compatibility wrapper exactly once.
 
-    The PUT compatibility route is always ensured first. This matters because
-    the main sanitizer may already have been installed by an earlier startup
-    layer; repeated calls must still repair missing HTTP method aliases.
+    The PUT compatibility route and builder extension-state persistence are
+    always ensured first. This matters because the main sanitizer may already
+    have been installed by an earlier startup layer; repeated calls must still
+    repair missing HTTP method aliases and schema compatibility.
     """
+    _enable_builder_extension_state()
     _install_admin_product_update_put_alias(routes_main_module)
 
     if getattr(routes_main_module, "_builder_product_save_patch_installed", False):
