@@ -1,0 +1,48 @@
+name: Refactor Artwork Studio Phase 7
+
+on:
+  push:
+    branches:
+      - refactor/artwork-studio-native-text-phase-7
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/artwork-studio-native-text-phase-7
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply codemod
+        run: python3 scripts/refactor_artwork_studio_phase7.py
+      - name: Verify source
+        run: |
+          grep -n 'const allowedProfilesForArea = useCallback' frontend/src/components/product-builder/ProductArtworkStudio.jsx
+          grep -n 'const updateTextLayer' frontend/src/components/product-builder/ProductArtworkStudio.jsx
+          ! grep -q 'productBuilderTextColourRuntime' frontend/src/routes/AdminDashboardRoute.jsx
+          test ! -f frontend/src/components/product-builder/productBuilderTextColourRuntime.js
+          git diff --check
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run frontend tests
+        working-directory: frontend
+        run: CI=true npm test -- --watchAll=false
+      - name: Build frontend
+        working-directory: frontend
+        run: CI=true npm run build
+      - name: Commit refactor result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Refactor Artwork Studio text controls into React [skip ci]"
+          git push origin HEAD:refactor/artwork-studio-native-text-phase-7
