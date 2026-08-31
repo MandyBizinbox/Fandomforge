@@ -141,7 +141,6 @@ install_production_operation_pricing(routes_main_module)
 install_order_finance_patches(routes_main_module)
 install_builder_artwork_costing_patch(routes_main_module)
 install_builder_production_rules_patch(routes_main_module)
-install_builder_product_save_patch(routes_main_module)
 install_builder_text_artwork_patch(routes_main_module)
 install_platform_launch_policy_patch(routes_main_module)
 install_outsourced_rate_runtime(routes_main_module)
@@ -152,6 +151,9 @@ from launch_integrity.compat import ensure_core_compat
 ensure_core_compat(routes_main_module)
 from launch_integrity.install import install_launch_integrity
 install_launch_integrity(app, routes_main_module)
+# Install Product Builder save sanitization last so no compatibility layer can
+# replace the normalizer afterwards and reintroduce server-owned Product fields.
+install_builder_product_save_patch(routes_main_module)
 
 from routes_main import (
     bands_router, printers_router, product_templates_router, products_router, artworks_router,
