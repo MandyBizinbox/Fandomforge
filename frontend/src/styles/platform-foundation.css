@@ -1,0 +1,200 @@
+/*
+ * FandomForge platform UI foundation
+ * ----------------------------------
+ * Canonical shared primitives consume the semantic CSS variables populated by
+ * lib/theme.js from Platform Settings. Domain styles should build on these
+ * primitives rather than hard-code instance colours.
+ */
+
+html,
+body,
+#root,
+.App {
+  min-height: 100%;
+  background: var(--ff-page-bg);
+  color: var(--ff-page-text);
+}
+
+body {
+  margin: 0;
+}
+
+.page-shell,
+.admin-workspace,
+.app-shell,
+.main-layout,
+main {
+  color: var(--ff-page-text);
+}
+
+.brand-text,
+.theme-brand-text {
+  color: var(--ff-primary);
+}
+
+.card,
+.surface,
+.panel,
+.admin-card,
+.dashboard-card,
+.settings-card,
+.admin-sidebar,
+.site-footer {
+  background: var(--ff-card-bg);
+  color: var(--ff-card-text);
+  border-color: var(--ff-card-border);
+}
+
+.admin-topbar {
+  background: var(--ff-header-bg);
+  color: var(--ff-header-text);
+  border-color: var(--ff-card-border);
+}
+
+.btn-primary,
+button.btn-primary,
+a.btn-primary,
+.theme-button-primary {
+  background: var(--ff-button-primary-bg);
+  color: var(--ff-button-primary-text);
+  border-color: var(--ff-button-primary-border);
+}
+
+.btn-primary:hover,
+button.btn-primary:hover,
+a.btn-primary:hover,
+.theme-button-primary:hover {
+  background: var(--ff-button-alternate-bg);
+  color: var(--ff-button-alternate-text);
+  border-color: var(--ff-button-alternate-border);
+}
+
+.btn-secondary,
+button.btn-secondary,
+a.btn-secondary,
+.theme-button-secondary {
+  background: var(--ff-button-alternate-bg);
+  color: var(--ff-button-alternate-text);
+  border-color: var(--ff-button-alternate-border, var(--ff-button-secondary-idle-border));
+}
+
+.btn-secondary:hover,
+button.btn-secondary:hover,
+a.btn-secondary:hover,
+.theme-button-secondary:hover {
+  background: var(--ff-button-primary-bg);
+  color: var(--ff-button-primary-text);
+  border-color: var(--ff-button-primary-border);
+}
+
+.input-base,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="tel"],
+input[type="url"],
+input[type="search"],
+input[type="date"],
+input[type="time"],
+textarea,
+select {
+  background: var(--ff-input-bg);
+  color: var(--ff-input-text);
+  border-color: var(--ff-input-border);
+}
+
+.input-base:focus,
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+input[type="tel"]:focus,
+input[type="url"]:focus,
+input[type="search"]:focus,
+input[type="date"]:focus,
+input[type="time"]:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--ff-primary);
+  outline-color: var(--ff-primary);
+}
+
+.input-base::placeholder,
+input[type="text"]::placeholder,
+input[type="email"]::placeholder,
+input[type="password"]::placeholder,
+input[type="number"]::placeholder,
+input[type="tel"]::placeholder,
+input[type="url"]::placeholder,
+input[type="search"]::placeholder,
+textarea::placeholder {
+  color: var(--ff-muted-text);
+  opacity: 0.75;
+}
+
+select option,
+select optgroup,
+.input-base option {
+  background: var(--ff-input-bg);
+  color: var(--ff-input-text);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--ff-primary);
+}
+
+.overline,
+.label,
+.text-muted,
+.sidebar-link {
+  color: var(--ff-muted-text);
+}
+
+.sidebar-link:hover,
+.sidebar-link.active {
+  color: var(--ff-card-text);
+  background: color-mix(in srgb, var(--ff-primary) 10%, transparent);
+}
+
+.sidebar-link.active {
+  border-left-color: var(--ff-primary);
+}
+
+.table-brutal th,
+.table-brutal td,
+.dropzone,
+.studio-topbar,
+.studio-panel,
+.studio-subpanel {
+  border-color: var(--ff-card-border);
+}
+
+.table-brutal th {
+  color: var(--ff-muted-text);
+}
+
+.table-brutal tr:hover td {
+  background: var(--ff-surface-bg);
+  color: var(--ff-surface-text);
+}
+
+.dropzone:hover,
+.card-interactive:hover,
+.canvas-overlay.selected {
+  border-color: var(--ff-primary);
+}
+
+::-webkit-scrollbar-track {
+  background: var(--ff-surface-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ff-card-border);
+  border-color: var(--ff-surface-bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ff-primary);
+}

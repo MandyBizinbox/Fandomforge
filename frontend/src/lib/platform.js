@@ -80,8 +80,6 @@ export const DEFAULT_PLATFORM = {
 
 let cachedPlatform = null;
 let platformRequest = null;
-let contactObserver = null;
-let currentContactPlatform = DEFAULT_PLATFORM;
 
 function applyPlatformDocumentBranding(platform = {}) {
   if (typeof document === "undefined") return;
@@ -99,89 +97,6 @@ function applyPlatformDocumentBranding(platform = {}) {
     }
     node.href = favicon;
   }
-}
-
-function whatsappHref(value = "") {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw)) return raw;
-
-  let digits = raw.replace(/\D/g, "");
-  if (!digits) return "";
-  if (digits.startsWith("0")) digits = `27${digits.slice(1)}`;
-  return `https://wa.me/${digits}`;
-}
-
-function replaceAnchorText(anchor, matcher, replacement) {
-  if (!anchor || !replacement) return;
-  anchor.childNodes.forEach((node) => {
-    if (node.nodeType !== Node.TEXT_NODE) return;
-    const value = String(node.nodeValue || "");
-    if (matcher.test(value)) node.nodeValue = value.replace(matcher, replacement);
-  });
-}
-
-const EMAIL_SELECTOR = 'a[href="mailto:info@theforgeza.co.za"], a[data-platform-contact="email"]';
-const WHATSAPP_SELECTOR = 'a[href="https://wa.me/27712116050"], a[data-platform-contact="whatsapp"]';
-
-function matchingAnchors(root, selector) {
-  if (!root || typeof root.querySelectorAll !== "function") return [];
-  const matches = [];
-  if (root.matches?.(selector)) matches.push(root);
-  root.querySelectorAll(selector).forEach((node) => matches.push(node));
-  return matches;
-}
-
-function applyPlatformContactDetails(platform = {}, root = document) {
-  if (typeof document === "undefined" || !root) return;
-
-  const supportEmail = String(
-    platform.public_contact_email || platform.support_email || DEFAULT_PLATFORM.support_email
-  ).trim();
-  const supportPhone = String(
-    platform.support_whatsapp || platform.public_contact_phone || platform.support_phone || ""
-  ).trim();
-  const supportWhatsappHref = whatsappHref(supportPhone);
-
-  if (supportEmail) {
-    matchingAnchors(root, EMAIL_SELECTOR).forEach((anchor) => {
-      anchor.setAttribute("href", `mailto:${supportEmail}`);
-      replaceAnchorText(anchor, /info@theforgeza\.co\.za/gi, supportEmail);
-    });
-  }
-
-  if (supportWhatsappHref) {
-    matchingAnchors(root, WHATSAPP_SELECTOR).forEach((anchor) => {
-      anchor.setAttribute("href", supportWhatsappHref);
-      if (supportPhone) {
-        replaceAnchorText(anchor, /WhatsApp\s+071\s+211\s+6050/gi, `WhatsApp ${supportPhone}`);
-      }
-    });
-  }
-}
-
-function ensurePlatformContactBridge(platform = {}) {
-  currentContactPlatform = platform;
-  applyPlatformContactDetails(platform);
-
-  if (typeof document === "undefined" || typeof MutationObserver === "undefined" || contactObserver) return;
-
-  const start = () => {
-    if (!document.body || contactObserver) return;
-    contactObserver = new MutationObserver((records) => {
-      records.forEach((record) => {
-        record.addedNodes.forEach((node) => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            applyPlatformContactDetails(currentContactPlatform, node);
-          }
-        });
-      });
-    });
-    contactObserver.observe(document.body, { childList: true, subtree: true });
-  };
-
-  if (document.body) start();
-  else window.setTimeout(start, 0);
 }
 
 export function mergePlatformConfig(value = {}) {
@@ -210,7 +125,6 @@ export function mergePlatformConfig(value = {}) {
 
   applyPlatformTheme(merged);
   applyPlatformDocumentBranding(merged);
-  ensurePlatformContactBridge(merged);
   return merged;
 }
 
@@ -265,7 +179,6 @@ export function usePlatformConfig() {
   useEffect(() => {
     applyPlatformTheme(platform);
     applyPlatformDocumentBranding(platform);
-    ensurePlatformContactBridge(platform);
   }, [platform]);
 
   return { platform, loading };
