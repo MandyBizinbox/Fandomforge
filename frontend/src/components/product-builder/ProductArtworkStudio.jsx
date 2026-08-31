@@ -879,7 +879,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     return merged;
   }, [manufacturingProfiles, legacyProfileFallbacks]);
 
-  const allowedProfilesForArea = (area) => {
+  const allowedProfilesForArea = useCallback((area) => {
     if (!area) return [];
     const templateOptionIds = asArray(template?.print_option_ids);
     const areaOptionIds = [
@@ -894,9 +894,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     const exactProfiles = activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds, { methodFallback: false }));
     if (exactProfiles.length) return exactProfiles;
     return activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds, { methodFallback: true }));
-  };
+  }, [profileCatalog, template]);
 
-  const allowedProfiles = useMemo(() => allowedProfilesForArea(activeArea), [activeArea, profileCatalog, template]);
+  const allowedProfiles = useMemo(() => allowedProfilesForArea(activeArea), [activeArea, allowedProfilesForArea]);
   const selectedProfile = useMemo(() => {
     const candidate = resolveProfileForSlot(activeSlot || {}, profileCatalog, printOptions);
     if (!candidate) return null;
@@ -993,18 +993,20 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     if (activePrintAreaId && !areasForScreen.some((area) => area.id === activePrintAreaId)) setActivePrintAreaId(areasForScreen[0]?.id || "");
   }, [areasForScreen, activePrintAreaId]);
 
-  const setGroups = (nextGroups) => onArtworkGroupsChange(nextGroups.map((group, index) => ({ ...group, sort_order: index })));
-  const setGroupSlots = (groupId, nextSlots) => {
+  const setGroups = useCallback((nextGroups) => {
+    onArtworkGroupsChange(nextGroups.map((group, index) => ({ ...group, sort_order: index })));
+  }, [onArtworkGroupsChange]);
+  const setGroupSlots = useCallback((groupId, nextSlots) => {
     const nextGroups = patchGroup(groups, groupId, (group) => {
       const primaryMockup = nextSlots.find((slot) => slot.mockup_image_url)?.mockup_image_url || group.primary_mockup_image_url || "";
       return { ...group, artworks: nextSlots.map((slot, index) => ({ ...slot, sort_order: index })), primary_mockup_image_url: primaryMockup };
     });
     setGroups(nextGroups);
-  };
-  const patchSlot = (slotId, patch) => {
+  }, [groups, setGroups]);
+  const patchSlot = useCallback((slotId, patch) => {
     if (!activeGroup) return;
     setGroupSlots(activeGroup.id, slots.map((slot) => (slot.id === slotId ? { ...slot, ...patch } : slot)));
-  };
+  }, [activeGroup, slots, setGroupSlots]);
 
   useEffect(() => {
     if (!activeGroup || !profileCatalog.length || !slots.length) return;
@@ -1048,7 +1050,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       return slot;
     });
     if (changed) setGroupSlots(activeGroup.id, nextSlots);
-  }, [profileCatalog, activeGroup?.id, slots, printAreas, printOptions]);
+  }, [profileCatalog, activeGroup, slots, printAreas, printOptions, allowedProfilesForArea, setGroupSlots]);
 
   const areaRatioFor = (areaId) => {
     const rect = areaRefs.current[areaId]?.getBoundingClientRect?.();
@@ -1209,9 +1211,32 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     const nextSettings = normaliseTextSettings({ text_content: activeSlot.text_content, text_font_family: activeSlot.text_font_family, text_font_weight: activeSlot.text_font_weight, text_font_size: activeSlot.text_font_size, text_color: activeSlot.text_color, ...patch });
     const asset = buildTextLayerAsset(nextSettings);
     const placement = sanitizePlacement(activeSlot.placement, activeArea);
-    const nextPlacement = activeSlot.lock_aspect_ratio === false ? placement : { ...placement, height: fitHeightForAspect(activeArea.id, placement.width, asset.artwork_aspect_ratio) };
-    patchSlot(activeSlot.id, { ...asset, placement: nextPlacement });
-    window.requestAnimationFrame(() => patchPlacement(activeSlot.id, nextPlacement));
+    const nextPlacement = activeSlot.lock_aspect_ratio === false
+      ? placement
+      : { ...placement, height: fitHeightForAspect(activeArea.id, placement.width, asset.artwork_aspect_ratio) };
+    const nextSlot = { ...activeSlot, ...asset, placement: nextPlacement };
+    const profile = resolveProfileForSlot(nextSlot, profileCatalog, printOptions) || nextSlot;
+    const costing = calculateAreaPrintCost(nextSlot, activeArea, profile);
+    patchSlot(activeSlot.id, {
+      ...asset,
+      placement: nextPlacement,
+      placement_box_width_mm: costing.placement_box_width_mm,
+      placement_box_height_mm: costing.placement_box_height_mm,
+      artwork_aspect_ratio: costing.artwork_aspect_ratio || asset.artwork_aspect_ratio || activeSlot.artwork_aspect_ratio || 0,
+      print_area_width_mm: costing.print_area_width_mm,
+      print_area_height_mm: costing.print_area_height_mm,
+      artwork_width_mm: costing.artwork_width_mm,
+      artwork_height_mm: costing.artwork_height_mm,
+      print_width_mm: costing.print_width_mm,
+      print_height_mm: costing.print_height_mm,
+      area_cm2: costing.area_cm2,
+      raw_print_cost: costing.raw_print_cost,
+      calculated_print_cost: costing.calculated_print_cost,
+      print_cost_max: costing.calculated_print_cost,
+      minimum_print_cost_applied: costing.minimum_print_cost_applied,
+      final_artwork_production_cost: costing.final_artwork_production_cost,
+      pricing_source: costing.pricing_source,
+    });
   };
 
   const removeSlot = useCallback((slotId) => {
@@ -1772,7 +1797,11 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
           {activeSlot && activeArea ? (
             <div className="space-y-4">
               <div className="flex items-start justify-between gap-3"><div><div className="overline mb-1">Inspector</div><h3 className="font-display text-2xl uppercase">{activeSlot.text_layer ? "Text" : "Image"} Layer</h3><p className="text-xs text-zinc-500 mt-1">{activeArea.name} · {activeArea.width_mm || 0}×{activeArea.height_mm || 0}mm</p></div><button type="button" className="btn-secondary border-[#FF3B30] text-[#FF8A84] whitespace-nowrap" onClick={() => removeSlot(activeSlot.id)} title="Delete selected layer"><Trash2 size={16} /> Delete Layer</button></div>
-              {activeSlot.text_layer && <div className="border border-white/10 bg-black/30 rounded-xl p-3 space-y-3"><div className="font-bold text-sm">Text editor</div><label><span className="label">Text</span><textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(event) => updateTextLayer({ text_content: event.target.value })} /></label><div className="grid grid-cols-2 gap-2"><label><span className="label">Font</span><select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(event) => updateTextLayer({ text_font_family: event.target.value })}>{TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}</select></label><label><span className="label">Weight</span><select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(event) => updateTextLayer({ text_font_weight: event.target.value })}><option value="400">Regular</option><option value="600">Semi-bold</option><option value="700">Bold</option><option value="900">Heavy</option></select></label><label><span className="label">Text render size</span><input className="input-base" type="text" inputMode="numeric" value={Number(activeSlot.text_font_size || 180)} onChange={(event) => updateTextLayer({ text_font_size: event.target.value })} onBlur={(event) => updateTextLayer({ text_font_size: clamp(event.target.value, TEXT_RENDER_MIN, TEXT_RENDER_MAX) })} /></label><label><span className="label">Colour</span><input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(event) => updateTextLayer({ text_color: event.target.value })} /></label></div><p className="text-[11px] text-zinc-500">Use handles to resize text. Render size controls sharpness, not final product size.</p></div>}
+              {activeSlot.text_layer && <div className="border border-white/10 bg-black/30 rounded-xl p-3 space-y-3"><div className="font-bold text-sm">Text editor</div><label><span className="label">Text</span><textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(event) => updateTextLayer({ text_content: event.target.value })} /></label><div className="grid grid-cols-2 gap-2"><label><span className="label">Font</span><select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(event) => updateTextLayer({ text_font_family: event.target.value })}>{TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}</select></label><label><span className="label">Weight</span><select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(event) => updateTextLayer({ text_font_weight: event.target.value })}><option value="400">Regular</option><option value="600">Semi-bold</option><option value="700">Bold</option><option value="900">Heavy</option></select></label><label><span className="label">Text render size</span><input className="input-base" type="text" inputMode="numeric" value={Number(activeSlot.text_font_size || 180)} onChange={(event) => updateTextLayer({ text_font_size: event.target.value })} onBlur={(event) => updateTextLayer({ text_font_size: clamp(event.target.value, TEXT_RENDER_MIN, TEXT_RENDER_MAX) })} /></label>{supportsStockedColours(selectedProfile || {}) ? (
+                  <div><span className="label">Colour</span><div className="input-base h-[42px] flex items-center text-xs text-zinc-500">Use the approved stocked colour below</div></div>
+                ) : (
+                  <label><span className="label">Colour</span><input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(event) => updateTextLayer({ text_color: event.target.value })} /></label>
+                )}</div><p className="text-[11px] text-zinc-500">Use handles to resize text. Render size controls sharpness, not final product size.</p></div>}
               {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingReplaceSlotIdRef.current = activeSlot.id; pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
               <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} />
               <ColourRestrictionBlock profile={selectedProfile} slot={activeSlot} onChange={(value) => setLayerStockedColour(activeSlot.id, value)} />
