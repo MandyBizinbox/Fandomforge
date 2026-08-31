@@ -31,6 +31,9 @@ on:
       - "frontend/src/routes/AdminManufacturingRulesRoute.jsx"
       - "frontend/src/components/orders/ManualOrderBuilder.jsx"
       - "frontend/src/lib/**"
+      - "frontend/src/styles/**"
+      - "frontend/src/platformThemeOverrides.css"
+      - "frontend/src/index.css"
       - "frontend/src/index.js"
       - "frontend/src/routes/AdminDashboardRoute.jsx"
       - "frontend/src/routes/AdminTemplateStudioRoute.jsx"
@@ -116,6 +119,7 @@ jobs:
           CI: "true"
         run: >-
           npm test -- --watchAll=false --runInBand
+          theme.test.js
           variationProductionConfig.test.js
           variationProductionRouting.test.js
           attributeProductionComposition.test.js
