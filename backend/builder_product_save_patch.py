@@ -91,7 +91,7 @@ def _find_admin_product_create_route(routes_main_module):
 
 
 def _install_admin_product_update_put_alias(routes_main_module) -> None:
-    """Expose PUT /products/{product_id} using the existing admin PATCH handler.
+    """Expose PUT on the existing admin product-update route.
 
     Product Builder V4 currently sends a full edit payload with PUT while the
     backend's canonical admin update endpoint is registered as PATCH. Reusing the
@@ -100,35 +100,37 @@ def _install_admin_product_update_put_alias(routes_main_module) -> None:
     """
     admin_router = getattr(routes_main_module, "admin_router", None)
     routes = getattr(admin_router, "routes", []) or []
+    candidate_paths = {"/products/{product_id}", "/admin/products/{product_id}"}
 
     for route in routes:
         path = getattr(route, "path", "")
         methods = getattr(route, "methods", set()) or set()
-        if path == "/products/{product_id}" and "PUT" in methods:
+        if path in candidate_paths and "PUT" in methods:
             return
 
     patch_route = None
     for route in routes:
         path = getattr(route, "path", "")
         methods = getattr(route, "methods", set()) or set()
-        if path == "/products/{product_id}" and "PATCH" in methods:
+        if path in candidate_paths and "PATCH" in methods:
             patch_route = route
             break
 
     if patch_route is None:
         logger.warning(
-            "Could not locate admin PATCH /products/{product_id} route for PUT compatibility"
+            "Could not locate admin PATCH product update route for PUT compatibility"
         )
         return
 
+    route_path = getattr(patch_route, "path", "/admin/products/{product_id}")
     admin_router.add_api_route(
-        "/products/{product_id}",
+        route_path,
         patch_route.endpoint,
         methods=["PUT"],
         response_model=getattr(patch_route, "response_model", None),
         name="admin_update_product_put_compat",
     )
-    logger.info("Installed Product Builder admin PUT /products/{product_id} compatibility route")
+    logger.info("Installed Product Builder admin PUT %s compatibility route", route_path)
 
 
 def _install_admin_product_route_guard(routes_main_module, normalized_normalizer) -> None:
