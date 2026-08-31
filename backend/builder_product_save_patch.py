@@ -8,7 +8,9 @@ Keeps the new scoped-pricing builder payload lean and server-authoritative:
 - server-owned Product fields cannot collide with explicit Product(...) fields;
 - the admin creator-product route is guarded so the sanitization wrapper is
   active at request time, even if a later compatibility layer replaces the
-  module-level normalizer reference.
+  module-level normalizer reference;
+- the admin product update route accepts PUT as a compatibility alias for the
+  existing PATCH handler used by the current Product Builder edit-save flow.
 """
 from __future__ import annotations
 
@@ -86,6 +88,47 @@ def _find_admin_product_create_route(routes_main_module):
         if path in {"/products", "/admin/products"} and "POST" in methods:
             return route
     return None
+
+
+def _install_admin_product_update_put_alias(routes_main_module) -> None:
+    """Expose PUT /products/{product_id} using the existing admin PATCH handler.
+
+    Product Builder V4 currently sends a full edit payload with PUT while the
+    backend's canonical admin update endpoint is registered as PATCH. Reusing the
+    same endpoint keeps one update implementation and avoids a 405 without
+    changing existing PATCH callers.
+    """
+    admin_router = getattr(routes_main_module, "admin_router", None)
+    routes = getattr(admin_router, "routes", []) or []
+
+    for route in routes:
+        path = getattr(route, "path", "")
+        methods = getattr(route, "methods", set()) or set()
+        if path == "/products/{product_id}" and "PUT" in methods:
+            return
+
+    patch_route = None
+    for route in routes:
+        path = getattr(route, "path", "")
+        methods = getattr(route, "methods", set()) or set()
+        if path == "/products/{product_id}" and "PATCH" in methods:
+            patch_route = route
+            break
+
+    if patch_route is None:
+        logger.warning(
+            "Could not locate admin PATCH /products/{product_id} route for PUT compatibility"
+        )
+        return
+
+    admin_router.add_api_route(
+        "/products/{product_id}",
+        patch_route.endpoint,
+        methods=["PUT"],
+        response_model=getattr(patch_route, "response_model", None),
+        name="admin_update_product_put_compat",
+    )
+    logger.info("Installed Product Builder admin PUT /products/{product_id} compatibility route")
 
 
 def _install_admin_product_route_guard(routes_main_module, normalized_normalizer) -> None:
@@ -193,6 +236,10 @@ def install_builder_product_save_patch(routes_main_module) -> None:
         routes_main_module,
         wrapped_normalize_template_product_payload,
     )
+
+    # Product Builder V4 sends PUT for edit saves. Keep the existing PATCH route
+    # canonical and expose PUT as a method alias to the exact same handler.
+    _install_admin_product_update_put_alias(routes_main_module)
 
     # The normalization wrapper cannot see failures that happen later while
     # constructing the Product model or inserting into Mongo. Install a route
