@@ -142,13 +142,13 @@ export default function AdminFulfilmentRoute() {
       <div><p className="overline mb-2">Operations</p><h1 className="font-display text-5xl uppercase">Orders & Fulfilment</h1><p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Mongo-backed orders, production jobs and fulfilment settings are separated into route-owned operational pages.</p></div>
       <nav className="flex flex-wrap gap-2 border-b border-[var(--ff-card-border)] pb-4">{tabs.map(([to, label]) => <NavLink key={to} to={to} className={({ isActive }) => `px-4 py-3 border text-xs uppercase tracking-widest font-bold ${isActive ? "border-[var(--ff-primary)] bg-[var(--ff-primary)] text-[var(--ff-card-text)]" : "border-[var(--ff-card-border)] text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)]"}`}>{label}</NavLink>)}</nav>
       <Routes>
-        <Route index element={<Navigate to="orders" replace />} />
-        <Route path="orders" element={<OrdersPage />} />
-        <Route path="orders/:id" element={<OrderDetail mode="admin" backTo="/admin/fulfilment/orders" testidPrefix="admin-order" />} />
-        <Route path="manual" element={<ManualOrderBuilder mode="admin" backTo="/admin/fulfilment/orders" />} />
-        <Route path="production" element={<ProductionPage />} />
-        <Route path="shipping" element={<ShippingSettings />} />
-        <Route path="*" element={<Navigate to="orders" replace />} />
+        <Route path="/admin/fulfilment" element={<Navigate to="/admin/fulfilment/orders" replace />} />
+        <Route path="/admin/fulfilment/orders" element={<OrdersPage />} />
+        <Route path="/admin/fulfilment/orders/:id" element={<OrderDetail mode="admin" backTo="/admin/fulfilment/orders" testidPrefix="admin-order" />} />
+        <Route path="/admin/fulfilment/manual" element={<ManualOrderBuilder mode="admin" backTo="/admin/fulfilment/orders" />} />
+        <Route path="/admin/fulfilment/production" element={<ProductionPage />} />
+        <Route path="/admin/fulfilment/shipping" element={<ShippingSettings />} />
+        <Route path="/admin/fulfilment/*" element={<Navigate to="/admin/fulfilment/orders" replace />} />
       </Routes>
     </div>
   );
