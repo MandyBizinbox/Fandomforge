@@ -3,22 +3,24 @@ import { assetUrl, http } from "./api";
 import { applyPlatformTheme } from "./theme";
 
 export const DEFAULT_PLATFORM = {
-  platform_name: "Fandom Forge",
+  platform_name: "FandomForge",
   platform_tagline: "Merch made simple",
-  brand_alt_text: "Fandom Forge",
+  brand_alt_text: "FandomForge",
   logo_url: "",
   logo_primary_url: "",
   logo_compact_url: "",
   logo_light_url: "",
   logo_dark_url: "",
   favicon_url: "",
-  document_title: "Fandom Forge",
+  document_title: "FandomForge",
 
   primary_color: "#FF3B30",
   accent_color: "#FF7A1A",
 
-  theme_mode: "light",
-  background_color: "#FFFFFF",
+  // Keep browser fallbacks aligned with backend PlatformSettings defaults so
+  // the UI does not briefly render a different theme before Mongo settings load.
+  theme_mode: "dark",
+  background_color: "#0A0A0A",
   page_text_color: "",
   surface_background_color: "",
   surface_text_color: "",
@@ -30,8 +32,8 @@ export const DEFAULT_PLATFORM = {
   input_text_color: "",
   input_border_color: "",
 
-  header_background_color: "#FFFFFF",
-  header_text_color: "#111111",
+  header_background_color: "#0A0A0A",
+  header_text_color: "#FFFFFF",
 
   button_primary_background_color: "#FF3B30",
   button_primary_text_color: "#FFFFFF",
@@ -41,8 +43,8 @@ export const DEFAULT_PLATFORM = {
   button_alternate_border_color: "",
   button_secondary_border_color: "",
 
-  support_email: "help@fandomforge.co.za",
-  public_contact_email: "help@fandomforge.co.za",
+  support_email: "",
+  public_contact_email: "",
   support_phone: "",
   support_whatsapp: "",
 
