@@ -78,10 +78,10 @@ export default function AdminPlatformSettingsRoute() {
   return (
     <Routes>
       <Route element={<DashboardLayout title="Platform Admin" links={adminLinks} testidPrefix="admin-dash" notificationEndpoint="/admin/notifications" notificationPath="/admin/notifications" />}>
-        <Route index element={<Navigate to="/admin/platform-settings/branding" replace />} />
-        <Route path="general" element={<SettingsPage><PlatformGeneralSettingsPage /></SettingsPage>} />
-        <Route path="package" element={<SettingsPage><FeaturePackageSettings /></SettingsPage>} />
-        <Route path="branding" element={<SettingsPage><InstanceBrandingSettings /></SettingsPage>} />
+        <Route path="platform-settings" element={<Navigate to="/admin/platform-settings/branding" replace />} />
+        <Route path="platform-settings/general" element={<SettingsPage><PlatformGeneralSettingsPage /></SettingsPage>} />
+        <Route path="platform-settings/package" element={<SettingsPage><FeaturePackageSettings /></SettingsPage>} />
+        <Route path="platform-settings/branding" element={<SettingsPage><InstanceBrandingSettings /></SettingsPage>} />
       </Route>
     </Routes>
   );
