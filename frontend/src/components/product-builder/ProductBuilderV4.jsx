@@ -49,11 +49,34 @@ const EMPTY_ARTWORK = { original_url: "", file_name: "", mime_type: "", status: 
 const EMPTY_PLACEMENT = { x: 0, y: 0, width: 0, height: 0, rotation: 0 };
 
 function normalise(value) { return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"); }
+function idKey(values) { return asArray(values).map(String).filter(Boolean).sort().join("|"); }
 function templateMatchesType(template, type) {
   if (!type) return true;
-  const templateKeys = [template.product_type_slug, template.product_type_key, template.product_type, template.category, template.category_id, template.category_slug].map(normalise).filter(Boolean);
-  const typeKeys = [type.slug, type.category, type.key, type.name, type.id].map(normalise).filter(Boolean);
+  const templateKeys = [template.product_type_id, template.product_type_slug, template.product_type_key, template.product_type, template.category, template.category_id, template.category_slug].map(normalise).filter(Boolean);
+  const typeKeys = [type.id, type.slug, type.category, type.key, type.name].map(normalise).filter(Boolean);
   return templateKeys.some((key) => typeKeys.includes(key));
+}
+function resolveExistingVariationIds(existing, template) {
+  const persisted = asArray(existing?.selected_template_variation_ids).map(String).filter(Boolean);
+  if (persisted.length) return persisted;
+  const available = new Set(asArray(template?.variations).map((variation) => String(variation?.id || variation?.template_variation_id || variation?.sku || "")).filter(Boolean));
+  const inferred = asArray(existing?.variations)
+    .map((variation) => String(variation?.template_variation_id || variation?.id || variation?.sku || ""))
+    .filter(Boolean);
+  return available.size ? inferred.filter((id) => available.has(id)) : inferred;
+}
+function resolveExistingProductType(existing, template, productTypes) {
+  const types = asArray(productTypes);
+  const templateTypeId = normalise(template?.product_type_id);
+  if (templateTypeId) {
+    const direct = types.find((row) => normalise(row.id) === templateTypeId);
+    if (direct) return direct;
+  }
+  if (template) {
+    const matched = types.find((row) => templateMatchesType(template, row));
+    if (matched) return matched;
+  }
+  return types.find((row) => normalise(row.id) === normalise(existing?.product_type_id) || normalise(row.category) === normalise(existing?.category)) || null;
 }
 function getTemplateSpecs(template) {
   if (!template) return "";
@@ -183,25 +206,29 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
         if (!isNew) requests.push(http.get(isAdmin ? `/admin/products/${routeId}` : `/products/${routeId}`));
         const responses = await Promise.all(requests);
         if (!mounted) return;
-        setTemplates(asArray(responses[0].data)); setPrintOptions(asArray(responses[1].data)); setProductTypes(asArray(responses[2].data));
+        const loadedTemplates = asArray(responses[0].data);
+        const loadedProductTypes = asArray(responses[2].data);
+        setTemplates(loadedTemplates); setPrintOptions(asArray(responses[1].data)); setProductTypes(loadedProductTypes);
         let cursor = 3;
         if (isAdmin) { setCreators(asArray(responses[cursor].data)); cursor += 1; }
         if (!isNew) {
           const existing = responses[cursor].data;
+          const existingTemplate = loadedTemplates.find((template) => String(template.id) === String(existing.template_id)) || null;
+          const existingVariationIds = resolveExistingVariationIds(existing, existingTemplate);
           setProduct(existing);
           const groups = asArray(existing.artwork_groups).length ? asArray(existing.artwork_groups) : asArray(existing.artworks).length ? [{ ...createDefaultArtworkGroup(), artworks: asArray(existing.artworks), primary_mockup_image_url: existing.primary_mockup_image_url || existing.mockup_image_url || "" }] : [];
           const existingVariationPrices = Object.fromEntries(asArray(existing.variations).map((variation) => [variation.template_variation_id || variation.id || variation.sku, variation.price_override ?? ""]).filter(([key]) => key));
           const existingPriceValues = Object.values(existingVariationPrices).map(Number).filter((value) => Number.isFinite(value) && value > 0);
           const inferredUniformPricing = existingVariationPrices && existingPriceValues.length > 0 && new Set(existingPriceValues.map((value) => value.toFixed(2))).size === 1;
           setForm({
-            band_id: existing.band_id || "", template_id: existing.template_id || "", title: existing.title || "", slug: existing.slug || "", description: existing.description || "", specs: existing.specs || "", category: existing.category || "", brand: existing.brand || "", active: existing.active !== false,
-            selected_template_variation_ids: asArray(existing.selected_template_variation_ids),
+            band_id: existing.band_id || "", template_id: existing.template_id || "", title: existing.title || "", slug: existing.slug || "", description: existing.description || "", specs: existing.specs || "", category: existing.category || existingTemplate?.category || "", brand: existing.brand || existingTemplate?.brand || "", active: existing.active !== false,
+            selected_template_variation_ids: existingVariationIds,
             variation_price_overrides: existingVariationPrices,
             variation_pricing_mode: existing.variation_pricing_mode || (inferredUniformPricing ? "uniform" : "by_attribute"),
             selling_price: existing.selling_price || (inferredUniformPricing ? existingPriceValues[0] : 0), published: Boolean(existing.published), artwork_groups: groups,
             mockup_images: asArray(existing.mockup_images), mockup_image_url: existing.mockup_image_url || "", primary_mockup_image_url: existing.primary_mockup_image_url || existing.mockup_image_url || "",
           });
-          const type = asArray(responses[2].data).find((row) => normalise(row.id) === normalise(existing.product_type_id) || normalise(row.category) === normalise(existing.category));
+          const type = resolveExistingProductType(existing, existingTemplate, loadedProductTypes);
           if (type) setSelectedProductTypeId(type.id);
         }
       } catch (error) { toast.error(error.response?.data?.detail || "Could not load product builder"); }
@@ -212,14 +239,30 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
 
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const chooseType = (typeId) => {
+    if (String(typeId) === String(selectedProductTypeId)) return;
     const type = productTypes.find((row) => row.id === typeId); setSelectedProductTypeId(typeId);
     setForm((current) => ({ ...current, template_id: "", selected_template_variation_ids: [], variation_price_overrides: {}, variation_pricing_mode: "by_attribute", selling_price: 0, artwork_groups: [], mockup_images: [], mockup_image_url: "", primary_mockup_image_url: "", category: type?.category || current.category, specs: "" }));
   };
   const chooseTemplate = (template) => {
+    if (String(template?.id || "") === String(form.template_id || "")) return;
     const templateSpecs = getTemplateSpecs(template);
     setForm((current) => ({ ...current, template_id: template.id, selected_template_variation_ids: [], variation_price_overrides: {}, variation_pricing_mode: "by_attribute", selling_price: 0, artwork_groups: [], mockup_images: [], mockup_image_url: "", primary_mockup_image_url: "", title: current.title || template.name || "", description: current.description || template.description || "", specs: templateSpecs || current.specs || "", category: template.category || current.category }));
   };
-  const setVariations = (ids) => setForm((current) => ({ ...current, selected_template_variation_ids: ids, variation_price_overrides: Object.fromEntries(Object.entries(current.variation_price_overrides || {}).filter(([key]) => ids.includes(key))), artwork_groups: [], mockup_images: [], mockup_image_url: "", primary_mockup_image_url: "" }));
+  const setVariations = (ids) => setForm((current) => {
+    const nextIds = asArray(ids).map(String).filter(Boolean);
+    if (idKey(nextIds) === idKey(current.selected_template_variation_ids)) return current;
+    return {
+      ...current,
+      selected_template_variation_ids: nextIds,
+      variation_price_overrides: Object.fromEntries(Object.entries(current.variation_price_overrides || {}).filter(([key]) => nextIds.includes(String(key)))),
+      // Artwork is creator work, not disposable variation UI state. Preserve it
+      // when the variation set changes; scope tools can reconcile membership.
+      artwork_groups: current.artwork_groups,
+      mockup_images: current.mockup_images,
+      mockup_image_url: current.mockup_image_url,
+      primary_mockup_image_url: current.primary_mockup_image_url,
+    };
+  });
   const setScopedPrice = (attributeValue, price) => {
     const nextOverrides = expandScopedPrice(selectedVariations, pricingAttribute, attributeValue, price, form.variation_price_overrides);
     setForm((current) => ({ ...current, variation_pricing_mode: "by_attribute", variation_price_overrides: nextOverrides, selling_price: Number(price || 0) > 0 ? Number(price) : current.selling_price }));
