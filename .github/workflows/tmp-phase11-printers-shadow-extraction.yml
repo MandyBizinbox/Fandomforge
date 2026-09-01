@@ -23,19 +23,22 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Generate shadow extraction
-        run: python scripts/tmp_phase11_printers_shadow.py
+        run: |
+          python scripts/tmp_phase11_printers_shadow.py
+          python scripts/tmp_phase11_printers_access_patch.py
       - name: Verify source shape
         run: |
           grep -F 'path="printers-workspace/*" element={<AdminPrintersWorkspace' frontend/src/pages/AdminDashboard.jsx
           grep -F 'path="accounts" element={<PrintersAdmin />}' frontend/src/components/admin/printers/AdminPrintersWorkspace.jsx
           grep -F 'path="production" element={<ProductionAdmin />}' frontend/src/components/admin/printers/AdminPrintersWorkspace.jsx
+          grep -F 'visiblePrinterTabs' frontend/src/components/admin/printers/AdminPrintersWorkspace.jsx
           grep -F 'function PrintersWorkspace' frontend/src/pages/AdminDashboard.jsx
           grep -F 'function PrintersAdmin' frontend/src/pages/AdminDashboard.jsx
           grep -F 'function ProductionAdmin' frontend/src/pages/AdminDashboard.jsx
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Run focused printer workspace tests
+      - name: Run focused printer access tests
         working-directory: frontend
         run: npm test -- --watchAll=false AdminPrintersWorkspace.test.jsx
       - name: Run full frontend tests
@@ -50,7 +53,7 @@ jobs:
         run: |
           git config user.name "FandomForge Refactor Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add frontend/src/pages/AdminDashboard.jsx frontend/src/components/admin/printers/AdminPrintersWorkspace.jsx frontend/src/components/admin/printers/AdminPrintersWorkspace.test.jsx
+          git add frontend/src/pages/AdminDashboard.jsx frontend/src/components/admin/printers/AdminPrintersWorkspace.jsx frontend/src/components/admin/printers/AdminPrintersWorkspace.test.jsx frontend/src/components/admin/printers/printerWorkspaceAccess.js
           git diff --cached --check
           git commit -m "Mount routed printers shadow workspace"
           git push origin HEAD:refactor/printers-routed-shadow-phase-11
