@@ -6,7 +6,6 @@ import AdminFulfilmentRoute from "../components/admin/fulfilment/AdminFulfilment
 import ProductBuilder from "../components/product-builder/ProductBuilder";
 import ProductionJobCard from "../components/production/ProductionJobCard";
 import OrderDetail from "../components/OrderDetail";
-import ManualOrderBuilder from "../components/orders/ManualOrderBuilder";
 import ProductTypesPage from "../components/template-studio/ProductTypesPage";
 import ProductTemplatesPage from "../components/template-studio/ProductTemplatesPage";
 import ProductTemplateStudioPage from "../components/template-studio/ProductTemplateStudioPage";
@@ -2239,7 +2238,6 @@ function ProductFormAdmin() {
   return <div data-testid="admin-product-form"><div className="overline mb-2">{isNew ? "Create" : "Edit"}</div><h1 className="font-display text-5xl uppercase mb-8">{isNew ? "New Product" : form.title || "Edit"}</h1><form onSubmit={save} className="grid grid-cols-1 lg:grid-cols-2 gap-6"><div className="space-y-4"><div><label className="label">Creator</label><select className="input-base" value={form.band_id} disabled={!isNew} onChange={(e) => setForm({ ...form, band_id: e.target.value })} required><option value="">— pick —</option>{creators.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div><div><label className="label">Assigned printer</label><select className="input-base" value={form.assigned_printer_id} onChange={(e) => setForm({ ...form, assigned_printer_id: e.target.value })}><option value="">— auto —</option>{printers.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}</select></div><input className="input-base" required placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /><textarea className="input-base" rows={4} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /><select className="input-base" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} required><option value="">— category —</option>{categories.map((c) => <option key={c.id} value={c.slug}>{c.name}</option>)}</select><div className="grid grid-cols-2 gap-4"><input type="number" step="0.01" className="input-base" value={form.selling_price} onChange={(e) => setForm({ ...form, selling_price: e.target.value })} /><input type="number" step="0.01" className="input-base" value={form.print_cost} onChange={(e) => setForm({ ...form, print_cost: e.target.value })} /></div><input className="input-base" placeholder="Mockup URLs" value={form.mockup_images} onChange={(e) => setForm({ ...form, mockup_images: e.target.value })} /><label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={form.customization_enabled} onChange={(e) => setForm({ ...form, customization_enabled: e.target.checked })} /> Allow buyer customization</label><label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={form.published} onChange={(e) => setForm({ ...form, published: e.target.checked })} /> Publish</label></div><div className="space-y-4"><AttributeVariationEditor allAttributes={attributes} attributeIds={attributeIds} onAttributeIdsChange={setAttributeIds} variations={variations} onVariationsChange={setVariations} specAttributes={specAttributes} onSpecChange={setSpecAttributes} /><button type="submit" className="btn-primary w-full">{isNew ? "Create product" : "Save"}</button></div></form></div>;
 }
 
-function OrdersAdmin() { const [rows, setRows] = useState([]), [printers, setPrinters] = useState([]); const navigate = useNavigate(); const load = () => http.get("/admin/orders").then((r) => setRows(r.data)); useEffect(() => { load(); http.get("/printers").then((r) => setPrinters(r.data)); }, []); const reassign = async (orderId, printerId) => { try { await http.post(`/orders/${orderId}/assign-printer?printer_id=${printerId}`); toast.success("Reassigned"); load(); } catch (e) { toast.error(e.response?.data?.detail || "Failed"); } }; const remove = async (o) => { if (!window.confirm(`Delete order ${o.order_number}?`)) return; try { await http.delete(`/orders/${o.id}`); toast.success("Deleted"); load(); } catch (e) { toast.error(e.response?.data?.detail || "Failed"); } }; return <div><div className="flex items-center justify-between mb-8"><h1 className="font-display text-5xl uppercase">Orders</h1><button onClick={() => navigate("/admin/orders/new")} className="btn-primary"><Plus size={14} /> New Order</button></div><div className="border border-[var(--ff-card-border)]"><table className="table-brutal"><thead><tr><th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Status</th><th>Reassign</th><th></th></tr></thead><tbody>{rows.map((o) => <tr key={o.id}><td>{o.order_number}</td><td className="text-xs text-[var(--ff-muted-text)]">{o.buyer_email}</td><td>{o.items.length}</td><td>{money(o.total)}</td><td><StatusBadge status={o.status} /></td><td><select className="input-base py-1 text-xs" defaultValue="" onChange={(e) => e.target.value && reassign(o.id, e.target.value)}><option value="">— Assign —</option>{printers.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}</select></td><td className="text-right"><button onClick={() => navigate(`/admin/orders/${o.id}`)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] mr-3">View</button><button onClick={() => remove(o)} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)]">Delete</button></td></tr>)}</tbody></table></div></div>; }
 
 function ProductionAdmin() {
   const [jobs, setJobs] = useState([]);
@@ -2331,7 +2329,6 @@ function ActivityAdmin() {
   );
 }
 
-function OrderCreate() { return <ManualOrderBuilder mode="admin" backTo="/admin/orders" />; }
 function CommissionsAdmin() { const [rows, setRows] = useState([]); useEffect(() => { http.get("/admin/commissions").then((r) => setRows(r.data)); }, []); const total = rows.reduce((s, r) => s + r.amount, 0); return <div><h1 className="font-display text-5xl uppercase mb-6">Commissions</h1><div className="card mb-6"><div className="overline">Total</div><div className="font-display text-4xl text-[var(--ff-primary)]">{money(total)}</div></div><div className="border border-[var(--ff-card-border)]"><table className="table-brutal"><thead><tr><th>Date</th><th>Order</th><th>Creator</th><th>Rate</th><th>Amount</th></tr></thead><tbody>{rows.map((c) => <tr key={c.id}><td>{new Date(c.created_at).toLocaleDateString()}</td><td className="font-mono text-xs">{c.order_id.slice(0, 8)}</td><td className="font-mono text-xs">{c.band_id.slice(0, 8)}</td><td>{(c.rate * 100).toFixed(0)}%</td><td>{money(c.amount)}</td></tr>)}</tbody></table></div></div>; }
 function AdminSettings({ initialTab = "general", compact = false } = {}) {
   const [settings, setSettings] = useState(null);
@@ -2592,28 +2589,6 @@ function ProductsTemplatesWorkspace({ modules = {}, user = null, mode = "admin" 
   );
 }
 
-function FulfilmentWorkspace({ modules = {}, user = null, mode = "admin" } = {}) {
-  return (
-    <div data-testid="admin-fulfilment-workspace" className="space-y-6">
-      <div>
-        <p className="overline mb-2">Operations</p>
-        <h1 className="font-display text-5xl uppercase">Orders & Fulfilment</h1>
-        <p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Orders, manual order creation, production jobs and dispatch are grouped as one operational workflow.</p>
-      </div>
-      <AdminWorkspaceTabs
-        modules={modules}
-        user={user}
-        mode={mode}
-        tabs={[
-          { key: "orders", label: "Orders", permission: "manage_orders", element: <OrdersAdmin /> },
-          { key: "manual", label: "Manual Order", permission: "manage_orders", moduleKey: "manual_orders_enabled", element: <OrderCreate /> },
-          { key: "production", label: "Production Jobs", permission: "manage_orders", element: <ProductionAdmin /> },
-          { key: "shipping", label: "Shipping / Fulfilment", permission: "manage_shipping", moduleKey: "shipping_enabled", element: <ShippingSettings /> },
-        ]}
-      />
-    </div>
-  );
-}
 
 function BillingFinanceWorkspace({ modules = {}, user = null, mode = "admin" } = {}) {
   return (
@@ -2771,7 +2746,7 @@ export default function AdminDashboard({ mode = "admin", basePath = "/admin", ti
         <Route path="activity" element={<ActivityAdmin />} />
         <Route path="production" element={<Navigate to={`${basePath}/fulfilment`} replace />} />
         <Route path="printer-pricing" element={<Navigate to={`${basePath}/printers-workspace`} replace />} />
-        <Route path="orders/new" element={<OrderCreate />} />
+        <Route path="orders/new" element={<Navigate to={`${basePath}/fulfilment/manual`} replace />} />
         <Route path="orders/:id" element={<OrderDetail mode="admin" backTo="/admin/orders" testidPrefix="admin-order" />} />
         <Route path="commissions" element={<Navigate to={`${basePath}/billing`} replace />} />
         <Route path="paystack-payouts" element={<Navigate to={`${basePath}/billing`} replace />} />
