@@ -26,14 +26,18 @@ jobs:
         run: python scripts/tmp_phase12_creators_extract.py
       - name: Verify source shape
         run: |
-          grep -F 'path="creators/*" element={<AdminCreatorsWorkspace />}' frontend/src/pages/AdminDashboard.jsx
+          grep -F 'path="creators/*" element={<AdminCreatorsWorkspace modules=' frontend/src/pages/AdminDashboard.jsx
+          grep -F 'path="accounts" element={<BandsAdmin />}' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+          grep -F 'path="products" element={<ProductsAdmin />}' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+          grep -F 'path="artwork" element={<ArtworkReviewAdmin />}' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+          grep -F 'visibleCreatorTabs' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+          grep -F 'function CreatorsWorkspace' frontend/src/pages/AdminDashboard.jsx
           grep -F 'function BandsAdmin()' frontend/src/pages/AdminDashboard.jsx
-          grep -F 'function BandsAdmin()' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
-          grep -F 'export default function AdminCreatorsWorkspace()' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+          grep -F 'function ProductsAdmin()' frontend/src/pages/AdminDashboard.jsx
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Run focused creator test
+      - name: Run focused creator access tests
         working-directory: frontend
         run: npm test -- --watchAll=false AdminCreatorsWorkspace.test.jsx
       - name: Run full frontend tests
@@ -48,7 +52,7 @@ jobs:
         run: |
           git config user.name "FandomForge Refactor Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add frontend/src/pages/AdminDashboard.jsx frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx frontend/src/components/admin/creators/AdminCreatorsWorkspace.test.jsx
+          git add frontend/src/pages/AdminDashboard.jsx frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx frontend/src/components/admin/creators/AdminCreatorsWorkspace.test.jsx frontend/src/components/admin/creators/creatorWorkspaceAccess.js
           git diff --cached --check
           git commit -m "Mount extracted creators workspace"
           git push origin HEAD:refactor/creators-routed-phase-12
