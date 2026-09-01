@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { NavLink, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { Plus, Save } from "lucide-react";
 import { toast } from "sonner";
 import { http, assetUrl } from "../../../lib/api";
@@ -111,7 +111,8 @@ function AssetUploadField({ label, value, onChange, subdir = "account-assets" })
   );
 }
 
-function BandsAdmin() {
+function BandsAdmin({ view = "list", creatorId = null, basePath = "/admin" }) {
+  const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState(emptyCreatorForm);
@@ -133,6 +134,8 @@ function BandsAdmin() {
     setEditingId(null);
     setForm(emptyCreatorForm);
   };
+
+  const goToList = () => navigate(`${basePath}/creators/accounts`);
 
   const edit = (row) => {
     setEditingId(row.id);
@@ -164,6 +167,12 @@ function BandsAdmin() {
       allow_search_indexing: Boolean(row.allow_search_indexing),
     });
   };
+
+  useEffect(() => {
+    if (view !== "edit" || !creatorId || !rows.length) return;
+    const row = rows.find((item) => String(item.id) === String(creatorId));
+    if (row) edit(row);
+  }, [creatorId, rows, view]);
 
   const payload = () => ({
     name: form.name,
@@ -203,15 +212,15 @@ function BandsAdmin() {
 
     setSaving(true);
     try {
-      if (editingId) {
-        await http.patch(`/admin/creators/${editingId}`, payload());
+      if (view === "edit" && creatorId) {
+        await http.patch(`/admin/creators/${creatorId}`, payload());
         toast.success("Creator updated");
       } else {
         await http.post("/admin/creators", payload());
         toast.success("Creator created");
       }
       reset();
-      await load();
+      goToList();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not save creator");
     } finally {
@@ -243,19 +252,31 @@ function BandsAdmin() {
 
   return (
     <div data-testid="admin-creators-page" className="space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <div className="overline mb-2">Account Management</div>
-          <h1 className="font-display text-5xl uppercase">Creators</h1>
-          <p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Create, edit and manage top-level creator storefront accounts, profile images, banners and user ownership.</p>
+      {view === "list" ? (
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <div className="overline mb-2">Account Management</div>
+            <h1 className="font-display text-5xl uppercase">Creators</h1>
+            <p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Manage creator storefront accounts. Open a creator to edit its profile, publishing, billing and ownership settings.</p>
+          </div>
+          <button type="button" onClick={() => navigate(`${basePath}/creators/accounts/new`)} className="btn-primary"><Plus size={14} /> New Creator</button>
         </div>
-        <button type="button" onClick={reset} className="btn-secondary"><Plus size={14} /> New Creator</button>
-      </div>
+      ) : (
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <button type="button" onClick={goToList} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)] font-bold mb-4">← Back to Creators</button>
+            <div className="overline mb-2">Creator Account</div>
+            <h1 className="font-display text-5xl uppercase">{view === "edit" ? (form.name || "Edit Creator") : "New Creator"}</h1>
+            <p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">{view === "edit" ? "Update this creator account and storefront settings." : "Create a new top-level creator storefront account."}</p>
+          </div>
+        </div>
+      )}
 
+      {view !== "list" && (
       <form onSubmit={save} className="card grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-3">
-          <div className="overline mb-2">{editingId ? "Edit Creator" : "Create Creator"}</div>
-          <h2 className="font-display text-3xl uppercase">{editingId ? form.name || "Edit account" : "New creator account"}</h2>
+          <div className="overline mb-2">{view === "edit" ? "Edit Creator" : "Create Creator"}</div>
+          <h2 className="font-display text-3xl uppercase">{view === "edit" ? form.name || "Edit account" : "New creator account"}</h2>
         </div>
 
         <label><span className="label">Name</span><input className="input-base" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
@@ -354,11 +375,13 @@ function BandsAdmin() {
         <label><span className="label">Socials JSON</span><textarea className="input-base" rows={3} value={form.socials_text} onChange={(e) => setForm({ ...form, socials_text: e.target.value })} placeholder={'{"facebook":"https://..."}'} /></label>
 
         <div className="lg:col-span-3 flex gap-3">
-          <button type="submit" className="btn-primary" disabled={saving}><Save size={14} /> {saving ? "Saving…" : editingId ? "Update Creator" : "Create Creator"}</button>
-          {editingId && <button type="button" onClick={reset} className="btn-secondary">Cancel edit</button>}
+          <button type="submit" className="btn-primary" disabled={saving}><Save size={14} /> {saving ? "Saving…" : view === "edit" ? "Update Creator" : "Create Creator"}</button>
+          <button type="button" onClick={goToList} className="btn-secondary">Cancel</button>
         </div>
       </form>
+      )}
 
+      {view === "list" && (
       <div className="border border-[var(--ff-card-border)] overflow-x-auto">
         <table className="table-brutal min-w-[1100px]">
           <thead><tr><th>Profile</th><th>Slug</th><th>Owner</th><th>Status</th><th>Publishing</th><th>Subscription</th><th>Commission</th><th>Link user</th><th></th></tr></thead>
@@ -383,15 +406,21 @@ function BandsAdmin() {
                     : "15.00% default"}
                 </td>
                 <td><select className="input-base py-1 text-xs" defaultValue="" onChange={(e) => linkUser(b, e.target.value)}><option value="">Link user</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}</select></td>
-                <td className="text-right whitespace-nowrap"><button type="button" onClick={() => edit(b)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] font-bold mr-4">Edit</button><button type="button" onClick={() => remove(b)} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)] font-bold">Delete</button></td>
+                <td className="text-right whitespace-nowrap"><button type="button" onClick={() => navigate(`${basePath}/creators/accounts/${b.id}`)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] font-bold mr-4">Edit</button><button type="button" onClick={() => remove(b)} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)] font-bold">Delete</button></td>
               </tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={9} className="p-10 text-center text-[var(--ff-muted-text)] overline">No creators yet</td></tr>}
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
+}
+
+function CreatorAccountEditRoute({ basePath = "/admin" }) {
+  const { id } = useParams();
+  return <BandsAdmin view="edit" creatorId={id} basePath={basePath} />;
 }
 
 function ProductsAdmin() {
@@ -463,7 +492,9 @@ export default function AdminCreatorsWorkspace({ modules = {}, user = null, mode
 
       <Routes>
         <Route index element={<Navigate to={fallback} replace />} />
-        {canAccounts && <Route path="accounts" element={<BandsAdmin />} />}
+        {canAccounts && <Route path="accounts" element={<BandsAdmin view="list" basePath={basePath} />} />}
+        {canAccounts && <Route path="accounts/new" element={<BandsAdmin view="new" basePath={basePath} />} />}
+        {canAccounts && <Route path="accounts/:id" element={<CreatorAccountEditRoute basePath={basePath} />} />}
         {canUsers && <Route path="users" element={<UserAccessAdmin />} />}
         {canProducts && <Route path="products" element={<ProductsAdmin />} />}
         {canArtwork && <Route path="artwork" element={<ArtworkReviewAdmin />} />}
