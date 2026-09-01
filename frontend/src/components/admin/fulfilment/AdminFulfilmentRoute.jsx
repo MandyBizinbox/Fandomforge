@@ -155,13 +155,13 @@ export default function AdminFulfilmentRoute({ modules = {}, user = null, mode =
       <div><p className="overline mb-2">Operations</p><h1 className="font-display text-5xl uppercase">Orders & Fulfilment</h1><p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Orders, manual creation, production jobs and shipping remain API-backed while each operational view owns a concrete route.</p></div>
       {!!tabs.length && <nav className="flex flex-wrap gap-2 border-b border-[var(--ff-card-border)] pb-4">{tabs.map(({ to, label }) => <NavLink key={to} to={to} className={({ isActive }) => `px-4 py-3 border text-xs uppercase tracking-widest font-bold ${isActive ? "border-[var(--ff-primary)] bg-[var(--ff-primary)] text-[var(--ff-card-text)]" : "border-[var(--ff-card-border)] text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)]"}`}>{label}</NavLink>)}</nav>}
       <Routes>
-        <Route path={root} element={<Navigate to={fallback} replace />} />
-        {canOrders && <Route path={`${root}/orders`} element={<OrdersPage basePath={basePath} />} />}
-        {canOrders && <Route path={`${root}/orders/:id`} element={<OrderDetail mode="admin" backTo={`${root}/orders`} testidPrefix="admin-order" />} />}
-        {canManual && <Route path={`${root}/manual`} element={<ManualOrderBuilder mode="admin" backTo={`${root}/orders`} />} />}
-        {canOrders && <Route path={`${root}/production`} element={<ProductionPage basePath={basePath} />} />}
-        {canShipping && <Route path={`${root}/shipping`} element={<ShippingSettings />} />}
-        <Route path={`${root}/*`} element={<Navigate to={fallback} replace />} />
+        <Route index element={<Navigate to={fallback} replace />} />
+        {canOrders && <Route path="orders" element={<OrdersPage basePath={basePath} />} />}
+        {canOrders && <Route path="orders/:id" element={<OrderDetail mode="admin" backTo={`${root}/orders`} testidPrefix="admin-order" />} />}
+        {canManual && <Route path="manual" element={<ManualOrderBuilder mode="admin" backTo={`${root}/orders`} />} />}
+        {canOrders && <Route path="production" element={<ProductionPage basePath={basePath} />} />}
+        {canShipping && <Route path="shipping" element={<ShippingSettings />} />}
+        <Route path="*" element={<Navigate to={fallback} replace />} />
       </Routes>
     </div>
   );
