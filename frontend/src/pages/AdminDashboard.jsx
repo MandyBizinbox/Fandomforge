@@ -2728,7 +2728,6 @@ export default function AdminDashboard({ mode = "admin", basePath = "/admin", ti
         <Route path="platform-settings" element={<PlatformSettingsWorkspace modules={platformConfig?.modules || {}} user={user} mode={mode} />} />
 
         {/* Legacy direct routes kept for deep links and fast operational access. */}
-        <Route path="creators" element={<Navigate to={`${basePath}/creators`} replace />} />
         <Route path="printers" element={<Navigate to={`${basePath}/printers-workspace`} replace />} />
         <Route path="product-templates" element={<Navigate to={`${basePath}/product-templates`} replace />} />
         <Route path="product-types/new" element={<ProductTypeStudioPage />} />
