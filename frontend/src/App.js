@@ -145,7 +145,7 @@ function AppRoutes() {
           <Route path="/printer/*" element={<Protected roles={["printer", ...platformRoles]}><PrinterDashboard /></Protected>} />
           <Route path="/manager/*" element={<Protected roles={["manager", ...platformRoles]}><ManagerDashboard /></Protected>} />
           <Route path="/admin/review/:ownerType/:ownerId" element={<Protected roles={platformRoles}><AdminAccountReview /></Protected>} />
-          <Route path="/admin/manufacturing-rules" element={<Protected roles={platformRoles}><AdminManufacturingRules /></Protected>} />
+          <Route path="/admin/manufacturing-rules/*" element={<Protected roles={platformRoles}><AdminManufacturingRules /></Protected>} />
           <Route path="/admin/*" element={<Protected roles={platformRoles}><AdminDashboard /></Protected>} />
           <Route path="/about" element={<StaticContentPage pageKey="about" />} />
           <Route path="/contact" element={<StaticContentPage pageKey="contact" />} />
