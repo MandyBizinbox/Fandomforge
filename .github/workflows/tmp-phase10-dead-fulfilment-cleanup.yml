@@ -62,7 +62,7 @@ jobs:
           test "$(grep -Fc 'function FulfilmentWorkspace' frontend/src/pages/AdminDashboard.jsx)" -eq 0
           test "$(grep -Fc 'ManualOrderBuilder from' frontend/src/pages/AdminDashboard.jsx)" -eq 0
           grep -F 'function ProductionAdmin()' frontend/src/pages/AdminDashboard.jsx
-          grep -F 'element={<ProductionAdmin />}' frontend/src/pages/AdminDashboard.jsx
+          grep -F 'element: <ProductionAdmin />' frontend/src/pages/AdminDashboard.jsx
           grep -F 'path="fulfilment/*" element={<AdminFulfilmentRoute' frontend/src/pages/AdminDashboard.jsx
           grep -F 'path="orders/new" element={<Navigate to={`${basePath}/fulfilment/manual`} replace />}' frontend/src/pages/AdminDashboard.jsx
       - name: Install frontend dependencies
