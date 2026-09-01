@@ -1,0 +1,52 @@
+name: Temporary Creator CRUD Routes
+
+on:
+  push:
+    branches:
+      - refactor/creator-crud-routes-ui
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.event.head_commit.message != 'Route creator account CRUD views'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/creator-crud-routes-ui
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply creator CRUD route transform
+        run: python scripts/tmp_creator_crud_routes.py
+      - name: Verify route shape
+        run: |
+          grep -F 'path="accounts/new"' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+          grep -F 'path="accounts/:id"' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+          grep -F 'view === "list"' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+          grep -F 'creators/accounts/new' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+          grep -F 'creators/accounts/${b.id}' frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test -- --watchAll=false
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          CI: 'false'
+        run: npm run build
+      - name: Commit validated CRUD routes
+        run: |
+          git config user.name "FandomForge Refactor Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/components/admin/creators/AdminCreatorsWorkspace.jsx
+          git diff --cached --check
+          git commit -m "Route creator account CRUD views"
+          git push origin HEAD:refactor/creator-crud-routes-ui
