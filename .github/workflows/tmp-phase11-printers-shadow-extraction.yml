@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  extract-test-build:
+  validate:
     if: github.event.head_commit.message != 'Mount routed printers shadow workspace'
     runs-on: ubuntu-latest
     steps:
@@ -22,173 +22,8 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Generate routed printers workspace without deleting legacy code
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          dashboard_path = Path('frontend/src/pages/AdminDashboard.jsx')
-          text = dashboard_path.read_text()
-
-          def section(start, end):
-              s = text.find(start)
-              if s < 0:
-                  raise SystemExit(f'Missing start marker: {start}')
-              e = text.find(end, s)
-              if e < 0:
-                  raise SystemExit(f'Missing end marker: {end}')
-              return text[s:e].rstrip() + '\n\n'
-
-          helpers = section('const PRINTER_PRODUCT_CAPABILITIES', 'function BandsAdmin()')
-          printers_admin = section('function PrintersAdmin()', 'function ProductsAdmin()')
-          production_admin = section('function ProductionAdmin()', 'function AdminNotifications()')
-
-          component = '''import React, { useEffect, useMemo, useState } from "react";\nimport { NavLink, Navigate, Route, Routes } from "react-router-dom";\nimport { Plus, Save } from "lucide-react";\nimport { toast } from "sonner";\nimport { http, assetUrl } from "../../../lib/api";\nimport StatusBadge from "../../StatusBadge";\nimport ProductionJobCard from "../../production/ProductionJobCard";\nimport UserAccessAdmin from "../UserAccessAdmin";\nimport SubscriptionManagerAdmin from "../SubscriptionManagerAdmin";\nimport PaystackPayoutsAdmin from "../PaystackPayoutsAdmin";\n\n'''
-          component += helpers + printers_admin + production_admin
-          component += r'''function canAccess({ permission, moduleKey, anyModule, modules, user, mode }) {
-  const isManager = mode === "manager" || user?.role === "manager";
-  const managerPermissions = user?.manager_permissions || {};
-  if (permission && isManager && managerPermissions[permission] === false) return false;
-  if (moduleKey && modules?.[moduleKey] === false) return false;
-  if (anyModule && !anyModule.some((key) => modules?.[key] !== false)) return false;
-  return true;
-}
-
-export default function AdminPrintersWorkspace({ modules = {}, user = null, mode = "admin", basePath = "/admin" }) {
-  const root = `${basePath}/printers-workspace`;
-  const tabs = useMemo(() => [
-    { path: "accounts", to: `${root}/accounts`, label: "Accounts", permission: "manage_printers", moduleKey: "printers_enabled" },
-    { path: "users", to: `${root}/users`, label: "Printer Users", permission: "manage_printer_users", moduleKey: "printers_enabled" },
-    { path: "production", to: `${root}/production`, label: "Production Jobs", permission: "manage_orders" },
-    { path: "subscriptions", to: `${root}/subscriptions`, label: "Subscriptions", permission: "manage_subscriptions", anyModule: ["creator_subscriptions_enabled", "printer_subscriptions_enabled"] },
-    { path: "payouts", to: `${root}/payouts`, label: "Payouts", permission: "manage_payouts", moduleKey: "payouts_enabled" },
-  ].filter((tab) => canAccess({ ...tab, modules, user, mode })), [mode, modules, root, user]);
-
-  const canAccounts = canAccess({ permission: "manage_printers", moduleKey: "printers_enabled", modules, user, mode });
-  const canUsers = canAccess({ permission: "manage_printer_users", moduleKey: "printers_enabled", modules, user, mode });
-  const canProduction = canAccess({ permission: "manage_orders", modules, user, mode });
-  const canSubscriptions = canAccess({ permission: "manage_subscriptions", anyModule: ["creator_subscriptions_enabled", "printer_subscriptions_enabled"], modules, user, mode });
-  const canPayouts = canAccess({ permission: "manage_payouts", moduleKey: "payouts_enabled", modules, user, mode });
-  const fallback = tabs[0]?.to || basePath;
-
-  return (
-    <div data-testid="admin-printers-workspace-routed" className="space-y-6">
-      <div>
-        <p className="overline mb-2">Production Network</p>
-        <h1 className="font-display text-5xl uppercase">Printers</h1>
-        <p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Printer accounts, users, production jobs, subscriptions and payouts now own concrete routes while remaining API-backed.</p>
-      </div>
-
-      {!!tabs.length && (
-        <nav className="flex flex-wrap gap-2 border-b border-[var(--ff-card-border)] pb-4">
-          {tabs.map((tab) => (
-            <NavLink key={tab.to} to={tab.to} className={({ isActive }) => `px-4 py-3 border text-xs uppercase tracking-widest font-bold ${isActive ? "border-[var(--ff-primary)] bg-[var(--ff-primary)] text-[var(--ff-card-text)]" : "border-[var(--ff-card-border)] text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)]"}`}>
-              {tab.label}
-            </NavLink>
-          ))}
-        </nav>
-      )}
-
-      <Routes>
-        <Route index element={<Navigate to={fallback} replace />} />
-        {canAccounts && <Route path="accounts" element={<PrintersAdmin />} />}
-        {canUsers && <Route path="users" element={<UserAccessAdmin />} />}
-        {canProduction && <Route path="production" element={<ProductionAdmin />} />}
-        {canSubscriptions && <Route path="subscriptions" element={<SubscriptionManagerAdmin modules={modules} />} />}
-        {canPayouts && <Route path="payouts" element={<PaystackPayoutsAdmin />} />}
-        <Route path="*" element={<Navigate to={fallback} replace />} />
-      </Routes>
-    </div>
-  );
-}
-'''
-
-          out = Path('frontend/src/components/admin/printers/AdminPrintersWorkspace.jsx')
-          out.parent.mkdir(parents=True, exist_ok=True)
-          out.write_text(component)
-
-          import_anchor = 'import AdminFulfilmentRoute from "../components/admin/fulfilment/AdminFulfilmentRoute";\n'
-          printer_import = 'import AdminPrintersWorkspace from "../components/admin/printers/AdminPrintersWorkspace";\n'
-          if text.count(import_anchor) != 1:
-              raise SystemExit('Expected one fulfilment import anchor')
-          if printer_import not in text:
-              text = text.replace(import_anchor, import_anchor + printer_import, 1)
-
-          old_route = '<Route path="printers-workspace" element={<PrintersWorkspace modules={platformConfig?.modules || {}} user={user} mode={mode} />} />'
-          new_route = '<Route path="printers-workspace/*" element={<AdminPrintersWorkspace modules={platformConfig?.modules || {}} user={user} mode={mode} basePath={basePath} />} />'
-          if text.count(old_route) != 1:
-              raise SystemExit(f'Expected one old printers workspace route, found {text.count(old_route)}')
-          text = text.replace(old_route, new_route, 1)
-          dashboard_path.write_text(text)
-          PY
-
-      - name: Add enabled-module route tests
-        run: |
-          cat > frontend/src/components/admin/printers/AdminPrintersWorkspace.test.jsx <<'EOF'
-          import React from "react";
-          import { MemoryRouter } from "react-router-dom";
-          import { render, screen, waitFor } from "@testing-library/react";
-          import AdminPrintersWorkspace from "./AdminPrintersWorkspace";
-          import { http } from "../../../lib/api";
-
-          jest.mock("../../../lib/api", () => ({
-            http: {
-              get: jest.fn(),
-              post: jest.fn(),
-              patch: jest.fn(),
-              delete: jest.fn(),
-            },
-            assetUrl: (value) => value,
-          }));
-
-          jest.mock("../UserAccessAdmin", () => () => <div data-testid="printer-users-stub">Printer Users</div>);
-          jest.mock("../SubscriptionManagerAdmin", () => () => <div data-testid="printer-subscriptions-stub">Printer Subscriptions</div>);
-          jest.mock("../PaystackPayoutsAdmin", () => () => <div data-testid="printer-payouts-stub">Printer Payouts</div>);
-          jest.mock("../../production/ProductionJobCard", () => () => <div data-testid="production-job-stub">Production Job</div>);
-
-          const openModules = {
-            printers_enabled: true,
-            printer_marketplace_enabled: true,
-            creator_subscriptions_enabled: true,
-            printer_subscriptions_enabled: true,
-            payouts_enabled: true,
-          };
-
-          beforeEach(() => {
-            http.get.mockImplementation((url) => {
-              if (url === "/admin/printers" || url === "/admin/users" || url === "/printers" || url.startsWith("/admin/production-jobs")) {
-                return Promise.resolve({ data: [] });
-              }
-              return Promise.resolve({ data: [] });
-            });
-          });
-
-          afterEach(() => jest.clearAllMocks());
-
-          test("renders printer accounts on its concrete route when the module is enabled", async () => {
-            render(
-              <MemoryRouter initialEntries={["/admin/printers-workspace/accounts"]}>
-                <AdminPrintersWorkspace modules={openModules} user={{ role: "admin" }} />
-              </MemoryRouter>
-            );
-
-            expect(await screen.findByTestId("admin-printers-page")).toBeInTheDocument();
-            await waitFor(() => expect(http.get).toHaveBeenCalledWith("/admin/printers"));
-          });
-
-          test("keeps production available when printer accounts are disabled", async () => {
-            render(
-              <MemoryRouter initialEntries={["/admin/printers-workspace/production"]}>
-                <AdminPrintersWorkspace modules={{ ...openModules, printers_enabled: false }} user={{ role: "admin" }} />
-              </MemoryRouter>
-            );
-
-            expect(await screen.findByTestId("admin-production-page")).toBeInTheDocument();
-            expect(screen.queryByText("Accounts")).not.toBeInTheDocument();
-          });
-          EOF
-
+      - name: Generate shadow extraction
+        run: python scripts/tmp_phase11_printers_shadow.py
       - name: Verify source shape
         run: |
           grep -F 'path="printers-workspace/*" element={<AdminPrintersWorkspace' frontend/src/pages/AdminDashboard.jsx
@@ -197,7 +32,6 @@ export default function AdminPrintersWorkspace({ modules = {}, user = null, mode
           grep -F 'function PrintersWorkspace' frontend/src/pages/AdminDashboard.jsx
           grep -F 'function PrintersAdmin' frontend/src/pages/AdminDashboard.jsx
           grep -F 'function ProductionAdmin' frontend/src/pages/AdminDashboard.jsx
-
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
