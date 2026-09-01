@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from "react";
+import React, { Suspense, lazy, useEffect } from "react";
 import "@/App.css";
 import "@/index.css";
 import "./platformThemeOverrides.css";
@@ -7,6 +7,7 @@ import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { CartProvider } from "./context/CartContext";
 import { usePlatformConfig } from "./lib/platform";
+import { applyPlatformTheme, resolveThemeMode } from "./lib/theme";
 import Footer from "./components/Footer";
 import ImagePerformanceHints from "./components/ImagePerformanceHints";
 import EntitlementNotice from "./components/EntitlementNotice";
@@ -77,9 +78,27 @@ function Protected({ roles, children }) {
   return children;
 }
 
+function PlatformThemeSync() {
+  const { platform } = usePlatformConfig();
+  const location = useLocation();
+
+  useEffect(() => {
+    applyPlatformTheme(platform, { pathname: location.pathname });
+    const configured = location.pathname.startsWith("/admin") ? platform.admin_theme_mode : platform.storefront_theme_mode;
+    if (configured !== "system" || typeof window === "undefined" || !window.matchMedia) return undefined;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const sync = () => applyPlatformTheme(platform, { pathname: location.pathname });
+    media.addEventListener?.("change", sync);
+    return () => media.removeEventListener?.("change", sync);
+  }, [platform, location.pathname]);
+
+  return null;
+}
+
 function PlatformToaster() {
   const { platform } = usePlatformConfig();
-  return <Toaster theme={platform.theme_mode === "dark" ? "dark" : "light"} position="bottom-right" toastOptions={{ style: { background: "var(--ff-card-bg)", border: "1px solid var(--ff-card-border)", borderRadius: 0, color: "var(--ff-card-text)" } }} />;
+  const location = useLocation();
+  return <Toaster theme={resolveThemeMode(platform, location.pathname)} position="bottom-right" toastOptions={{ style: { background: "var(--ff-card-bg)", border: "1px solid var(--ff-card-border)", borderRadius: 0, color: "var(--ff-card-text)" } }} />;
 }
 
 function AppRoutes() {
@@ -160,5 +179,5 @@ function AppRoutes() {
 }
 
 export default function App() {
-  return <div className="App"><AuthProvider><CartProvider><BrowserRouter><ImagePerformanceHints /><EntitlementNotice /><AppRoutes /><PlatformToaster /></BrowserRouter></CartProvider></AuthProvider></div>;
+  return <div className="App"><AuthProvider><CartProvider><BrowserRouter><PlatformThemeSync /><ImagePerformanceHints /><EntitlementNotice /><AppRoutes /><PlatformToaster /></BrowserRouter></CartProvider></AuthProvider></div>;
 }

@@ -302,10 +302,46 @@ def _clean_admin_user(doc: Optional[dict]) -> dict:
 # =============================================================================
 
 
+THEME_PALETTE_KEYS = [
+    "background_color", "page_text_color", "surface_background_color", "surface_text_color",
+    "card_background_color", "card_text_color", "card_border_color", "muted_text_color",
+    "input_background_color", "input_text_color", "input_border_color",
+    "header_background_color", "header_text_color",
+    "button_primary_background_color", "button_primary_text_color", "button_primary_border_color",
+    "button_alternate_background_color", "button_alternate_text_color", "button_alternate_border_color",
+    "button_secondary_border_color",
+]
+
+
 def _normalize_platform_doc(doc: Optional[dict]) -> dict:
-    base = PlatformSettings().model_dump()
-    if doc:
-        base.update(dict(doc))
+    defaults = PlatformSettings().model_dump()
+    base = dict(defaults)
+    current = dict(doc or {})
+    if current:
+        base.update(current)
+
+    configured_palettes = current.get("theme_palettes")
+    default_palettes = defaults.get("theme_palettes") or {}
+    if isinstance(configured_palettes, dict):
+        base["theme_palettes"] = {
+            "light": {**(default_palettes.get("light") or {}), **(configured_palettes.get("light") or {})},
+            "dark": {**(default_palettes.get("dark") or {}), **(configured_palettes.get("dark") or {})},
+        }
+    else:
+        legacy_dark = dict(default_palettes.get("dark") or {})
+        for key in THEME_PALETTE_KEYS:
+            value = current.get(key)
+            if value not in (None, ""):
+                legacy_dark[key] = value
+        base["theme_palettes"] = {
+            "light": dict(default_palettes.get("light") or {}),
+            "dark": legacy_dark,
+        }
+
+    if base.get("storefront_theme_mode") not in {"light", "dark", "system"}:
+        base["storefront_theme_mode"] = "light"
+    if base.get("admin_theme_mode") not in {"light", "dark", "system"}:
+        base["admin_theme_mode"] = "dark"
     base["modules"] = normalize_modules(base.get("modules"))
     if base.get("package_key") not in package_keys():
         base["package_key"] = "full_marketplace"
@@ -508,6 +544,10 @@ def _public_platform_payload(settings: dict) -> dict:
         "favicon_url": settings.get("favicon_url") or "",
         "primary_color": settings.get("primary_color") or "#FF3B30",
         "accent_color": settings.get("accent_color") or "#FF7A1A",
+        "storefront_theme_mode": settings.get("storefront_theme_mode") or "light",
+        "admin_theme_mode": settings.get("admin_theme_mode") or "dark",
+        "allow_theme_toggle": bool(settings.get("allow_theme_toggle", False)),
+        "theme_palettes": settings.get("theme_palettes") or PlatformSettings().model_dump().get("theme_palettes"),
         "theme_mode": settings.get("theme_mode") or "dark",
         "background_color": settings.get("background_color") or "#0A0A0A",
         "page_text_color": settings.get("page_text_color") or "",
@@ -567,6 +607,10 @@ class InstanceSettingsUpdate(BaseModel):
     favicon_url: Optional[str] = None
     primary_color: Optional[str] = None
     accent_color: Optional[str] = None
+    storefront_theme_mode: Optional[Literal["light", "dark", "system"]] = None
+    admin_theme_mode: Optional[Literal["light", "dark", "system"]] = None
+    allow_theme_toggle: Optional[bool] = None
+    theme_palettes: Optional[Dict[str, Dict[str, str]]] = None
     theme_mode: Optional[str] = None
     background_color: Optional[str] = None
     page_text_color: Optional[str] = None
@@ -6970,7 +7014,7 @@ async def admin_update_instance_settings(payload: InstanceSettingsUpdate, reques
     updates = payload.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
-    for key in ["homepage", "signup", "policies"]:
+    for key in ["homepage", "signup", "policies", "theme_palettes"]:
         if key in updates:
             if key == "homepage": updates[key] = _deep_merge((current or {}).get(key) or DEFAULT_HOMEPAGE_SETTINGS, updates[key] or {})
             if key == "signup": updates[key] = _deep_merge((current or {}).get(key) or DEFAULT_SIGNUP_SETTINGS, updates[key] or {})

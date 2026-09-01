@@ -209,14 +209,6 @@ function BrandingEditor({ settings, patch }) {
         <Field label="Tagline"><Input value={settings.platform_tagline} onChange={(value) => patch("platform_tagline", value)} /></Field>
         <ImageField label="Logo" value={settings.logo_url} onChange={(value) => patch("logo_url", value)} subdir="branding/logo" />
         <ImageField label="Favicon" value={settings.favicon_url} onChange={(value) => patch("favicon_url", value)} subdir="branding/favicon" />
-        <Field label="Theme mode"><select className="input-base" value={settings.theme_mode || "dark"} onChange={(event) => patch("theme_mode", event.target.value)}><option value="dark">Dark</option><option value="light">Light</option></select></Field>
-      </section>
-
-      <section className="card space-y-4">
-        <div><p className="overline mb-1">Global theme</p><h3 className="font-display text-3xl uppercase">Semantic colours</h3><p className="text-sm text-[var(--ff-muted-text)] mt-1">These values publish the global --ff-* tokens consumed across the platform. Leave optional fields on Auto to use contrast-aware defaults.</p></div>
-        <div className="grid md:grid-cols-2 gap-4">
-          {BRAND_COLOUR_FIELDS.map(([key, label, allowAuto]) => <Field key={key} label={label}><ColorInput value={settings[key] || ""} onChange={(value) => patch(key, value)} allowAuto={allowAuto} /></Field>)}
-        </div>
       </section>
 
       <section className="card space-y-4">

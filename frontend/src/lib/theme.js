@@ -30,7 +30,7 @@ export const DEFAULT_THEME_PALETTES = {
     card_text_color: "#FFFFFF",
     card_border_color: "#343434",
     muted_text_color: "#A3A3A3",
-    input_background_color: "#0F0F0F",
+    input_background_color: "#0f0f0f",
     input_text_color: "#FFFFFF",
     input_border_color: "#3A3A3A",
     header_background_color: "#0A0A0A",
@@ -117,6 +117,10 @@ function resolveSystemMode() {
 
 export function resolveThemeMode(platform = {}, pathname = "") {
   const context = resolveThemeContext(pathname || (typeof window !== "undefined" ? window.location.pathname : ""));
+  const hasContextTheme = platform.storefront_theme_mode !== undefined
+    || platform.admin_theme_mode !== undefined
+    || (platform.theme_palettes && typeof platform.theme_palettes === "object");
+  if (!hasContextTheme && ["light", "dark"].includes(platform.theme_mode)) return platform.theme_mode;
   const configured = context === "admin"
     ? valueOrFallback(platform.admin_theme_mode, FALLBACK_THEME.admin_theme_mode)
     : valueOrFallback(platform.storefront_theme_mode, FALLBACK_THEME.storefront_theme_mode);
@@ -129,8 +133,7 @@ export function resolveThemeMode(platform = {}, pathname = "") {
   return requested === "system" ? resolveSystemMode() : (["light", "dark"].includes(requested) ? requested : (context === "admin" ? "dark" : "light"));
 }
 
-function legacyPalette(platform, mode, context) {
-  if (context !== "admin") return {};
+function legacyPalette(platform, mode) {
   if (platform.theme_palettes && typeof platform.theme_palettes === "object") return {};
   const legacyMode = platform.theme_mode || "dark";
   if (mode !== legacyMode) return {};
@@ -143,7 +146,7 @@ export function normaliseTheme(platform = {}, options = {}) {
   const context = resolveThemeContext(pathname);
   const mode = resolveThemeMode(platform, pathname);
   const palettes = mergeThemePalettes(platform.theme_palettes);
-  const palette = { ...palettes[mode], ...legacyPalette(platform, mode, context) };
+  const palette = { ...palettes[mode], ...legacyPalette(platform, mode) };
   const primary = valueOrFallback(platform.primary_color, FALLBACK_THEME.primary_color);
   const accent = valueOrFallback(platform.accent_color, FALLBACK_THEME.accent_color);
   const primaryButtonBg = valueOrFallback(palette.button_primary_background_color, primary);
