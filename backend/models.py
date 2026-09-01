@@ -2041,6 +2041,55 @@ class PlatformPackageUpdate(BaseModel):
     default_printer_id: Optional[str] = None
 
 
+def default_theme_palettes() -> Dict[str, Dict[str, str]]:
+    return {
+        "light": {
+            "background_color": "#FFFFFF",
+            "page_text_color": "#111111",
+            "surface_background_color": "#F7F7F8",
+            "surface_text_color": "#111111",
+            "card_background_color": "#FFFFFF",
+            "card_text_color": "#111111",
+            "card_border_color": "#D9DCE1",
+            "muted_text_color": "#6B7280",
+            "input_background_color": "#FFFFFF",
+            "input_text_color": "#111111",
+            "input_border_color": "#CDD1D6",
+            "header_background_color": "#FFFFFF",
+            "header_text_color": "#111111",
+            "button_primary_background_color": "",
+            "button_primary_text_color": "#FFFFFF",
+            "button_primary_border_color": "",
+            "button_alternate_background_color": "#111111",
+            "button_alternate_text_color": "#FFFFFF",
+            "button_alternate_border_color": "#111111",
+            "button_secondary_border_color": "#CDD1D6",
+        },
+        "dark": {
+            "background_color": "#0A0A0A",
+            "page_text_color": "#FFFFFF",
+            "surface_background_color": "#111111",
+            "surface_text_color": "#FFFFFF",
+            "card_background_color": "#161616",
+            "card_text_color": "#FFFFFF",
+            "card_border_color": "#343434",
+            "muted_text_color": "#A3A3A3",
+            "input_background_color": "#0F0F0F",
+            "input_text_color": "#FFFFFF",
+            "input_border_color": "#3A3A3A",
+            "header_background_color": "#0A0A0A",
+            "header_text_color": "#FFFFFF",
+            "button_primary_background_color": "",
+            "button_primary_text_color": "#FFFFFF",
+            "button_primary_border_color": "",
+            "button_alternate_background_color": "#FFFFFF",
+            "button_alternate_text_color": "#000000",
+            "button_alternate_border_color": "#FFFFFF",
+            "button_secondary_border_color": "#444444",
+        },
+    }
+
+
 class PublicPlatformConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -2056,6 +2105,10 @@ class PublicPlatformConfig(BaseModel):
     favicon_url: Optional[str] = ""
     primary_color: Optional[str] = "#FF3B30"
     accent_color: Optional[str] = "#FF7A1A"
+    storefront_theme_mode: Literal["light", "dark", "system"] = "light"
+    admin_theme_mode: Literal["light", "dark", "system"] = "dark"
+    allow_theme_toggle: bool = False
+    theme_palettes: Dict[str, Dict[str, str]] = Field(default_factory=default_theme_palettes)
     country: str = "ZA"
     timezone: str = "Africa/Johannesburg"
     business_name: Optional[str] = ""
@@ -2082,6 +2135,12 @@ class PlatformSettings(BaseModel):
     logo_url: Optional[str] = ""
     favicon_url: Optional[str] = ""
     accent_color: str = "#FF7A1A"
+    # Context-aware theme ownership. Flat fields below remain compatibility
+    # fallbacks until every legacy component has migrated to semantic tokens.
+    storefront_theme_mode: Literal["light", "dark", "system"] = "light"
+    admin_theme_mode: Literal["light", "dark", "system"] = "dark"
+    allow_theme_toggle: bool = False
+    theme_palettes: Dict[str, Dict[str, str]] = Field(default_factory=default_theme_palettes)
     theme_mode: str = "dark"
     background_color: str = "#0A0A0A"
     page_text_color: str = ""

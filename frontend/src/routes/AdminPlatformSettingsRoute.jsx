@@ -15,6 +15,7 @@ import DashboardLayout from "../components/DashboardLayout";
 import FeaturePackageSettings from "../components/admin/FeaturePackageSettings";
 import InstanceSettingsSectionPage from "../components/admin/InstanceSettingsSectionPage";
 import PlatformGeneralSettingsPage from "../components/admin/PlatformGeneralSettingsPage";
+import PlatformAppearanceSettingsPage from "../components/admin/PlatformAppearanceSettingsPage";
 
 const adminLinks = [
   { type: "section", label: "Command" },
@@ -38,7 +39,8 @@ const adminLinks = [
 const settingsLinks = [
   { to: "/admin/platform-settings/general", label: "General" },
   { to: "/admin/platform-settings/package", label: "Package & Modules" },
-  { to: "/admin/platform-settings/branding", label: "Brand & Theme" },
+  { to: "/admin/platform-settings/branding", label: "Branding" },
+  { to: "/admin/platform-settings/appearance", label: "Appearance" },
   { to: "/admin/platform-settings/homepage", label: "Homepage Copy" },
   { to: "/admin/platform-settings/homepage-builder", label: "Homepage Builder" },
   { to: "/admin/platform-settings/signup", label: "Signup" },
@@ -86,6 +88,7 @@ export default function AdminPlatformSettingsRoute() {
         <Route path="platform-settings/general" element={<SettingsPage><PlatformGeneralSettingsPage /></SettingsPage>} />
         <Route path="platform-settings/package" element={<SettingsPage><FeaturePackageSettings /></SettingsPage>} />
         <Route path="platform-settings/branding" element={<SettingsPage><InstanceSettingsSectionPage section="branding" /></SettingsPage>} />
+        <Route path="platform-settings/appearance" element={<SettingsPage><PlatformAppearanceSettingsPage /></SettingsPage>} />
         <Route path="platform-settings/homepage" element={<SettingsPage><InstanceSettingsSectionPage section="homepage" /></SettingsPage>} />
         <Route path="platform-settings/homepage-builder" element={<SettingsPage><InstanceSettingsSectionPage section="builder" /></SettingsPage>} />
         <Route path="platform-settings/signup" element={<SettingsPage><InstanceSettingsSectionPage section="signup" /></SettingsPage>} />

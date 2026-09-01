@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { assetUrl, http } from "./api";
-import { applyPlatformTheme } from "./theme";
+import { DEFAULT_THEME_PALETTES, applyPlatformTheme, mergeThemePalettes } from "./theme";
 
 export const DEFAULT_PLATFORM = {
   platform_name: "FandomForge",
@@ -17,8 +17,13 @@ export const DEFAULT_PLATFORM = {
   primary_color: "#FF3B30",
   accent_color: "#FF7A1A",
 
-  // Keep browser fallbacks aligned with backend PlatformSettings defaults so
-  // the UI does not briefly render a different theme before Mongo settings load.
+  // Storefront and admin choose a semantic palette independently.
+  storefront_theme_mode: "light",
+  admin_theme_mode: "dark",
+  allow_theme_toggle: false,
+  theme_palettes: DEFAULT_THEME_PALETTES,
+
+  // Legacy flat values remain compatibility fallbacks during migration.
   theme_mode: "dark",
   background_color: "#0A0A0A",
   page_text_color: "",
@@ -123,6 +128,7 @@ export function mergePlatformConfig(value = {}) {
     homepage: { ...DEFAULT_PLATFORM.homepage, ...(source.homepage || {}) },
     signup: { ...DEFAULT_PLATFORM.signup, ...(source.signup || {}) },
     policies: { ...DEFAULT_PLATFORM.policies, ...(source.policies || {}) },
+    theme_palettes: mergeThemePalettes(source.theme_palettes || DEFAULT_PLATFORM.theme_palettes),
   };
 
   applyPlatformTheme(merged);
