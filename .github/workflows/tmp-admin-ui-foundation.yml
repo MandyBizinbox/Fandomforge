@@ -22,6 +22,8 @@ jobs:
         run: |
           sed -i 's/count=2)/count=1)/' scripts/tmp_admin_ui_foundation_migration.py
           python scripts/tmp_admin_ui_foundation_migration.py
+          test "$(grep -o 'className="card space-y-5"' frontend/src/pages/admin/AdminManufacturingRulesUnified.jsx | wc -l)" -eq 1
+          sed -i 's/className="card space-y-5"/className="ff-admin-card space-y-5"/' frontend/src/pages/admin/AdminManufacturingRulesUnified.jsx
       - name: Verify scoped foundation
         run: |
           grep -F '.ff-admin-page {' frontend/src/styles/platform-foundation.css
