@@ -5,7 +5,6 @@ import AdminTemplateStudioRoute from "./AdminTemplateStudioRoute";
 import AdminProductSystemRoute from "./AdminProductSystemRoute";
 import AdminPlatformSettingsRoute from "./AdminPlatformSettingsRoute";
 import "../components/product-builder/productBuilderStudioViewport.css";
-import "../components/admin/adminManufacturingRulesThemeRuntime";
 
 function adminDashboardKey(pathname) {
   const path = String(pathname || "").replace(/\/+$/, "");
