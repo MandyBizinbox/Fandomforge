@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import {
   BarChart3,
   Bell,
@@ -15,7 +15,6 @@ import DashboardLayout from "../components/DashboardLayout";
 import ProductTemplatesPage from "../components/template-studio/ProductTemplatesPage";
 import ProductTypesPage from "../components/template-studio/ProductTypesPage";
 import SellableProductsPage from "../components/product-system/SellableProductsPage";
-import PrintOptionsPage from "../components/product-system/PrintOptionsPage";
 import CategoriesAdmin from "../pages/admin/CategoriesAdmin";
 import AttributesAdmin from "../pages/admin/AttributesAdmin";
 
@@ -44,7 +43,7 @@ const productSystemLinks = [
   { to: "/admin/products", label: "Sellable Products" },
   { to: "/admin/categories", label: "Categories" },
   { to: "/admin/attributes", label: "Attributes" },
-  { to: "/admin/print-options", label: "Print Options" },
+  { to: "/admin/manufacturing-rules", label: "Manufacturing Rules" },
 ];
 
 function ProductSystemPage({ children }) {
@@ -96,7 +95,7 @@ export default function AdminProductSystemRoute() {
         <Route path="products" element={<Wrapped><SellableProductsPage /></Wrapped>} />
         <Route path="categories" element={<Wrapped><CategoriesAdmin /></Wrapped>} />
         <Route path="attributes" element={<Wrapped><AttributesAdmin /></Wrapped>} />
-        <Route path="print-options" element={<Wrapped><PrintOptionsPage /></Wrapped>} />
+        <Route path="print-options" element={<Navigate to="/admin/manufacturing-rules" replace />} />
       </Route>
     </Routes>
   );
