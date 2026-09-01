@@ -1,0 +1,53 @@
+name: Temporary Manufacturing Routed Sections
+
+on:
+  push:
+    branches:
+      - refactor/manufacturing-routed-sections
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.event.head_commit.message != 'Route manufacturing rule sections'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/manufacturing-routed-sections
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply manufacturing route transform
+        run: python scripts/tmp_manufacturing_routed_sections.py
+      - name: Verify routed sections
+        run: |
+          grep -F 'path="/admin/manufacturing-rules/*"' frontend/src/App.js
+          grep -F 'path="methods"' frontend/src/routes/AdminManufacturingRulesRoute.jsx
+          grep -F 'path="colours"' frontend/src/routes/AdminManufacturingRulesRoute.jsx
+          grep -F 'path="settings"' frontend/src/routes/AdminManufacturingRulesRoute.jsx
+          grep -F 'to={`/admin/manufacturing-rules/${key}`}' frontend/src/pages/admin/AdminManufacturingRulesUnified.jsx
+          ! grep -F 'activeTab' frontend/src/pages/admin/AdminManufacturingRulesUnified.jsx
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test -- --watchAll=false
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          CI: 'false'
+        run: npm run build
+      - name: Commit validated routes
+        run: |
+          git config user.name "FandomForge Refactor Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/App.js frontend/src/routes/AdminManufacturingRulesRoute.jsx frontend/src/pages/admin/AdminManufacturingRulesUnified.jsx
+          git diff --cached --check
+          git commit -m "Route manufacturing rule sections"
+          git push origin HEAD:refactor/manufacturing-routed-sections
