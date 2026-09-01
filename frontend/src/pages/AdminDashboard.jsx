@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-do
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
 import AdminFulfilmentRoute from "../components/admin/fulfilment/AdminFulfilmentRoute";
+import AdminPrintersWorkspace from "../components/admin/printers/AdminPrintersWorkspace";
 import ProductBuilder from "../components/product-builder/ProductBuilder";
 import ProductionJobCard from "../components/production/ProductionJobCard";
 import OrderDetail from "../components/OrderDetail";
@@ -2718,7 +2719,7 @@ export default function AdminDashboard({ mode = "admin", basePath = "/admin", ti
         <Route index element={<Overview />} />
         <Route path="access" element={<UserAccessAdmin />} />
         <Route path="creators" element={<CreatorsWorkspace modules={platformConfig?.modules || {}} user={user} mode={mode} />} />
-        <Route path="printers-workspace" element={<PrintersWorkspace modules={platformConfig?.modules || {}} user={user} mode={mode} />} />
+        <Route path="printers-workspace/*" element={<AdminPrintersWorkspace modules={platformConfig?.modules || {}} user={user} mode={mode} basePath={basePath} />} />
         <Route path="product-templates" element={<ProductsTemplatesWorkspace modules={platformConfig?.modules || {}} user={user} mode={mode} />} />
         <Route path="fulfilment/*" element={<AdminFulfilmentRoute modules={platformConfig?.modules || {}} user={user} mode={mode} basePath={basePath} />} />
         <Route path="billing" element={<BillingFinanceWorkspace modules={platformConfig?.modules || {}} user={user} mode={mode} />} />
