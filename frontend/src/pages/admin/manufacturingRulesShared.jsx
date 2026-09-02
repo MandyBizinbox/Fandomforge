@@ -41,7 +41,7 @@ export function Stat({ label, value, icon }) {
 }
 
 export function Field({ label, hint, children }) {
-  return <label className="ff-admin-field"><span className="ff-admin-label">{label}</span>{children}{hint && <span className="block mt-1 text-xs text-[var(--ff-muted-text)]">{hint}</span>}</label>;
+  return <label className="ff-admin-field"><span className="ff-admin-label">{label}</span>{children}{hint && <span className="block mt-1 text-xs ff-admin-muted">{hint}</span>}</label>;
 }
 
 export function Toggle({ label, checked, onChange }) {
@@ -49,7 +49,7 @@ export function Toggle({ label, checked, onChange }) {
 }
 
 export function NumericField({ label, value, onChange, step = "0.01", hint, readOnly = false }) {
-  return <Field label={label} hint={hint}><input className="input-base" type="number" step={step} value={value ?? ""} readOnly={readOnly} onChange={(event) => { if (!readOnly) onChange(event.target.value); }} /></Field>;
+  return <Field label={label} hint={hint}><input className="ff-admin-control" type="number" step={step} value={value ?? ""} readOnly={readOnly} onChange={(event) => { if (!readOnly) onChange(event.target.value); }} /></Field>;
 }
 
 export function MigrationPanel({ status, onReload }) {
@@ -80,14 +80,14 @@ export function MigrationPanel({ status, onReload }) {
   const canApply = Boolean(result?.dry_run) && conflicts.length === 0 && unmatched.length === 0;
   const complete = Boolean(status?.complete);
 
-  return <div className={`ff-admin-card ${complete ? "ff-admin-success-border" : "border-[var(--ff-primary)]"}`}>
+  return <div className={`ff-admin-card ${complete ? "ff-admin-success-border" : "ff-admin-primary-border"}`}>
     <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-      <div className="max-w-3xl"><p className="overline mb-2">Unified costing engine</p><h2 className="font-display text-3xl uppercase">{complete ? "Manufacturing profiles are canonical" : "Merge legacy Print Options into Manufacturing Rules"}</h2><p className="text-sm text-[var(--ff-muted-text)] mt-2">Manufacturing profiles now own calculation type, rates, application cost, markup and placement rules. Legacy IDs remain compatibility aliases only.</p></div>
-      <div className="flex flex-wrap gap-2"><button type="button" disabled={running} onClick={() => run(true)} className="btn-secondary">{running ? "Checking…" : "Preview migration"}</button>{!complete && <button type="button" disabled={running || !canApply} onClick={() => run(false)} className="btn-primary">{result?.dry_run ? "Apply unified engine" : "Preview first"}</button>}</div>
+      <div className="max-w-3xl"><p className="overline mb-2">Unified costing engine</p><h2 className="font-display text-3xl uppercase">{complete ? "Manufacturing profiles are canonical" : "Merge legacy Print Options into Manufacturing Rules"}</h2><p className="text-sm ff-admin-muted mt-2">Manufacturing profiles now own calculation type, rates, application cost, markup and placement rules. Legacy IDs remain compatibility aliases only.</p></div>
+      <div className="flex flex-wrap gap-2"><button type="button" disabled={running} onClick={() => run(true)} className="ff-admin-button ff-admin-button--secondary">{running ? "Checking…" : "Preview migration"}</button>{!complete && <button type="button" disabled={running || !canApply} onClick={() => run(false)} className="ff-admin-button ff-admin-button--primary">{result?.dry_run ? "Apply unified engine" : "Preview first"}</button>}</div>
     </div>
     {result && <div className="mt-4 grid md:grid-cols-4 gap-3 text-sm">
       {[["Profiles", result.profiles_total], ["Aliases mapped", result.legacy_aliases_mapped], ["References", result.reference_changes], ["Blockers", conflicts.length + unmatched.length]].map(([label, value]) => <div key={label} className={`ff-admin-subpanel ${label === "Blockers" && value ? "ff-admin-danger-border" : ""}`}><span className="overline">{label}</span><div className="font-display text-2xl">{value || 0}</div></div>)}
-      <div className="md:col-span-4 text-xs text-[var(--ff-muted-text)]">Templates: {result.templates_to_update || 0} · Products: {result.products_to_update || 0} · Printer prices: {result.printer_prices_to_update || 0} · Builder drafts: {result.builder_drafts_to_update || 0} · Orders updated: 0{unmatched.length > 0 && <span className="block ff-admin-danger-text mt-1">Apply is blocked until {unmatched.length} active legacy option(s) are mapped.</span>}</div>
+      <div className="md:col-span-4 text-xs ff-admin-muted">Templates: {result.templates_to_update || 0} · Products: {result.products_to_update || 0} · Printer prices: {result.printer_prices_to_update || 0} · Builder drafts: {result.builder_drafts_to_update || 0} · Orders updated: 0{unmatched.length > 0 && <span className="block ff-admin-danger-text mt-1">Apply is blocked until {unmatched.length} active legacy option(s) are mapped.</span>}</div>
     </div>}
   </div>;
 }
