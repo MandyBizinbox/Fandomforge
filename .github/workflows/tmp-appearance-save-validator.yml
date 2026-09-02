@@ -1,0 +1,68 @@
+name: Temporary Appearance Save Validator
+
+on:
+  push:
+    branches:
+      - fix/appearance-settings-save
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply guarded backend fix
+        run: python scripts/tmp_fix_appearance_save.py
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Validate Appearance patch model
+        env:
+          PYTHONPATH: backend
+        run: |
+          python - <<'PY'
+          from routes_main import InstanceSettingsUpdate, _deep_merge
+          payload = InstanceSettingsUpdate(
+              primary_color="#c62c2c",
+              accent_color="#ff8c01",
+              storefront_theme_mode="light",
+              admin_theme_mode="dark",
+              allow_theme_toggle=False,
+              theme_palettes={
+                  "light": {"background_color": "#ffffff", "page_text_color": "#111111"},
+                  "dark": {
+                      "background_color": "#edebeb",
+                      "page_text_color": "#ffffff",
+                      "header_background_color": "#c4c4c4",
+                      "header_text_color": "#121212",
+                      "card_background_color": "#161616",
+                      "card_text_color": "#ffffff",
+                      "input_background_color": "#0f0f0f",
+                      "input_text_color": "#ffffff",
+                      "button_primary_background_color": "#c62c2c",
+                      "button_primary_text_color": "#000000",
+                      "button_alternate_background_color": "#ff8c01",
+                      "button_alternate_text_color": "#000000"
+                  }
+              }
+          )
+          data = payload.model_dump(exclude_none=True)
+          assert data["admin_theme_mode"] == "dark"
+          assert data["theme_palettes"]["dark"]["header_background_color"] == "#c4c4c4"
+          merged = _deep_merge({"light": {"card_border_color": "#ddd"}, "dark": {"card_border_color": "#333"}}, data["theme_palettes"])
+          assert merged["light"]["card_border_color"] == "#ddd"
+          assert merged["dark"]["header_background_color"] == "#c4c4c4"
+          print("Appearance PATCH model and nested palette merge validated")
+          PY
+      - name: Commit backend fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/routes_main.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Fix Appearance settings persistence"
+          git push origin HEAD:fix/appearance-settings-save
