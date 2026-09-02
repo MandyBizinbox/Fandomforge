@@ -54,7 +54,7 @@ export default function DashboardLayout({
   return (
     <div className={`min-h-screen admin-workspace ${testidPrefix === "creator-dash" ? "creator-workspace" : ""} flex bg-[var(--ff-page-bg)] text-[var(--ff-page-text)]`}>
       <aside
-        className="w-20 lg:w-64 admin-sidebar border-r border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] text-[var(--ff-card-text)] flex flex-col min-h-screen sticky top-0"
+        className="w-20 lg:w-64 admin-sidebar border-r border-[var(--ff-card-border)] bg-[var(--ff-header-bg)] text-[var(--ff-header-text)] flex flex-col min-h-screen sticky top-0"
         data-testid={`${testidPrefix}-sidebar`}
       >
         <button
