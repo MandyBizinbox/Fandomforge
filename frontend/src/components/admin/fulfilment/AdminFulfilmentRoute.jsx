@@ -59,24 +59,24 @@ function OrdersPage({ basePath }) {
     <div data-testid="admin-orders-page" className="space-y-6">
       <div className="flex items-end justify-between gap-4">
         <div><div className="overline mb-2">Orders</div><h2 className="font-display text-4xl uppercase">Order Queue</h2></div>
-        <button onClick={() => navigate(`${basePath}/fulfilment/manual`)} className="btn-primary"><Plus size={14} /> New Order</button>
+        <button onClick={() => navigate(`${basePath}/fulfilment/manual`)} className="ff-admin-button ff-admin-button--primary"><Plus size={14} /> New Order</button>
       </div>
-      <div className="border border-[var(--ff-card-border)] overflow-x-auto">
-        <table className="table-brutal min-w-[900px]">
+      <div className="ff-admin-card p-0 overflow-x-auto">
+        <table className="table-brutal min-w-[900px] w-full">
           <thead><tr><th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Status</th><th>Printer</th><th></th></tr></thead>
           <tbody>
             {rows.map((order) => (
               <tr key={order.id}>
                 <td>{order.order_number}</td>
-                <td className="text-xs text-[var(--ff-muted-text)]">{order.buyer_email}</td>
+                <td className="text-xs ff-admin-muted">{order.buyer_email}</td>
                 <td>{order.items?.length || 0}</td>
                 <td>{money(order.total)}</td>
                 <td><StatusBadge status={order.status} /></td>
-                <td><select className="input-base py-1 text-xs" defaultValue="" onChange={(event) => event.target.value && reassign(order.id, event.target.value)}><option value="">Assign / reassign</option>{printers.map((printer) => <option key={printer.id} value={printer.id}>{printer.company_name}</option>)}</select></td>
-                <td className="text-right whitespace-nowrap"><button onClick={() => navigate(`${basePath}/fulfilment/orders/${order.id}`)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] mr-3">View</button><button onClick={() => remove(order)} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)]">Delete</button></td>
+                <td><select className="ff-admin-control py-1 text-xs" defaultValue="" onChange={(event) => event.target.value && reassign(order.id, event.target.value)}><option value="">Assign / reassign</option>{printers.map((printer) => <option key={printer.id} value={printer.id}>{printer.company_name}</option>)}</select></td>
+                <td className="text-right whitespace-nowrap"><button onClick={() => navigate(`${basePath}/fulfilment/orders/${order.id}`)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] mr-3">View</button><button onClick={() => remove(order)} className="text-xs uppercase tracking-widest ff-admin-muted">Delete</button></td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={7} className="p-10 text-center overline text-[var(--ff-muted-text)]">No orders</td></tr>}
+            {!rows.length && <tr><td colSpan={7} className="p-10 text-center overline ff-admin-muted">No orders</td></tr>}
           </tbody>
         </table>
       </div>
@@ -115,22 +115,22 @@ function ProductionPage({ basePath }) {
     <div data-testid="admin-production-page" className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div><div className="overline mb-2">Fulfilment</div><h2 className="font-display text-4xl uppercase">Production Jobs</h2></div>
-        <select className="input-base md:w-56" value={status} onChange={(event) => setStatus(event.target.value)}>{["all", "pending", "accepted", "in_production", "ready", "shipped", "delivered"].map((item) => <option key={item} value={item}>{item.replace(/_/g, " ")}</option>)}</select>
+        <select className="ff-admin-control md:w-56" value={status} onChange={(event) => setStatus(event.target.value)}>{["all", "pending", "accepted", "in_production", "ready", "shipped", "delivered"].map((item) => <option key={item} value={item}>{item.replace(/_/g, " ")}</option>)}</select>
       </div>
       <div className="grid gap-4">
         {jobs.map((job) => (
           <div key={`${job.order_id}-${job.item_id}`} className="grid gap-3 lg:grid-cols-[1fr_280px]">
             <ProductionJobCard job={job} basePath={`${basePath}/fulfilment/orders`} />
-            <div className="card p-4">
+            <div className="ff-admin-card p-4">
               <div className="overline mb-3">Admin Controls</div>
-              <div className="text-xs text-[var(--ff-muted-text)] mb-2">Current printer: <span className="text-[var(--ff-card-text)]">{job.printer_name || "Unassigned"}</span></div>
-              <button type="button" onClick={() => autoAssignOrder(job.order_id)} className="btn-primary w-full mb-3 text-xs">Auto-assign best price</button>
-              <select className="input-base text-sm" value="" onChange={(event) => event.target.value && reassignOrder(job.order_id, event.target.value)}><option value="">Assign/Reassign printer</option>{printers.map((printer) => <option key={printer.id} value={printer.id}>{printer.company_name}</option>)}</select>
-              <div className="mt-3 text-xs text-[var(--ff-muted-text)]">Creator profit: {money(job.band_earnings)}<br />Commission: {money(job.commission_amount)}<br />Printer payout: {money(job.printer_payout)}</div>
+              <div className="text-xs ff-admin-muted mb-2">Current printer: <span className="text-[var(--ff-card-text)]">{job.printer_name || "Unassigned"}</span></div>
+              <button type="button" onClick={() => autoAssignOrder(job.order_id)} className="ff-admin-button ff-admin-button--primary w-full mb-3 text-xs">Auto-assign best price</button>
+              <select className="ff-admin-control text-sm" value="" onChange={(event) => event.target.value && reassignOrder(job.order_id, event.target.value)}><option value="">Assign/Reassign printer</option>{printers.map((printer) => <option key={printer.id} value={printer.id}>{printer.company_name}</option>)}</select>
+              <div className="mt-3 text-xs ff-admin-muted">Creator profit: {money(job.band_earnings)}<br />Commission: {money(job.commission_amount)}<br />Printer payout: {money(job.printer_payout)}</div>
             </div>
           </div>
         ))}
-        {!jobs.length && <div className="card text-center text-[var(--ff-muted-text)] overline">No production jobs</div>}
+        {!jobs.length && <div className="ff-admin-card text-center ff-admin-muted overline">No production jobs</div>}
       </div>
     </div>
   );
@@ -151,9 +151,9 @@ export default function AdminFulfilmentRoute({ modules = {}, user = null, mode =
   const fallback = tabs[0]?.to || basePath;
 
   return (
-    <div data-testid="admin-fulfilment-workspace" className="space-y-6">
-      <div><p className="overline mb-2">Operations</p><h1 className="font-display text-5xl uppercase">Orders & Fulfilment</h1><p className="text-[var(--ff-muted-text)] mt-2 max-w-3xl">Orders, manual creation, production jobs and shipping remain API-backed while each operational view owns a concrete route.</p></div>
-      {!!tabs.length && <nav className="flex flex-wrap gap-2 border-b border-[var(--ff-card-border)] pb-4">{tabs.map(({ to, label }) => <NavLink key={to} to={to} className={({ isActive }) => `px-4 py-3 border text-xs uppercase tracking-widest font-bold ${isActive ? "border-[var(--ff-primary)] bg-[var(--ff-primary)] text-[var(--ff-card-text)]" : "border-[var(--ff-card-border)] text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)]"}`}>{label}</NavLink>)}</nav>}
+    <div data-testid="admin-fulfilment-workspace" className="ff-admin-page"><div className="ff-admin-page__inner">
+      <div><p className="overline mb-2">Operations</p><h1 className="ff-admin-page-title">Orders & Fulfilment</h1><p className="ff-admin-page-description">Orders, manual creation, production jobs and shipping remain API-backed while each operational view owns a concrete route.</p></div>
+      {!!tabs.length && <nav className="ff-admin-section-nav">{tabs.map(({ to, label }) => <NavLink key={to} to={to} className={({ isActive }) => `ff-admin-section-link ${isActive ? "is-active" : ""}`}>{label}</NavLink>)}</nav>}
       <Routes>
         <Route index element={<Navigate to={fallback} replace />} />
         {canOrders && <Route path="orders" element={<OrdersPage basePath={basePath} />} />}
@@ -163,6 +163,6 @@ export default function AdminFulfilmentRoute({ modules = {}, user = null, mode =
         {canShipping && <Route path="shipping" element={<ShippingSettings />} />}
         <Route path="*" element={<Navigate to={fallback} replace />} />
       </Routes>
-    </div>
+    </div></div>
   );
 }
