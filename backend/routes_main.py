@@ -11,7 +11,7 @@ import urllib.request
 import requests
 import hmac
 import hashlib
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
@@ -7019,6 +7019,10 @@ async def admin_update_instance_settings(payload: InstanceSettingsUpdate, reques
             if key == "homepage": updates[key] = _deep_merge((current or {}).get(key) or DEFAULT_HOMEPAGE_SETTINGS, updates[key] or {})
             if key == "signup": updates[key] = _deep_merge((current or {}).get(key) or DEFAULT_SIGNUP_SETTINGS, updates[key] or {})
             if key == "policies": updates[key] = _deep_merge((current or {}).get(key) or DEFAULT_POLICY_SETTINGS, updates[key] or {})
+            if key == "theme_palettes":
+                defaults = PlatformSettings().model_dump().get("theme_palettes") or {}
+                existing = (current or {}).get("theme_palettes") or defaults
+                updates[key] = _deep_merge(existing, updates[key] or {})
     if "homepage_sections" in updates:
         sections = updates.get("homepage_sections") or []
         if not isinstance(sections, list):
