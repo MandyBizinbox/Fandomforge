@@ -30,7 +30,7 @@ function isProductSystemPath(pathname) {
 }
 
 function isPlatformSettingsPath(pathname) {
-  return /^\/admin\/platform-settings(?:\/(?:general|package|branding|homepage|homepage-builder|signup|legal))?\/?$/.test(String(pathname || ""));
+  return /^\/admin\/platform-settings(?:\/(?:general|package|branding|appearance|homepage|homepage-builder|signup|legal))?\/?$/.test(String(pathname || ""));
 }
 
 export default function AdminDashboardRoute() {
