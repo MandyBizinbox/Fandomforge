@@ -38,6 +38,8 @@ jobs:
         run: npm test -- --watchAll=false
       - name: Build frontend
         working-directory: frontend
+        env:
+          CI: "false"
         run: npm run build
       - name: Commit application changes
         run: |
