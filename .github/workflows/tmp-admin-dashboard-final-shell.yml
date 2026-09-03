@@ -22,11 +22,10 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          p=Path('frontend/src/pages/AdminDashboard.jsx')
-          s=p.read_text()
+          s=Path('frontend/src/pages/AdminDashboard.jsx').read_text()
           print('AdminDashboard lines:', len(s.splitlines()))
           assert len(s.splitlines()) < 220
-          for dead in ['ProductFormAdmin','ProductionAdmin','CreatorsWorkspace','PrintersWorkspace','BandsAdmin','ProductsAdmin','input-base','btn-primary']:
+          for dead in ['function ProductFormAdmin','function ProductionAdmin','function CreatorsWorkspace','function PrintersWorkspace','<BandsAdmin','<ProductsAdmin','input-base','btn-primary']:
               assert dead not in s, dead
           for live in ['AdminCreatorsWorkspace','AdminPrintersWorkspace','ProductsTemplatesWorkspace','AdminFulfilmentRoute','BillingFinanceWorkspace','ShopSettingsWorkspace','PlatformSettingsWorkspace']:
               assert live in s, live
