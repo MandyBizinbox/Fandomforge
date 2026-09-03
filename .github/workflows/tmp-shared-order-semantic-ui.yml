@@ -1,0 +1,47 @@
+name: Temporary Shared Order Semantic UI Validator
+
+on:
+  push:
+    branches:
+      - refactor/shared-order-semantic-ui
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply guarded shared order migration
+        run: python scripts/tmp_shared_order_semantic_ui.py
+      - name: Verify role-neutral styling
+        run: |
+          grep -F 'ff-ui-card' frontend/src/components/orders/ManualOrderBuilder.jsx
+          grep -F 'ff-ui-tabs' frontend/src/components/orders/RoleOrderDetail.jsx
+          grep -F 'Shared role-neutral semantic UI primitives' frontend/src/styles/platform-foundation.css
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test -- --watchAll=false
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          CI: 'false'
+        run: npm run build
+      - name: Commit application changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/orders/ManualOrderBuilder.jsx frontend/src/components/orders/RoleOrderDetail.jsx frontend/src/styles/platform-foundation.css
+          git diff --cached --quiet && exit 0
+          git commit -m "Migrate shared order UI to semantic theme primitives"
+          git push origin HEAD:refactor/shared-order-semantic-ui
