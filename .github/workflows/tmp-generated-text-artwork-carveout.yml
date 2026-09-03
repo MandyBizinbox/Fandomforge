@@ -1,0 +1,62 @@
+name: tmp generated text artwork carveout
+on:
+  push:
+    branches: [refactor/backend-compatibility-carveout]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/backend-compatibility-carveout
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply guarded carveout
+        run: python scripts/tmp_generated_text_artwork_carveout.py
+      - name: Verify runtime ownership
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          server=Path('backend/server.py').read_text()
+          routes=Path('backend/routes_main.py').read_text()
+          assert 'install_builder_text_artwork_patch' not in server
+          assert 'materialize_text_slot' in routes
+          assert 'materialize_product_artworks' in routes
+          assert 'copy_text_metadata_to_snapshot' in routes
+          assert 'def _normalize_product_artwork_slot_core(' in routes
+          assert 'def _normalize_product_artwork_slot(' in routes
+          PY
+      - name: Install backend test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt pytest
+      - name: Compile backend
+        working-directory: backend
+        run: python -m py_compile generated_text_artwork.py product_normalization_service.py routes_main.py server.py builder_artwork_costing_patch.py
+      - name: Run focused tests
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -q \
+            tests/test_builder_text_artwork_patch.py \
+            tests/test_product_normalization_service.py \
+            tests/test_builder_extension_state_persistence.py \
+            tests/test_artwork_print_job_pricing.py \
+            tests/test_unified_manufacturing_costing.py
+      - name: Run artwork and builder regression slice
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: pytest -q tests -k 'builder or artwork or manufacturing or production_rules' --ignore=tests/backend_test.py
+      - name: Commit application changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add backend/generated_text_artwork.py backend/routes_main.py backend/server.py backend/tests/test_builder_text_artwork_patch.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Absorb generated text artwork patch into canonical backend"
+          git push origin HEAD:refactor/backend-compatibility-carveout
