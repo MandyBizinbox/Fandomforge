@@ -426,3 +426,61 @@ input[type="radio"] {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* Shared role-neutral semantic UI primitives */
+
+.ff-ui-card,
+.ff-ui-stat-card,
+.ff-ui-subpanel,
+.ff-ui-tabs {
+  background: var(--ff-card-bg);
+  color: var(--ff-card-text);
+  border: 1px solid var(--ff-card-border);
+  border-radius: var(--ff-card-radius, 0.5rem);
+  box-shadow: var(--ff-card-shadow, none);
+}
+
+.ff-ui-card { padding: 1.25rem; }
+.ff-ui-subpanel { background: var(--ff-surface-bg); color: var(--ff-surface-text); }
+.ff-ui-stat-card { background: var(--ff-surface-bg); color: var(--ff-surface-text); }
+.ff-ui-muted { color: var(--ff-muted-text); }
+.ff-ui-label {
+  color: var(--ff-muted-text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ff-ui-control {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: var(--ff-input-bg);
+  color: var(--ff-input-text);
+  border: 1px solid var(--ff-input-border);
+  font: inherit;
+  outline: none;
+}
+.ff-ui-control:focus { border-color: var(--ff-primary); outline: 1px solid var(--ff-primary); }
+.ff-ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid transparent;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ff-ui-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.ff-ui-button--primary { background: var(--ff-button-primary-bg); color: var(--ff-button-primary-text); border-color: var(--ff-button-primary-border); }
+.ff-ui-button--secondary { background: var(--ff-button-alternate-bg); color: var(--ff-button-alternate-text); border-color: var(--ff-button-alternate-border, var(--ff-card-border)); }
+.ff-ui-tabs { background: var(--ff-surface-bg); }
+.ff-ui-tab--active { border-color: var(--ff-primary); color: var(--ff-card-text); background: color-mix(in srgb, var(--ff-primary) 12%, var(--ff-card-bg)); }
+.ff-ui-choice--active { background: var(--ff-primary); border-color: var(--ff-primary); color: var(--ff-button-primary-text); }
+.ff-ui-choice--idle { border-color: var(--ff-card-border); color: var(--ff-muted-text); }
+.ff-ui-choice--idle:hover { border-color: var(--ff-primary); color: var(--ff-card-text); }
+.ff-ui-danger-text { color: var(--ff-danger, #dc2626); }
+.ff-ui-success-text { color: var(--ff-success, #16a34a); }
