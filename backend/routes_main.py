@@ -24,6 +24,11 @@ from platform_fee_pricing import (
     total_cost_to_produce,
 )
 from artwork_print_job_pricing import aggregate_artwork_print_jobs
+from product_normalization_service import (
+    normalize_builder_product_payload,
+    copy_production_snapshot,
+    product_save_http_exception,
+)
 
 from auth import create_token, get_current_user, hash_password, optional_user, require_role
 from models import (
@@ -3768,7 +3773,7 @@ def _template_product_variations_with_overrides(submitted_variations: list, sele
     return out
 
 
-async def normalize_template_product_payload(db, data: dict, creator: dict, user: User, allow_admin_publish: bool = False) -> dict:
+async def _normalize_template_product_payload_core(db, data: dict, creator: dict, user: User, allow_admin_publish: bool = False) -> dict:
     """
     Normalizes sellable creator/admin products created from admin product templates.
     Keeps old product fields populated so Shop/ProductCard/Cart continue to work.
@@ -4013,6 +4018,14 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
         data["selected_print_option_id"] = data.get("selected_print_option_id") or first_artwork.get("print_option_id")
 
     return data
+
+
+async def normalize_template_product_payload(db, data: dict, creator: dict, user: User, allow_admin_publish: bool = False) -> dict:
+    return await normalize_builder_product_payload(
+        db=db, data=data, creator=creator, user=user,
+        allow_admin_publish=allow_admin_publish,
+        core_normalizer=_normalize_template_product_payload_core,
+    )
 
 
 @product_templates_router.get("")
@@ -5491,7 +5504,7 @@ def _snapshot_print_area_from_artwork_or_product(product: dict, template: dict, 
     }
 
 
-def _build_production_snapshot(product: dict, template: Optional[dict], product_variation: Optional[dict], quantity: int) -> dict:
+def _build_production_snapshot_core(product: dict, template: Optional[dict], product_variation: Optional[dict], quantity: int) -> dict:
     template = template or {}
     product_variation = product_variation or {}
 
@@ -5743,6 +5756,11 @@ def _build_production_snapshot(product: dict, template: Optional[dict], product_
         "estimated_platform_profit": costing["estimated_platform_profit"],
         "creator_product_cost": costing["creator_product_cost"],
     }
+
+
+def _build_production_snapshot(product: dict, template, product_variation, quantity: int) -> dict:
+    snapshot = _build_production_snapshot_core(product, template, product_variation, quantity)
+    return copy_production_snapshot(product or {}, snapshot)
 
 
 
@@ -9611,8 +9629,7 @@ async def admin_products(
     return [Product(**_decorate_product_effective_pricing(d, expose_manual_overrides=True)) for d in docs]
 
 
-@admin_router.post("/products", response_model=Product)
-async def admin_create_product(
+async def _admin_create_product_core(
     payload: AdminProductCreate,
     request: Request,
     user: User = Depends(get_current_user),
@@ -9669,6 +9686,20 @@ async def admin_create_product(
 
     await db.products.insert_one(iso_dates(product.model_dump()))
     return product
+
+
+@admin_router.post("/products", response_model=Product)
+async def admin_create_product(
+    payload: AdminProductCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    try:
+        return await _admin_create_product_core(payload=payload, request=request, user=user)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise product_save_http_exception(payload, exc) from exc
 
 
 
@@ -9837,7 +9868,7 @@ async def admin_update_product_pricing_control(
     return await _product_pricing_control_response(db, updated)
 
 
-@admin_router.patch("/products/{product_id}", response_model=Product)
+@admin_router.api_route("/products/{product_id}", methods=["PATCH", "PUT"], response_model=Product)
 async def admin_update_product(
     product_id: str,
     payload: ProductUpdate,
