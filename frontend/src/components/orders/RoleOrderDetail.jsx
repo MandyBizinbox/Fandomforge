@@ -77,13 +77,13 @@ function addressLines(address = {}) {
 }
 
 function Stat({ label, value, emphasis = false }) {
-  return <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3"><div className="text-[10px] uppercase tracking-widest text-zinc-500">{label}</div><div className={`${emphasis ? "text-2xl font-display" : "text-sm font-semibold"} mt-1 text-white`}>{value}</div></div>;
+  return <div className="ff-ui-stat-card px-4 py-3"><div className="text-[10px] uppercase tracking-widest ff-ui-muted">{label}</div><div className={`${emphasis ? "text-2xl font-display" : "text-sm font-semibold"} mt-1 text-[var(--ff-card-text)]`}>{value}</div></div>;
 }
 function Section({ title, children, className = "" }) {
-  return <section className={`card ${className}`}><div className="overline mb-4">{title}</div>{children}</section>;
+  return <section className={`ff-ui-card ${className}`}><div className="overline mb-4">{title}</div>{children}</section>;
 }
 function TabButton({ active, children, onClick }) {
-  return <button type="button" onClick={onClick} className={`px-4 py-3 text-xs uppercase tracking-widest font-bold border-b-2 whitespace-nowrap ${active ? "border-[#FF3B30] text-white bg-white/[0.03]" : "border-transparent text-zinc-500 hover:text-white"}`}>{children}</button>;
+  return <button type="button" onClick={onClick} className={`px-4 py-3 text-xs uppercase tracking-widest font-bold border-b-2 whitespace-nowrap ${active ? "ff-ui-tab--active" : "border-transparent ff-ui-muted hover:text-[var(--ff-card-text)]"}`}>{children}</button>;
 }
 
 export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = "order" }) {
@@ -185,27 +185,27 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
         const cf = creatorFinance(item); const pf = printerFinance(item);
         return <Section key={item.id} title={production ? "Production item" : "Order item"}>
           <div className="flex flex-col md:flex-row gap-4">
-            <div className="w-24 h-24 border border-white/10 bg-black/20 flex-shrink-0 overflow-hidden">
-              {(item.mockup_url || item.artwork_file_url) ? <img src={assetUrl(item.mockup_url || item.artwork_file_url)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <div className="h-full flex items-center justify-center text-[10px] text-zinc-600">NO IMAGE</div>}
+            <div className="w-24 h-24 border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] flex-shrink-0 overflow-hidden">
+              {(item.mockup_url || item.artwork_file_url) ? <img src={assetUrl(item.mockup_url || item.artwork_file_url)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <div className="h-full flex items-center justify-center text-[10px] ff-ui-muted">NO IMAGE</div>}
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-display text-2xl uppercase">{item.product_title}</div>
-              <div className="text-xs text-zinc-400 mt-1">{[item.size, item.color].filter(Boolean).join(" / ") || "Standard"} · Qty {item.quantity}</div>
+              <div className="text-xs ff-ui-muted mt-1">{[item.size, item.color].filter(Boolean).join(" / ") || "Standard"} · Qty {item.quantity}</div>
               <div className="flex flex-wrap items-center gap-2 mt-3"><StatusBadge status={item.production_status} />{!production && <span className="text-sm font-mono">{money(item.unit_price)} each</span>}</div>
-              {isCreator && <div className="text-xs text-zinc-400 mt-3">Selling {money(cf.sellingUnit)} · Production {money(cf.productionUnit)} · Your markup <span className="text-emerald-400">{money(cf.markupTotal)}</span></div>}
-              {isPrinter && <div className="text-xs text-zinc-400 mt-3">Job payout <span className="text-emerald-400">{money(pf.payoutTotal)}</span></div>}
-              {isAdmin && !production && <div className="text-xs text-zinc-400 mt-3">Production {money(item.print_cost_unit)} · Creator {money(item.band_earnings)} · Printer {money(item.printer_payout)}</div>}
-              {item.artwork_file_url && (isAdmin || isPrinter) && <a href={assetUrl(item.artwork_file_url)} target="_blank" rel="noreferrer" className="btn-secondary inline-flex mt-3 text-xs"><Download size={12} /> Download artwork</a>}
+              {isCreator && <div className="text-xs ff-ui-muted mt-3">Selling {money(cf.sellingUnit)} · Production {money(cf.productionUnit)} · Your markup <span className="ff-ui-success-text">{money(cf.markupTotal)}</span></div>}
+              {isPrinter && <div className="text-xs ff-ui-muted mt-3">Job payout <span className="ff-ui-success-text">{money(pf.payoutTotal)}</span></div>}
+              {isAdmin && !production && <div className="text-xs ff-ui-muted mt-3">Production {money(item.print_cost_unit)} · Creator {money(item.band_earnings)} · Printer {money(item.printer_payout)}</div>}
+              {item.artwork_file_url && (isAdmin || isPrinter) && <a href={assetUrl(item.artwork_file_url)} target="_blank" rel="noreferrer" className="ff-ui-button ff-ui-button--secondary inline-flex mt-3 text-xs"><Download size={12} /> Download artwork</a>}
             </div>
           </div>
           {production && <div className="mt-5"><ProductionPackSummary item={item} testidPrefix={`${testidPrefix}-pack-${item.id}`} showInternalMoney={isAdmin} /></div>}
-          {(isAdmin || isPrinter) && <div className="mt-5 pt-4 border-t border-white/10 space-y-4">
-            <div><div className="label">Production status</div><div className="flex flex-wrap gap-2">{ITEM_STATUS.map((status) => <button key={status} type="button" onClick={() => patchItem(item.id, { item_production_status: status })} className={`text-[10px] uppercase tracking-widest font-bold px-3 py-2 border ${item.production_status === status ? "bg-[#FF3B30] border-[#FF3B30] text-white" : "border-white/15 text-zinc-400 hover:text-white"}`}>{status.replaceAll("_", " ")}</button>)}</div></div>
+          {(isAdmin || isPrinter) && <div className="mt-5 pt-4 border-t border-[var(--ff-card-border)] space-y-4">
+            <div><div className="ff-ui-label">Production status</div><div className="flex flex-wrap gap-2">{ITEM_STATUS.map((status) => <button key={status} type="button" onClick={() => patchItem(item.id, { item_production_status: status })} className={`text-[10px] uppercase tracking-widest font-bold px-3 py-2 border ${item.production_status === status ? "ff-ui-choice--active" : "ff-ui-choice--idle"}`}>{status.replaceAll("_", " ")}</button>)}</div></div>
             <div className="grid md:grid-cols-2 gap-3">
-              <label><span className="label">Courier</span><input className="input-base" defaultValue={item.courier_name || order.courier_name || ""} onBlur={(e) => e.target.value !== (item.courier_name || "") && patchItem(item.id, { courier_name: e.target.value })} /></label>
-              <label><span className="label">Tracking number</span><input className="input-base" defaultValue={item.tracking_number || ""} onBlur={(e) => e.target.value !== (item.tracking_number || "") && patchItem(item.id, { tracking_number: e.target.value })} /></label>
-              <label><span className="label">Waybill</span><input className="input-base" defaultValue={item.waybill_number || ""} onBlur={(e) => e.target.value !== (item.waybill_number || "") && patchItem(item.id, { waybill_number: e.target.value })} /></label>
-              <label><span className="label">Tracking URL</span><input className="input-base" defaultValue={item.tracking_url || ""} onBlur={(e) => e.target.value !== (item.tracking_url || "") && patchItem(item.id, { tracking_url: e.target.value })} /></label>
+              <label><span className="ff-ui-label">Courier</span><input className="ff-ui-control" defaultValue={item.courier_name || order.courier_name || ""} onBlur={(e) => e.target.value !== (item.courier_name || "") && patchItem(item.id, { courier_name: e.target.value })} /></label>
+              <label><span className="ff-ui-label">Tracking number</span><input className="ff-ui-control" defaultValue={item.tracking_number || ""} onBlur={(e) => e.target.value !== (item.tracking_number || "") && patchItem(item.id, { tracking_number: e.target.value })} /></label>
+              <label><span className="ff-ui-label">Waybill</span><input className="ff-ui-control" defaultValue={item.waybill_number || ""} onBlur={(e) => e.target.value !== (item.waybill_number || "") && patchItem(item.id, { waybill_number: e.target.value })} /></label>
+              <label><span className="ff-ui-label">Tracking URL</span><input className="ff-ui-control" defaultValue={item.tracking_url || ""} onBlur={(e) => e.target.value !== (item.tracking_url || "") && patchItem(item.id, { tracking_url: e.target.value })} /></label>
             </div>
           </div>}
         </Section>;
@@ -216,14 +216,14 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
   return <div data-testid={`${testidPrefix}-detail-page`} className="space-y-5">
     <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
       <div>
-        {backTo && <button type="button" onClick={() => navigate(backTo)} className="text-xs uppercase tracking-widest text-zinc-400 hover:text-white mb-4 inline-flex items-center gap-2"><ArrowLeft size={14} /> Back</button>}
+        {backTo && <button type="button" onClick={() => navigate(backTo)} className="text-xs uppercase tracking-widest ff-ui-muted hover:text-[var(--ff-card-text)] mb-4 inline-flex items-center gap-2"><ArrowLeft size={14} /> Back</button>}
         <div className="overline mb-1">Order</div>
         <h1 className="font-display text-4xl md:text-5xl uppercase" data-testid={`${testidPrefix}-number`}>{order.order_number}</h1>
-        <div className="flex flex-wrap items-center gap-2 mt-3"><StatusBadge status={order.status} testId={`${testidPrefix}-status`} /><StatusBadge status={order.payment_status} /><span className="text-xs text-zinc-500">{new Date(order.created_at).toLocaleString()}</span></div>
+        <div className="flex flex-wrap items-center gap-2 mt-3"><StatusBadge status={order.status} testId={`${testidPrefix}-status`} /><StatusBadge status={order.payment_status} /><span className="text-xs ff-ui-muted">{new Date(order.created_at).toLocaleString()}</span></div>
       </div>
       <div className="flex flex-wrap gap-2">
-        {(isAdmin || isCreator) && <button type="button" className="btn-secondary" onClick={printDispatchInvoice}><FileText size={14} /> Print / PDF invoice</button>}
-        {trackingUrl && <button type="button" className="btn-secondary" onClick={() => copy(trackingUrl, "Tracking link copied")}><Copy size={14} /> Tracking link</button>}
+        {(isAdmin || isCreator) && <button type="button" className="ff-ui-button ff-ui-button--secondary" onClick={printDispatchInvoice}><FileText size={14} /> Print / PDF invoice</button>}
+        {trackingUrl && <button type="button" className="ff-ui-button ff-ui-button--secondary" onClick={() => copy(trackingUrl, "Tracking link copied")}><Copy size={14} /> Tracking link</button>}
       </div>
     </div>
 
@@ -234,14 +234,14 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
       <Stat label="Delivery" value={tracking ? "Tracking assigned" : (order.shipping_method_name || "Pending")} />
     </div>
 
-    <div className="border border-white/10 bg-black/20 overflow-x-auto"><div className="flex min-w-max">{tabs.map((tab) => <TabButton key={tab} active={activeTab === tab} onClick={() => setActiveTab(tab)}>{tab}</TabButton>)}</div></div>
+    <div className="ff-ui-tabs overflow-x-auto"><div className="flex min-w-max">{tabs.map((tab) => <TabButton key={tab} active={activeTab === tab} onClick={() => setActiveTab(tab)}>{tab}</TabButton>)}</div></div>
 
     {activeTab === "overview" && <div className="grid lg:grid-cols-3 gap-4">
-      <Section title="Customer" className="lg:col-span-1"><div className="font-bold text-white">{shipping.full_name || "—"}</div><div className="text-sm text-zinc-400 mt-2 space-y-1"><div>{shipping.email || "—"}</div>{shipping.phone && <div>{shipping.phone}</div>}</div></Section>
-      <Section title="Delivery" className="lg:col-span-1"><div className="text-sm space-y-1">{addressLines(shipping).map((line) => <div key={line}>{line}</div>)}<div className="text-zinc-400 pt-2">{order.shipping_method_name || "Shipping method pending"}</div>{courier && <div>Courier: {courier}</div>}{tracking && <div>Tracking: <span className="font-mono">{tracking}</span></div>}</div></Section>
-      <Section title="Totals" className="lg:col-span-1"><div className="space-y-2 text-sm"><div className="flex justify-between"><span className="text-zinc-400">Subtotal</span><span>{money(order.subtotal)}</span></div><div className="flex justify-between"><span className="text-zinc-400">Shipping</span><span>{number(order.shipping_total) === 0 ? "Free" : money(order.shipping_total)}</span></div><div className="flex justify-between border-t border-white/10 pt-2"><strong>Total</strong><strong className="font-display text-xl">{money(order.total)}</strong></div></div></Section>
-      {isAdmin && <Section title="Admin actions" className="lg:col-span-2"><div className="grid md:grid-cols-2 gap-5"><div><div className="label">Order status</div><div className="flex flex-wrap gap-2">{ORDER_STATUS.map((status) => <button key={status} type="button" onClick={() => patchOrderStatus(status)} className={`text-[10px] uppercase tracking-widest font-bold px-3 py-2 border ${order.status === status ? "bg-[#FF3B30] border-[#FF3B30]" : "border-white/15 text-zinc-400"}`}>{status.replaceAll("_", " ")}</button>)}</div></div><label><span className="label">Reassign printer</span><select className="input-base" defaultValue="" onChange={(e) => reassignPrinter(e.target.value)}><option value="">Choose printer</option>{printers.map((printer) => <option key={printer.id} value={printer.id}>{printer.company_name}{printer.location ? ` · ${printer.location}` : ""}</option>)}</select></label></div></Section>}
-      {isCreator && <Section title="Need help?" className="lg:col-span-2"><form onSubmit={submitHelp} className="flex flex-col md:flex-row gap-3"><textarea className="input-base flex-1" rows={3} value={helpMessage} onChange={(e) => setHelpMessage(e.target.value)} placeholder="Ask FandomForge support about this order" /><button className="btn-primary md:self-end" disabled={sendingHelp}>{sendingHelp ? "Sending…" : "Send request"}</button></form></Section>}
+      <Section title="Customer" className="lg:col-span-1"><div className="font-bold text-[var(--ff-card-text)]">{shipping.full_name || "—"}</div><div className="text-sm ff-ui-muted mt-2 space-y-1"><div>{shipping.email || "—"}</div>{shipping.phone && <div>{shipping.phone}</div>}</div></Section>
+      <Section title="Delivery" className="lg:col-span-1"><div className="text-sm space-y-1">{addressLines(shipping).map((line) => <div key={line}>{line}</div>)}<div className="ff-ui-muted pt-2">{order.shipping_method_name || "Shipping method pending"}</div>{courier && <div>Courier: {courier}</div>}{tracking && <div>Tracking: <span className="font-mono">{tracking}</span></div>}</div></Section>
+      <Section title="Totals" className="lg:col-span-1"><div className="space-y-2 text-sm"><div className="flex justify-between"><span className="ff-ui-muted">Subtotal</span><span>{money(order.subtotal)}</span></div><div className="flex justify-between"><span className="ff-ui-muted">Shipping</span><span>{number(order.shipping_total) === 0 ? "Free" : money(order.shipping_total)}</span></div><div className="flex justify-between border-t border-[var(--ff-card-border)] pt-2"><strong>Total</strong><strong className="font-display text-xl">{money(order.total)}</strong></div></div></Section>
+      {isAdmin && <Section title="Admin actions" className="lg:col-span-2"><div className="grid md:grid-cols-2 gap-5"><div><div className="ff-ui-label">Order status</div><div className="flex flex-wrap gap-2">{ORDER_STATUS.map((status) => <button key={status} type="button" onClick={() => patchOrderStatus(status)} className={`text-[10px] uppercase tracking-widest font-bold px-3 py-2 border ${order.status === status ? "ff-ui-choice--active" : "ff-ui-choice--idle"}`}>{status.replaceAll("_", " ")}</button>)}</div></div><label><span className="ff-ui-label">Reassign printer</span><select className="ff-ui-control" defaultValue="" onChange={(e) => reassignPrinter(e.target.value)}><option value="">Choose printer</option>{printers.map((printer) => <option key={printer.id} value={printer.id}>{printer.company_name}{printer.location ? ` · ${printer.location}` : ""}</option>)}</select></label></div></Section>}
+      {isCreator && <Section title="Need help?" className="lg:col-span-2"><form onSubmit={submitHelp} className="flex flex-col md:flex-row gap-3"><textarea className="ff-ui-control flex-1" rows={3} value={helpMessage} onChange={(e) => setHelpMessage(e.target.value)} placeholder="Ask FandomForge support about this order" /><button className="ff-ui-button ff-ui-button--primary md:self-end" disabled={sendingHelp}>{sendingHelp ? "Sending…" : "Send request"}</button></form></Section>}
     </div>}
 
     {activeTab === "items" && renderItems()}
@@ -249,9 +249,9 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
 
     {activeTab === "earnings" && <div className="grid md:grid-cols-2 xl:grid-cols-5 gap-3"><Stat label="Selling total" value={money(totals.selling)} /><Stat label="Production" value={money(totals.production)} /><Stat label="Platform fee" value={money(totals.fee)} /><Stat label="Your markup" value={money(totals.markup)} /><Stat label="Your payout" value={money(totals.payout)} emphasis /></div>}
 
-    {activeTab === "shipping" && <div className="grid lg:grid-cols-2 gap-4"><Section title="Delivery address"><div className="font-bold">{shipping.full_name || "—"}</div><div className="text-sm mt-2 space-y-1">{addressLines(shipping).map((line) => <div key={line}>{line}</div>)}</div></Section><Section title="Tracking"><div className="space-y-2 text-sm"><div className="flex justify-between gap-4"><span className="text-zinc-400">Method</span><span>{order.shipping_method_name || "—"}</span></div><div className="flex justify-between gap-4"><span className="text-zinc-400">Courier</span><span>{courier || "—"}</span></div><div className="flex justify-between gap-4"><span className="text-zinc-400">Tracking</span><span className="font-mono">{tracking || "—"}</span></div>{trackingUrl && <button type="button" className="btn-secondary w-full mt-3" onClick={() => copy(trackingUrl)}><Copy size={14} /> Copy tracking link</button>}</div></Section></div>}
+    {activeTab === "shipping" && <div className="grid lg:grid-cols-2 gap-4"><Section title="Delivery address"><div className="font-bold">{shipping.full_name || "—"}</div><div className="text-sm mt-2 space-y-1">{addressLines(shipping).map((line) => <div key={line}>{line}</div>)}</div></Section><Section title="Tracking"><div className="space-y-2 text-sm"><div className="flex justify-between gap-4"><span className="ff-ui-muted">Method</span><span>{order.shipping_method_name || "—"}</span></div><div className="flex justify-between gap-4"><span className="ff-ui-muted">Courier</span><span>{courier || "—"}</span></div><div className="flex justify-between gap-4"><span className="ff-ui-muted">Tracking</span><span className="font-mono">{tracking || "—"}</span></div>{trackingUrl && <button type="button" className="ff-ui-button ff-ui-button--secondary w-full mt-3" onClick={() => copy(trackingUrl)}><Copy size={14} /> Copy tracking link</button>}</div></Section></div>}
 
-    {activeTab === "payment" && <Section title="Payment"><div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3"><Stat label="Provider" value={order.payment_details?.provider || order.payment_provider || "—"} /><Stat label="Status" value={order.payment_details?.status || order.payment_status || "—"} /><Stat label="Amount" value={money(order.payment_details?.amount || order.total, order.payment_details?.currency || "ZAR")} />{isAdmin && <Stat label="Reference" value={short(order.payment_details?.reference || order.payment_reference)} />}</div>{isAdmin && <div className="mt-4 text-xs text-zinc-500">Provider ID: {short(order.payment_details?.provider_payment_id || order.provider_payment_id, 28)} · Internal ID: {short(order.payment_details?.id || order.payment_id, 28)}</div>}</Section>}
+    {activeTab === "payment" && <Section title="Payment"><div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3"><Stat label="Provider" value={order.payment_details?.provider || order.payment_provider || "—"} /><Stat label="Status" value={order.payment_details?.status || order.payment_status || "—"} /><Stat label="Amount" value={money(order.payment_details?.amount || order.total, order.payment_details?.currency || "ZAR")} />{isAdmin && <Stat label="Reference" value={short(order.payment_details?.reference || order.payment_reference)} />}</div>{isAdmin && <div className="mt-4 text-xs ff-ui-muted">Provider ID: {short(order.payment_details?.provider_payment_id || order.provider_payment_id, 28)} · Internal ID: {short(order.payment_details?.id || order.payment_id, 28)}</div>}</Section>}
 
     {activeTab === "activity" && <ActivityTimeline orderId={id} title="Order Timeline" canAddNote={isAdmin || isPrinter} defaultAudience={isPrinter ? ["admin", "printer"] : isAdmin ? ["admin", "creator", "printer"] : ["admin"]} />}
   </div>;
