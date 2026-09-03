@@ -29,6 +29,11 @@ from product_normalization_service import (
     copy_production_snapshot,
     product_save_http_exception,
 )
+from generated_text_artwork import (
+    materialize_text_slot,
+    materialize_product_artworks,
+    copy_text_metadata_to_snapshot,
+)
 
 from auth import create_token, get_current_user, hash_password, optional_user, require_role
 from models import (
@@ -3544,7 +3549,7 @@ def _enrich_and_validate_product_artwork_slots(template: dict, global_print_opti
             enrich(slot)
 
 
-def _normalize_product_artwork_slot(row: dict, index: int = 0) -> dict:
+def _normalize_product_artwork_slot_core(row: dict, index: int = 0) -> dict:
     row = dict(row or {})
     if not row.get("id"):
         row["id"] = uid()
@@ -3567,6 +3572,11 @@ def _normalize_product_artwork_slot(row: dict, index: int = 0) -> dict:
     if not row["placement"].get("screen_id"):
         row["placement"]["screen_id"] = row.get("screen_id") or ""
     return row
+
+
+def _normalize_product_artwork_slot(row: dict, index: int = 0) -> dict:
+    slot = _normalize_product_artwork_slot_core(row, index)
+    return materialize_text_slot(slot)
 
 
 def _normalize_product_artwork_groups(groups: list, fallback_artworks: list, is_admin: bool = False) -> tuple[list, list]:
@@ -5759,8 +5769,10 @@ def _build_production_snapshot_core(product: dict, template: Optional[dict], pro
 
 
 def _build_production_snapshot(product: dict, template, product_variation, quantity: int) -> dict:
-    snapshot = _build_production_snapshot_core(product, template, product_variation, quantity)
-    return copy_production_snapshot(product or {}, snapshot)
+    prepared_product = materialize_product_artworks(product or {})
+    snapshot = _build_production_snapshot_core(prepared_product, template, product_variation, quantity)
+    snapshot = copy_production_snapshot(prepared_product, snapshot)
+    return copy_text_metadata_to_snapshot(snapshot, prepared_product)
 
 
 
