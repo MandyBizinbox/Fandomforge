@@ -484,3 +484,7 @@ input[type="radio"] {
 .ff-ui-choice--idle:hover { border-color: var(--ff-primary); color: var(--ff-card-text); }
 .ff-ui-danger-text { color: var(--ff-danger, #dc2626); }
 .ff-ui-success-text { color: var(--ff-success, #16a34a); }
+
+.ff-admin-success-text {
+  color: var(--ff-success, #16a34a);
+}
