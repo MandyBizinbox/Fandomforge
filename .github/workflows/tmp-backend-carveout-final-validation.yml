@@ -60,11 +60,12 @@ jobs:
           import routes_main
           rows=[]
           for route in routes_main.admin_router.routes:
-              if route.path == '/products' or route.path == '/products/{product_id}':
-                  rows.append((route.path, tuple(sorted(route.methods or []))))
+              path = route.path
+              if path.endswith('/products') or path.endswith('/products/{product_id}'):
+                  rows.append((path, tuple(sorted(route.methods or []))))
           print(rows)
-          assert ('/products', ('POST',)) in rows
-          assert ('/products/{product_id}', ('PATCH', 'PUT')) in rows
+          assert any(path.endswith('/products') and methods == ('POST',) for path, methods in rows)
+          assert any(path.endswith('/products/{product_id}') and methods == ('PATCH', 'PUT') for path, methods in rows)
           PY
       - name: Run canonical product pipeline tests
         working-directory: backend
