@@ -34,6 +34,10 @@ from generated_text_artwork import (
     materialize_product_artworks,
     copy_text_metadata_to_snapshot,
 )
+from product_artwork_costing import (
+    calculate_artwork_area_cost,
+    apply_combined_artwork_costing,
+)
 
 from auth import create_token, get_current_user, hash_password, optional_user, require_role
 from models import (
@@ -3351,7 +3355,7 @@ def _product_print_option_map(template: dict, global_options: list) -> dict:
 
 
 
-def _calculate_area_print_cost(slot: dict, area: dict, option: dict) -> dict:
+def _calculate_area_print_cost_core(slot: dict, area: dict, option: dict) -> dict:
     calculation_type = option.get("calculation_type") or slot.get("calculation_type") or "fixed"
 
     placement = slot.get("placement") or {}
@@ -3438,7 +3442,11 @@ def _calculate_area_print_cost(slot: dict, area: dict, option: dict) -> dict:
         "calculated_print_cost": round(final, 2),
     }
 
-def _enrich_and_validate_product_artwork_slots(template: dict, global_print_options: list, groups: list, flat_artworks: list) -> None:
+
+def _calculate_area_print_cost(slot: dict, area: dict, option: dict) -> dict:
+    return calculate_artwork_area_cost(_calculate_area_print_cost_core, slot, area, option)
+
+def _enrich_and_validate_product_artwork_slots_core(template: dict, global_print_options: list, groups: list, flat_artworks: list) -> None:
     area_map = _product_template_print_area_map(template)
     option_map = _product_print_option_map(template, global_print_options)
 
@@ -3547,6 +3555,22 @@ def _enrich_and_validate_product_artwork_slots(template: dict, global_print_opti
             slot.update(by_id[slot.get("id")])
         else:
             enrich(slot)
+
+
+def _enrich_and_validate_product_artwork_slots(template: dict, global_print_options: list, groups: list, flat_artworks: list) -> None:
+    _enrich_and_validate_product_artwork_slots_core(template, global_print_options, groups, flat_artworks)
+    import sys
+    routes_module = sys.modules[__name__]
+    apply_combined_artwork_costing(routes_module, template, global_print_options, groups)
+    by_id = {
+        slot.get("id"): slot
+        for group in groups or []
+        for slot in group.get("artworks") or []
+        if slot.get("id")
+    }
+    for slot in flat_artworks or []:
+        if slot.get("id") in by_id:
+            slot.update(by_id[slot.get("id")])
 
 
 def _normalize_product_artwork_slot_core(row: dict, index: int = 0) -> dict:
