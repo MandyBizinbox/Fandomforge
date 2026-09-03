@@ -1,0 +1,50 @@
+name: tmp admin dashboard final shell
+on:
+  push:
+    branches: [refactor/admin-dashboard-final-shell]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/admin-dashboard-final-shell
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply guarded extraction
+        run: python scripts/tmp_admin_dashboard_final_shell.py
+      - name: Verify shell boundaries
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('frontend/src/pages/AdminDashboard.jsx')
+          s=p.read_text()
+          print('AdminDashboard lines:', len(s.splitlines()))
+          assert len(s.splitlines()) < 220
+          for dead in ['ProductFormAdmin','ProductionAdmin','CreatorsWorkspace','PrintersWorkspace','BandsAdmin','ProductsAdmin','input-base','btn-primary']:
+              assert dead not in s, dead
+          for live in ['AdminCreatorsWorkspace','AdminPrintersWorkspace','ProductsTemplatesWorkspace','AdminFulfilmentRoute','BillingFinanceWorkspace','ShopSettingsWorkspace','PlatformSettingsWorkspace']:
+              assert live in s, live
+          PY
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test -- --watchAll=false
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Commit application changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add frontend/src/pages/AdminDashboard.jsx frontend/src/components/admin/dashboard/AdminActivityPage.jsx frontend/src/components/admin/dashboard/AdminNotificationsPage.jsx
+          git diff --cached --quiet && exit 0
+          git commit -m "Reduce AdminDashboard to route shell"
+          git push origin HEAD:refactor/admin-dashboard-final-shell
