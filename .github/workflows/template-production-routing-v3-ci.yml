@@ -71,7 +71,7 @@ on:
       - "backend/launch_integrity/pricing.py"
       - "backend/tests/test_product_normalization_service.py"
       - "backend/tests/test_product_artwork_costing.py"
-      - "backend/tests/test_builder_text_artwork_patch.py"
+      - "backend/tests/test_generated_text_artwork.py"
       - "backend/tests/test_builder_extension_state_persistence.py"
       - "backend/tests/test_admin_product_update_put_compat.py"
       - "backend/tests/test_platform_fee_pricing.py"
@@ -153,7 +153,7 @@ jobs:
           pytest -q \
             tests/test_product_normalization_service.py \
             tests/test_product_artwork_costing.py \
-            tests/test_builder_text_artwork_patch.py \
+            tests/test_generated_text_artwork.py \
             tests/test_builder_extension_state_persistence.py \
             tests/test_admin_product_update_put_compat.py \
             tests/test_platform_fee_pricing.py \
