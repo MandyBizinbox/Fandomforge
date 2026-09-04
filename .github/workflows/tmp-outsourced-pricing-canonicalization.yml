@@ -46,6 +46,9 @@ jobs:
         working-directory: backend
         env:
           PYTHONPATH: .
+          MONGO_URL: mongodb://127.0.0.1:27017
+          DB_NAME: fandomforge_ci_import
+          ENVIRONMENT: test
         run: python -c "import server; print('server-import-ok')"
       - name: Run focused backend tests
         working-directory: backend
