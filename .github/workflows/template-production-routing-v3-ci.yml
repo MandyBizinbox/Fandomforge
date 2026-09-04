@@ -44,7 +44,8 @@ on:
       - "backend/generated_text_artwork.py"
       - "backend/product_artwork_costing.py"
       - "backend/outsourced_production_rates.py"
-      - "backend/outsourced_rate_runtime_patch.py"
+      - "backend/production_operation_pricing.py"
+      - "backend/production_method_profiles.py"
       - "backend/profile_stocked_colours_patch.py"
       - "backend/profile_colour_projection_repair.py"
       - "backend/classic_htv_colour_seed.py"
@@ -61,13 +62,11 @@ on:
       - "backend/production_geometry_profile_copy_color_patch.py"
       - "backend/production_geometry_profile_copy_warning_patch.py"
       - "backend/unified_manufacturing_costing.py"
-      - "backend/production_method_profiles.py"
       - "backend/production_profile_resolution_patch.py"
       - "backend/routes_production_rules.py"
       - "backend/routes_main.py"
       - "backend/server.py"
       - "backend/production_rules_engine.py"
-      - "backend/production_operation_pricing.py"
       - "backend/launch_integrity/pricing.py"
       - "backend/tests/test_product_normalization_service.py"
       - "backend/tests/test_product_artwork_costing.py"
@@ -77,6 +76,8 @@ on:
       - "backend/tests/test_platform_fee_pricing.py"
       - "backend/tests/test_artwork_print_job_pricing.py"
       - "backend/tests/test_outsourced_production_rates.py"
+      - "backend/tests/test_production_operation_pricing_service.py"
+      - "backend/tests/test_unified_canonical_profile_editability.py"
       - "backend/tests/test_unified_manufacturing_costing.py"
       - "backend/tests/test_profile_stocked_colours.py"
       - "backend/tests/test_classic_htv_colour_seed.py"
@@ -159,6 +160,8 @@ jobs:
             tests/test_platform_fee_pricing.py \
             tests/test_artwork_print_job_pricing.py \
             tests/test_outsourced_production_rates.py \
+            tests/test_production_operation_pricing_service.py \
+            tests/test_unified_canonical_profile_editability.py \
             tests/test_unified_manufacturing_costing.py \
             tests/test_profile_stocked_colours.py \
             tests/test_classic_htv_colour_seed.py \
@@ -184,7 +187,8 @@ jobs:
           generated_text_artwork.py
           product_artwork_costing.py
           outsourced_production_rates.py
-          outsourced_rate_runtime_patch.py
+          production_operation_pricing.py
+          production_method_profiles.py
           profile_stocked_colours_patch.py
           profile_colour_projection_repair.py
           classic_htv_colour_seed.py
@@ -201,15 +205,22 @@ jobs:
           production_geometry_profile_copy_color_patch.py
           production_geometry_profile_copy_warning_patch.py
           unified_manufacturing_costing.py
-          production_method_profiles.py
           production_profile_resolution_patch.py
           routes_production_rules.py
           models.py
           routes_main.py
           server.py
           production_rules_engine.py
-          production_operation_pricing.py
           launch_integrity/pricing.py
+
+      - name: Import backend startup graph
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+          MONGO_URL: mongodb://127.0.0.1:27017
+          DB_NAME: fandomforge_ci_import
+          ENVIRONMENT: test
+        run: python -c "import server; print('server-import-ok')"
 
       - name: Build frontend
         working-directory: frontend
