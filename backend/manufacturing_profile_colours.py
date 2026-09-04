@@ -128,9 +128,27 @@ def profile_stocked_colours(method: Dict[str, Any], profile: Dict[str, Any]) -> 
 
 
 def authoritative_profile_colour_overlay(method: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
+    """Backfill missing legacy HTV ranges without replacing saved admin choices.
+
+    The supplier assignment is a migration/default, not permanent runtime authority.
+    Canonical profiles that already carry a restricted selection must retain it.
+    A seeded profile that an admin switches to inherit also keeps that explicit
+    choice because its assignment version survives the edit/save round trip.
+    """
     row = deepcopy(profile)
     if normalize_method_key(method.get("method_key") or method.get("internal_id")) != "htv":
         return row
+
+    configuration = explicit_colour_configuration(row)
+    if configuration is not None:
+        has_selected_ids = bool(
+            profile_supported_colour_ids(row)
+            or profile_available_colour_ids(row)
+        )
+        already_seeded = bool(row.get("stocked_colour_assignment_version"))
+        if profile_colour_mode(row) == "restricted" or has_selected_ids or already_seeded:
+            return row
+
     key = profile_range_key(row)
     if key not in PROFILE_RANGES:
         return row
