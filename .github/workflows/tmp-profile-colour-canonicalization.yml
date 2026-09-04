@@ -22,6 +22,7 @@ jobs:
       - name: Apply guarded canonicalization
         run: |
           python scripts/tmp_profile_colour_canonicalize.py
+          python scripts/tmp_profile_colour_fix.py
           python scripts/tmp_profile_colour_followup.py
       - name: Remove obsolete runtime patch modules
         run: |
