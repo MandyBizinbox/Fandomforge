@@ -147,6 +147,8 @@ from product_template_csv import (
     remove_unset_fields,
 )
 
+from e2e_runtime import with_e2e_mock_gateway
+
 
 # =============================================================================
 # SHARED HELPERS
@@ -2184,7 +2186,7 @@ SECRET_SETTING_KEYS = {"secret_key", "private_key", "webhook_secret", "passphras
 
 
 def _default_payment_gateways() -> Dict[str, dict]:
-    return {
+    gateways = {
         "manual_eft": {
             "key": "manual_eft",
             "enabled": True,
@@ -2270,6 +2272,7 @@ def _default_payment_gateways() -> Dict[str, dict]:
             "secret_configured": False,
         },
     }
+    return with_e2e_mock_gateway(gateways)
 
 
 def _gateway_has_secret(config: dict) -> bool:

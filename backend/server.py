@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
+from e2e_runtime import e2e_enabled
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
@@ -17,11 +18,7 @@ UPLOAD_DIR = ROOT / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 mongo_url = os.environ["MONGO_URL"]
 db_name = os.environ["DB_NAME"]
-E2E_MODE = (
-    os.environ.get("E2E_TEST_MODE") == "1"
-    and os.environ.get("ENVIRONMENT", "development").lower() != "production"
-    and db_name.startswith("fandomforge_e2e_")
-)
+E2E_MODE = e2e_enabled()
 client = AsyncIOMotorClient(mongo_url)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("fandomforge")
@@ -104,9 +101,6 @@ async def health(request: Request):
 
 from auth import auth_router
 import routes_main as routes_main_module
-if E2E_MODE:
-    from e2e_gateway_patch import install_e2e_mock_gateway
-    install_e2e_mock_gateway(routes_main_module)
 from order_finance_patches import install_order_finance_patches
 from platform_launch_policy_patch import install_platform_launch_policy_patch
 from template_lifecycle_routes import install_template_lifecycle_routes

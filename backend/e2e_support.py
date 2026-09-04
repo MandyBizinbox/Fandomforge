@@ -7,8 +7,9 @@ syntactically valid ``.site`` suffix before Pydantic validation.
 """
 from __future__ import annotations
 
-import os
 from typing import Any, Dict
+
+from e2e_runtime import e2e_enabled
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -24,14 +25,6 @@ E2E_EMAIL_ALIAS_FROM = "@e2e.fandomforge.test"
 E2E_EMAIL_ALIAS_TO = "@e2e.fandomforge.site"
 E2E_EMAIL_ALIAS_PATTERN = r"@e2e\.fandomforge\.test$"
 e2e_router = APIRouter(prefix="/e2e", tags=["e2e-test-only"])
-
-
-def e2e_enabled() -> bool:
-    return (
-        os.environ.get("E2E_TEST_MODE") == "1"
-        and os.environ.get("ENVIRONMENT", "development").lower() != "production"
-        and os.environ.get("DB_NAME", "").startswith("fandomforge_e2e_")
-    )
 
 
 def require_e2e() -> None:
