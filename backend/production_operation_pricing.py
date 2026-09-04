@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import outsourced_production_rates as outsourced_rates
 from seed_production_operations import ACTIVE_V1_METHOD_KEYS, normalize_method_key
+from unified_manufacturing_costing import resolve_costing_profile
 
 
 PRICING_FIELDS = (
@@ -145,31 +146,16 @@ def _method_key_from_option_slot(option: Dict[str, Any], slot: Dict[str, Any]) -
     )
 
 
-def _profile_matches_option(profile: Dict[str, Any], option: Dict[str, Any], slot: Dict[str, Any]) -> bool:
-    if not isinstance(profile, dict):
-        return False
-    option_id = _token(option.get("id") or slot.get("print_option_id"))
-    if option_id and _token(profile.get("print_option_id")) == option_id:
-        return True
-    standard_key = _token(option.get("standard_print_size_key") or slot.get("standard_print_size_key"))
-    if standard_key and _token(profile.get("standard_print_size_key")) == standard_key:
-        return True
-    print_size = _token(option.get("print_size") or slot.get("print_size"))
-    if print_size and _token(profile.get("print_size")) == print_size:
-        return True
-    rule_name = _token(option.get("rule_name") or option.get("print_method") or slot.get("print_method"))
-    if rule_name and rule_name in {_token(profile.get("rule_name")), _token(profile.get("print_method"))}:
-        return True
-    return False
-
-
 def _method_profile_for_slot(method_rule: Optional[Dict[str, Any]], option: Dict[str, Any], slot: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    rule = dict(method_rule or {})
-    profiles = list(rule.get("legacy_print_option_costing_profiles") or [])
-    for profile in profiles:
-        if _profile_matches_option(profile, option, slot):
-            return profile
-    return None
+    identifier = (
+        slot.get("manufacturing_profile_id")
+        or slot.get("production_profile_id")
+        or slot.get("print_option_id")
+        or option.get("manufacturing_profile_id")
+        or option.get("production_profile_id")
+        or option.get("id")
+    )
+    return resolve_costing_profile(method_rule, identifier, option=option, slot=slot)
 
 
 def _pricing_fields_from_method(method_rule: Optional[Dict[str, Any]], option: Optional[Dict[str, Any]] = None, slot: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

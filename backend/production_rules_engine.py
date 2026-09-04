@@ -13,6 +13,16 @@ from platform_fee_pricing import (
     total_cost_to_produce,
 )
 from seed_production_operations import normalize_method_key
+from unified_manufacturing_costing import resolve_costing_profile
+from manufacturing_profile_colours import (
+    STOCKED_METHODS,
+    profile_available_colour_ids,
+    profile_colour_mode,
+    profile_stocked_colours,
+    profile_supported_colour_ids,
+    selected_colour_token,
+    slot_colour_is_allowed,
+)
 from seed_production_rules import DEFAULT_PRODUCTION_SETTINGS, PRODUCTION_RULES_VERSION
 
 
@@ -467,6 +477,26 @@ async def apply_production_rules(db, product_data: dict, *, template: Optional[d
             unsupported = [c for c in colours if c not in library]
             if unsupported:
                 errors.append(issue("error", "unsupported_colour", f"{rule.get('display_name')} can only use stocked colours.", slot, method, {"unsupported_colours": unsupported, "approved_colours": [c.get("name") for c in library.values()]}))
+
+        if method in STOCKED_METHODS:
+            profile = resolve_costing_profile(rule, slot=slot)
+            if profile:
+                approved_profile_colours = profile_stocked_colours(rule, profile)
+                selection_mode = profile_colour_mode(profile)
+                slot.update({
+                    "colour_selection_mode": selection_mode,
+                    "color_selection_mode": selection_mode,
+                    "supported_colour_ids": profile_supported_colour_ids(profile),
+                    "available_colour_ids": profile_available_colour_ids(profile),
+                    "approved_stocked_colours": deepcopy(approved_profile_colours),
+                    "approved_colours": deepcopy(approved_profile_colours),
+                })
+                selected = selected_colour_token(slot)
+                profile_name = profile.get("display_name") or profile.get("profile_name") or "manufacturing profile"
+                if selection_mode == "restricted" and not approved_profile_colours:
+                    errors.append(issue("error", "profile_has_no_stocked_colours", f"{profile_name} has no available stocked colours configured.", slot, method, {"manufacturing_profile_id": profile.get("id"), "profile_name": profile_name, "approved_colours": []}))
+                elif selected and not slot_colour_is_allowed(selected, approved_profile_colours):
+                    errors.append(issue("error", "unsupported_profile_colour", f"The selected colour is not available for {profile_name}.", slot, method, {"manufacturing_profile_id": profile.get("id"), "profile_name": profile_name, "approved_colours": [colour.get("name") for colour in approved_profile_colours]}))
 
         behaviour = rule.get("layer_behaviour") or {}
         layer_count = int(number(slot.get("layer_count") or slot.get("operation_count"), 0) or (max(1, len(colours)) if behaviour.get("colour_creates_layer") else behaviour.get("default_layers", 1)))

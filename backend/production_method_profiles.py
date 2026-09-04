@@ -5,6 +5,12 @@ from typing import Any, Dict, List
 
 import outsourced_production_rates as outsourced_rates
 from seed_production_operations import normalize_method_key
+from manufacturing_profile_colours import (
+    profile_available_colour_ids,
+    profile_colour_mode,
+    profile_stocked_colours,
+    profile_supported_colour_ids,
+)
 from unified_manufacturing_costing import (
     UNIFIED_COSTING_ENGINE_VERSION,
     canonical_profiles_for_method,
@@ -63,11 +69,16 @@ def _method_colour_mode(method: Dict[str, Any]) -> str:
 
 def production_method_profile_to_print_option(method: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     row = profile_to_print_option(method, profile)
-    colours = _method_stocked_colours(method)
+    colours = profile_stocked_colours(method, profile)
     colour_mode = _method_colour_mode(method)
+    selection_mode = profile_colour_mode(profile)
     row.update({
         "colour_mode": colour_mode,
         "color_mode": colour_mode,
+        "colour_selection_mode": selection_mode,
+        "color_selection_mode": selection_mode,
+        "supported_colour_ids": profile_supported_colour_ids(profile),
+        "available_colour_ids": profile_available_colour_ids(profile),
         "approved_stocked_colours": colours,
         "stocked_colours": colours,
     })
