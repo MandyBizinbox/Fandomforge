@@ -61,16 +61,13 @@ on:
       - "backend/production_geometry_profile_copy.py"
       - "backend/production_geometry_profile_copy_color.py"
       - "backend/production_geometry_profile_copy_warnings.py"
-      - "backend/product_template_geometry_csv_patch.py"
-      - "backend/production_geometry_profile_copy_patch.py"
-      - "backend/production_geometry_profile_copy_color_patch.py"
-      - "backend/production_geometry_profile_copy_warning_patch.py"
       - "backend/unified_manufacturing_costing.py"
       - "backend/routes_production_rules.py"
       - "backend/routes_main.py"
       - "backend/server.py"
       - "backend/production_rules_engine.py"
       - "backend/launch_integrity/pricing.py"
+      - "backend/tests/conftest.py"
       - "backend/tests/test_product_normalization_service.py"
       - "backend/tests/test_product_artwork_costing.py"
       - "backend/tests/test_generated_text_artwork.py"
@@ -211,10 +208,6 @@ jobs:
           production_geometry_profile_copy.py
           production_geometry_profile_copy_color.py
           production_geometry_profile_copy_warnings.py
-          product_template_geometry_csv_patch.py
-          production_geometry_profile_copy_patch.py
-          production_geometry_profile_copy_color_patch.py
-          production_geometry_profile_copy_warning_patch.py
           unified_manufacturing_costing.py
           routes_production_rules.py
           models.py
