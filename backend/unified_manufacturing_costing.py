@@ -19,6 +19,11 @@ from outsourced_production_rates import (
     profile_key_for_record,
 )
 from seed_production_operations import normalize_method_key
+from manufacturing_profile_colours import (
+    authoritative_profile_colour_overlay,
+    normalize_profile_colour_fields,
+    preserve_profile_colour_configuration,
+)
 
 
 UNIFIED_COSTING_ENGINE_VERSION = "unified_manufacturing_costing_v1"
@@ -197,7 +202,7 @@ def normalize_costing_profile(
     is_default: bool = False,
 ) -> Dict[str, Any]:
     method = normalize_method_key(method_key or profile.get("method_key"))
-    source = _apply_approved_rate(dict(profile or {}), method)
+    source = normalize_profile_colour_fields(_apply_approved_rate(dict(profile or {}), method))
     canonical_id = canonical_profile_id(method, source)
     calculation_type = str(source.get("calculation_type") or "fixed").strip().lower()
     if calculation_type == "sheet_full":
@@ -228,6 +233,17 @@ def normalize_costing_profile(
 
     for field in PROFILE_PRICING_FIELDS:
         if field in source and _is_set(source.get(field)):
+            row[field] = copy.deepcopy(source.get(field))
+
+    for field in (
+        "colour_selection_mode",
+        "color_selection_mode",
+        "supported_colour_ids",
+        "available_colour_ids",
+        "stocked_colour_seed_version",
+        "stocked_colour_assignment_version",
+    ):
+        if field in source:
             row[field] = copy.deepcopy(source.get(field))
 
     for field in (
@@ -283,6 +299,7 @@ def _merge_profiles(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[
         list(existing.get("print_positions") or []) + list(incoming.get("print_positions") or [])
     )
     merged["placement_tags"] = list(merged["print_positions"])
+    merged = preserve_profile_colour_configuration(existing, incoming, merged)
     merged["is_default"] = bool(existing.get("is_default") or incoming.get("is_default"))
     if existing.get("status") == "active" or incoming.get("status") == "active":
         merged["status"] = "active"
@@ -331,7 +348,7 @@ def canonical_profiles_for_method(
 
     for profile in profiles:
         profile["is_default"] = profile["id"] == default_id
-    return profiles
+    return [authoritative_profile_colour_overlay(method, profile) for profile in profiles]
 
 
 def compatibility_cost_model(profile: Optional[Dict[str, Any]], method_key: str = "") -> Dict[str, Any]:

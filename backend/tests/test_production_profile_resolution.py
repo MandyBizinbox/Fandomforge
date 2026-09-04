@@ -4,10 +4,7 @@ import unittest
 
 import production_operation_pricing as pricing_runtime
 
-from production_profile_resolution_patch import (
-    install_production_profile_resolution_patch,
-    resolve_method_profile_for_slot,
-)
+from unified_manufacturing_costing import resolve_costing_profile
 
 
 def method_rule():
@@ -42,37 +39,21 @@ def method_rule():
     }
 
 
-class ProductionProfileResolutionPatchTests(unittest.TestCase):
+class ProductionProfileResolutionTests(unittest.TestCase):
     def test_exact_legacy_alias_resolves_to_canonical_profile(self):
-        profile = resolve_method_profile_for_slot(
-            method_rule(),
-            {"id": "print_method_htv_classic"},
-            {"print_option_id": "print_method_htv_classic"},
-        )
+        profile = resolve_costing_profile(method_rule(), "print_method_htv_classic", option={"id":"print_method_htv_classic"}, slot={"print_option_id":"print_method_htv_classic"})
         self.assertEqual(profile["id"], "profile:htv:classic_htv")
         self.assertEqual(profile["cost_per_cm2"], 0.028409)
 
     def test_canonical_manufacturing_profile_id_is_authoritative(self):
-        profile = resolve_method_profile_for_slot(
-            method_rule(),
-            {"id": "print_method_htv_3d_puff"},
-            {
-                "print_option_id": "print_method_htv_3d_puff",
-                "manufacturing_profile_id": "profile:htv:classic_htv",
-            },
-        )
+        profile = resolve_costing_profile(method_rule(), None, option={"id":"print_method_htv_3d_puff"}, slot={"print_option_id":"print_method_htv_3d_puff","manufacturing_profile_id":"profile:htv:classic_htv"})
         self.assertEqual(profile["id"], "profile:htv:classic_htv")
 
     def test_missing_identity_falls_back_to_default_profile(self):
-        profile = resolve_method_profile_for_slot(
-            method_rule(),
-            {"id": "missing-option"},
-            {"print_option_id": "missing-option"},
-        )
+        profile = resolve_costing_profile(method_rule(), "missing-option", option={"id":"missing-option"}, slot={"print_option_id":"missing-option"})
         self.assertEqual(profile["id"], "profile:htv:classic_htv")
 
-    def test_pricing_fields_use_canonical_profile_after_install(self):
-        install_production_profile_resolution_patch()
+    def test_pricing_fields_use_canonical_profile_directly(self):
         fields = pricing_runtime._pricing_fields_from_method(
             {
                 **method_rule(),
@@ -91,11 +72,6 @@ class ProductionProfileResolutionPatchTests(unittest.TestCase):
         self.assertEqual(fields["minimum_area_cm2"], 100)
         self.assertEqual(fields["application_cost"], 7.5)
 
-    def test_install_is_idempotent(self):
-        install_production_profile_resolution_patch()
-        first_resolver = pricing_runtime._method_profile_for_slot
-        install_production_profile_resolution_patch()
-        self.assertIs(pricing_runtime._method_profile_for_slot, first_resolver)
 
 
 if __name__ == "__main__":

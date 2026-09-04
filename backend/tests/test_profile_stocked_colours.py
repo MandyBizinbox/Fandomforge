@@ -1,30 +1,15 @@
 import unittest
-from types import SimpleNamespace
-
 import production_method_profiles
 import unified_manufacturing_costing
 from classic_htv_colour_seed import CLASSIC_HTV_COLOUR_IDS
 from glitter_htv_colour_seed import GLITTER_HTV_COLOUR_IDS
 from glow_htv_colour_seed import GLOW_ACTIVE_COLOUR_IDS, GLOW_HTV_COLOUR_IDS
 from metallic_htv_colour_seed import METALLIC_HTV_COLOUR_IDS
-from profile_colour_projection_repair import install_profile_colour_projection_repair
-from profile_stocked_colours_patch import (
-    install_profile_stocked_colours_patch,
-    profile_stocked_colours,
-)
+from manufacturing_profile_colours import profile_stocked_colours
 from puff_htv_colour_seed import PUFF_HTV_COLOUR_IDS
 
 
 class ProfileStockedColourTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        install_profile_stocked_colours_patch(install_validation=False)
-        cls.route_bindings = SimpleNamespace(
-            canonical_profiles_for_method=unified_manufacturing_costing.canonical_profiles_for_method,
-            method_with_unified_profiles=unified_manufacturing_costing.method_with_unified_profiles,
-        )
-        install_profile_colour_projection_repair(cls.route_bindings)
-
     def setUp(self):
         self.method = {
             "method_key": "htv",
@@ -145,7 +130,7 @@ class ProfileStockedColourTests(unittest.TestCase):
             ],
         }
 
-        projected = self.route_bindings.method_with_unified_profiles(method)
+        projected = unified_manufacturing_costing.method_with_unified_profiles(method)
         profiles = {profile["display_name"]: profile for profile in projected["costing_profiles"]}
 
         self.assertEqual(profiles["Classic HTV"]["colour_selection_mode"], "restricted")
@@ -156,10 +141,6 @@ class ProfileStockedColourTests(unittest.TestCase):
         self.assertEqual(tuple(profiles["Metallic HTV"]["supported_colour_ids"]), METALLIC_HTV_COLOUR_IDS)
         self.assertEqual(tuple(profiles["Glow HTV"]["supported_colour_ids"]), GLOW_HTV_COLOUR_IDS)
         self.assertEqual(tuple(profiles["Glow HTV"]["available_colour_ids"]), GLOW_ACTIVE_COLOUR_IDS)
-        self.assertIs(
-            self.route_bindings.method_with_unified_profiles,
-            unified_manufacturing_costing.method_with_unified_profiles,
-        )
 
 
 if __name__ == "__main__":
