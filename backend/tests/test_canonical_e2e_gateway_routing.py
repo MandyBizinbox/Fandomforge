@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import e2e_runtime
+import e2e_support
 import routes_main
 
 
@@ -13,6 +14,10 @@ def _set_isolated_e2e(monkeypatch):
     monkeypatch.setenv("E2E_TEST_MODE", "1")
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("DB_NAME", "fandomforge_e2e_gateway_test")
+
+
+def test_e2e_support_uses_canonical_runtime_predicate():
+    assert e2e_support.e2e_enabled is e2e_runtime.e2e_enabled
 
 
 def test_mock_gateway_is_included_only_for_isolated_e2e(monkeypatch):
