@@ -7,10 +7,10 @@ runtime composer already drops geometry for image views that do not exist.
 
 The structural CSV copy importer previously made those missing Color views a
 hard error, creating a circular dependency: stale/incomplete exact variations
-could prevent the Size profile from being repaired. This patch keeps the
-missing-view information as warnings, injects temporary structural view slots
-only for preview planning, and lets apply compile geometry onto the real Color
-views that actually exist.
+could prevent the Size profile from being repaired. This canonical warning
+policy keeps the missing-view information as warnings, injects temporary
+structural view slots only for preview planning, and lets apply compile geometry
+onto the real Color views that actually exist.
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Set
 
-import product_template_csv as legacy_csv
-import product_template_geometry_csv_patch as geometry_csv
-import production_geometry_profile_copy_patch as profile_copy
-import production_geometry_profile_copy_color_patch as color_patch
+import product_template_csv_base as legacy_csv
+import product_template_geometry_csv as geometry_csv
+import production_geometry_profile_copy as profile_copy
+import production_geometry_profile_copy_color as color_patch
 
 
 PRODUCTION_CONFIG_KEY = geometry_csv.PRODUCTION_CONFIG_KEY
@@ -247,8 +247,8 @@ def build_import_plan(
             })
             # These placeholders exist only in the copied in-memory documents
             # used to build the preview plan. They are never persisted. Their
-            # purpose is to stop the legacy hard-error gate from blocking the
-            # canonical Size profile update.
+            # purpose is to stop the structural hard-error gate from blocking
+            # the canonical Size profile update.
             _inject_preview_slots(configuration, missing)
 
         if affected:
@@ -260,9 +260,9 @@ def build_import_plan(
                 )
             )
 
-    # Call the original structural profile-copy planner directly. Calling the
-    # patched public symbol would recurse because install hooks intentionally
-    # replace module-level functions at runtime.
+    # Call the structural profile-copy planner captured by the Color composition
+    # layer. Static composition keeps this path deterministic with no runtime
+    # replacement of module-level functions.
     plan = color_patch._BASE_BUILD_PLAN(documents, package)
     plan.setdefault("warnings", []).extend(warnings)
 
@@ -283,28 +283,10 @@ def apply_import_plan_to_documents(
     updated_at: Any,
 ) -> Dict[str, Any]:
     # Apply against real authoritative Color profiles, not preview placeholders.
-    # The existing compiler already drops geometry whose Color view does not
-    # exist, matching frontend/runtime composition semantics.
+    # The compiler drops geometry whose Color view does not exist, matching
+    # frontend/runtime composition semantics.
     return color_patch.apply_import_plan_to_documents(
         current_documents,
         plan,
         updated_at,
     )
-
-
-def install_production_geometry_profile_copy_warning_patch(routes_module=None) -> None:
-    legacy_csv.build_import_plan = build_import_plan
-    legacy_csv.apply_import_plan_to_documents = apply_import_plan_to_documents
-
-    geometry_csv.build_import_plan = build_import_plan
-    geometry_csv.apply_import_plan_to_documents = apply_import_plan_to_documents
-
-    profile_copy.build_import_plan = build_import_plan
-    profile_copy.apply_import_plan_to_documents = apply_import_plan_to_documents
-
-    color_patch.build_import_plan = build_import_plan
-    color_patch.apply_import_plan_to_documents = apply_import_plan_to_documents
-
-    if routes_module is not None:
-        routes_module.build_import_plan = build_import_plan
-        routes_module.apply_import_plan_to_documents = apply_import_plan_to_documents

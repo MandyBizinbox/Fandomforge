@@ -1,15 +1,15 @@
 """Canonical CSV support for variable-template production geometry.
 
-The original product-template CSV tooling predates the V3 production model.  It
+The original product-template CSV tooling predates the V3 production model. It
 exports template-level ``print_areas`` which are only runtime anchors for a
-compiled variable template.  V3 instead owns geometry either:
+compiled variable template. V3 instead owns geometry either:
 
 * once per production attribute profile (for example Size = XS), or
 * independently on each exact variation.
 
-This module extends the existing ZIP/import workflow with
-``production_geometry.csv`` and patches the already-imported routes at runtime.
-It deliberately leaves the original three CSV files backwards compatible.
+This module extends the preserved base ZIP/import workflow with
+``production_geometry.csv``. It is a normal static dependency layer and performs
+no runtime installation or route rebinding.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import zipfile
 from pathlib import PurePath
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping
 
-import product_template_csv as legacy_csv
+import product_template_csv_base as legacy_csv
 
 
 PRODUCTION_CONFIG_KEY = "__production_configuration__"
@@ -871,17 +871,3 @@ def apply_import_plan_to_documents(
         target["updated_at"] = configured_at
 
     return applied
-
-
-def install_product_template_geometry_csv_patch(routes_module=None) -> None:
-    """Install wrappers on both the source module and already-imported routes."""
-    legacy_csv.export_product_template_zip = export_product_template_zip
-    legacy_csv.parse_product_template_import = parse_product_template_import
-    legacy_csv.build_import_plan = build_import_plan
-    legacy_csv.apply_import_plan_to_documents = apply_import_plan_to_documents
-
-    if routes_module is not None:
-        routes_module.export_product_template_zip = export_product_template_zip
-        routes_module.parse_product_template_import = parse_product_template_import
-        routes_module.build_import_plan = build_import_plan
-        routes_module.apply_import_plan_to_documents = apply_import_plan_to_documents

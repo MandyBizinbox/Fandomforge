@@ -3,11 +3,11 @@ import zipfile
 
 import product_template_csv as canonical_csv
 import product_template_csv_base as base_csv
-from product_template_geometry_csv_patch import (
+from product_template_geometry_csv import (
     PRODUCTION_CONFIG_KEY,
     PRODUCTION_GEOMETRY_FILENAME,
 )
-from production_geometry_profile_copy_patch import (
+from production_geometry_profile_copy import (
     PROFILE_COPY_FILENAME,
     production_profile_copy_rows,
 )
@@ -27,10 +27,10 @@ def _profile_copy_row(template):
 
 def test_public_facade_composes_final_behaviour_without_installers():
     assert canonical_csv.remove_unset_fields is base_csv.remove_unset_fields
-    assert canonical_csv.export_product_template_zip.__module__ == "production_geometry_profile_copy_patch"
-    assert canonical_csv.parse_product_template_import.__module__ == "production_geometry_profile_copy_patch"
-    assert canonical_csv.build_import_plan.__module__ == "production_geometry_profile_copy_warning_patch"
-    assert canonical_csv.apply_import_plan_to_documents.__module__ == "production_geometry_profile_copy_warning_patch"
+    assert canonical_csv.export_product_template_zip.__module__ == "production_geometry_profile_copy"
+    assert canonical_csv.parse_product_template_import.__module__ == "production_geometry_profile_copy"
+    assert canonical_csv.build_import_plan.__module__ == "production_geometry_profile_copy_warnings"
+    assert canonical_csv.apply_import_plan_to_documents.__module__ == "production_geometry_profile_copy_warnings"
 
 
 def test_public_export_contains_geometry_and_profile_copy_files():

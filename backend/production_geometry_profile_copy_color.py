@@ -1,11 +1,11 @@
-"""Repair Size-profile CSV copy composition for Color-owned editor views.
+"""Compose Size-profile CSV copies with Color-owned editor views.
 
 The structural profile-copy importer must not trust an exact variation's stored
 screen list when image ownership belongs to another attribute. Those compiled
 variation records can be stale precisely because the Size profile has not yet
 been reconciled. The canonical image source is ``attribute_image_profiles``.
 
-This patch hydrates exact variations from their Color-owned image profile before
+This module hydrates exact variations from their Color-owned image profile before
 both import preview and apply. It also prunes unused/orphan screens from
 production profiles so validation only requires editor views that are actually
 referenced by print geometry.
@@ -16,9 +16,8 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping
 
-import product_template_csv as legacy_csv
-import product_template_geometry_csv_patch as geometry_csv
-import production_geometry_profile_copy_patch as profile_copy
+import product_template_geometry_csv as geometry_csv
+import production_geometry_profile_copy as profile_copy
 
 
 _BASE_BUILD_PLAN = profile_copy.build_import_plan
@@ -249,19 +248,3 @@ def apply_import_plan_to_documents(
         plan,
         updated_at,
     )
-
-
-def install_production_geometry_profile_copy_color_patch(routes_module=None) -> None:
-    """Install authoritative Color-profile hydration after profile-copy patch."""
-    profile_copy.build_import_plan = build_import_plan
-    profile_copy.apply_import_plan_to_documents = apply_import_plan_to_documents
-
-    geometry_csv.build_import_plan = build_import_plan
-    geometry_csv.apply_import_plan_to_documents = apply_import_plan_to_documents
-
-    legacy_csv.build_import_plan = build_import_plan
-    legacy_csv.apply_import_plan_to_documents = apply_import_plan_to_documents
-
-    if routes_module is not None:
-        routes_module.build_import_plan = build_import_plan
-        routes_module.apply_import_plan_to_documents = apply_import_plan_to_documents

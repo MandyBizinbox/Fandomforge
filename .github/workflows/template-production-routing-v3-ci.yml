@@ -57,16 +57,17 @@ on:
       - "backend/template_lifecycle_routes.py"
       - "backend/product_template_csv.py"
       - "backend/product_template_csv_base.py"
-      - "backend/product_template_geometry_csv_patch.py"
-      - "backend/production_geometry_profile_copy_patch.py"
-      - "backend/production_geometry_profile_copy_color_patch.py"
-      - "backend/production_geometry_profile_copy_warning_patch.py"
+      - "backend/product_template_geometry_csv.py"
+      - "backend/production_geometry_profile_copy.py"
+      - "backend/production_geometry_profile_copy_color.py"
+      - "backend/production_geometry_profile_copy_warnings.py"
       - "backend/unified_manufacturing_costing.py"
       - "backend/routes_production_rules.py"
       - "backend/routes_main.py"
       - "backend/server.py"
       - "backend/production_rules_engine.py"
       - "backend/launch_integrity/pricing.py"
+      - "backend/tests/conftest.py"
       - "backend/tests/test_product_normalization_service.py"
       - "backend/tests/test_product_artwork_costing.py"
       - "backend/tests/test_generated_text_artwork.py"
@@ -88,6 +89,7 @@ on:
       - "backend/tests/test_template_lifecycle_routes.py"
       - "backend/tests/test_product_template_csv.py"
       - "backend/tests/test_product_template_csv_canonical_facade.py"
+      - "backend/tests/test_product_template_csv_module_ownership.py"
       - "backend/tests/test_product_template_geometry_csv_patch.py"
       - "backend/tests/test_production_geometry_profile_copy_patch.py"
       - "backend/tests/test_production_geometry_profile_copy_color_patch.py"
@@ -173,6 +175,7 @@ jobs:
             tests/test_template_lifecycle_routes.py \
             tests/test_product_template_csv.py \
             tests/test_product_template_csv_canonical_facade.py \
+            tests/test_product_template_csv_module_ownership.py \
             tests/test_product_template_geometry_csv_patch.py \
             tests/test_production_geometry_profile_copy_patch.py \
             tests/test_production_geometry_profile_copy_color_patch.py \
@@ -201,10 +204,10 @@ jobs:
           template_lifecycle_routes.py
           product_template_csv_base.py
           product_template_csv.py
-          product_template_geometry_csv_patch.py
-          production_geometry_profile_copy_patch.py
-          production_geometry_profile_copy_color_patch.py
-          production_geometry_profile_copy_warning_patch.py
+          product_template_geometry_csv.py
+          production_geometry_profile_copy.py
+          production_geometry_profile_copy_color.py
+          production_geometry_profile_copy_warnings.py
           unified_manufacturing_costing.py
           routes_production_rules.py
           models.py

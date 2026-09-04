@@ -1,10 +1,13 @@
 """Bulk-copy V3 attribute-owned production geometry profiles through CSV.
 
 This extends the canonical product-template CSV ZIP with
-``production_profile_copies.csv``.  It is intentionally a structural operation:
+``production_profile_copies.csv``. It is intentionally a structural operation:
 it can replace a target Size profile's old view/print-area layout with the
 layout from another Size profile, while preserving Color-owned editor images on
 compiled exact variations.
+
+The module is statically composed above canonical geometry and the preserved base
+CSV API; it performs no runtime installation or module rebinding.
 """
 
 from __future__ import annotations
@@ -18,8 +21,8 @@ import zipfile
 from pathlib import PurePath
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping
 
-import product_template_geometry_csv_patch as geometry_csv
-import product_template_csv as legacy_csv
+import product_template_geometry_csv as geometry_csv
+import product_template_csv_base as legacy_csv
 
 
 PROFILE_COPY_FILENAME = "production_profile_copies.csv"
@@ -836,21 +839,3 @@ def apply_import_plan_to_documents(
         target["updated_at"] = configured_at
 
     return applied
-
-
-def install_production_geometry_profile_copy_patch(routes_module=None) -> None:
-    geometry_csv.export_product_template_zip = export_product_template_zip
-    geometry_csv.parse_product_template_import = parse_product_template_import
-    geometry_csv.build_import_plan = build_import_plan
-    geometry_csv.apply_import_plan_to_documents = apply_import_plan_to_documents
-
-    legacy_csv.export_product_template_zip = export_product_template_zip
-    legacy_csv.parse_product_template_import = parse_product_template_import
-    legacy_csv.build_import_plan = build_import_plan
-    legacy_csv.apply_import_plan_to_documents = apply_import_plan_to_documents
-
-    if routes_module is not None:
-        routes_module.export_product_template_zip = export_product_template_zip
-        routes_module.parse_product_template_import = parse_product_template_import
-        routes_module.build_import_plan = build_import_plan
-        routes_module.apply_import_plan_to_documents = apply_import_plan_to_documents
