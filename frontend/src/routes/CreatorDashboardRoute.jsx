@@ -13,10 +13,6 @@ import DashboardLayout from "../components/DashboardLayout";
 import CreatorFinance from "../pages/CreatorFinance";
 import BandDashboard from "../pages/BandDashboard";
 import "../components/product-builder/productBuilderStudioViewport.css";
-import "../components/product-builder/productBuilderV2Runtime";
-import "../components/product-builder/productBuilderPricingSimplificationRuntime";
-import "../components/product-builder/productBuilderTextColourRuntime";
-import "../components/product-builder/productBuilderDraftButtonRuntime";
 
 const financeLinks = [
   { type: "section", label: "Command" },

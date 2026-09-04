@@ -1,252 +1,102 @@
-import React, { useMemo, useState } from "react";
-import { Check, CheckSquare, Image as ImageIcon, Square } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Check, ChevronDown, Image as ImageIcon } from "lucide-react";
 import { assetUrl } from "../../lib/api";
 import "./productBuilderV2.css";
 import "./productBuilderV2Runtime";
-import {
-  asArray,
-  getVariationAttributes,
-  getVariationCost,
-  getVariationLabel,
-  money,
-} from "./productBuilderUtils";
+import { asArray, getVariationAttributes, getVariationCost, getVariationLabel, money } from "./productBuilderUtils";
 
-function firstTruthy(...values) {
-  return values.find((value) => value !== undefined && value !== null && value !== "") || "";
-}
+const normalise = (value) => String(value ?? "").trim().toLowerCase();
+const variationId = (variation) => String(variation?.template_variation_id || variation?.id || variation?.sku || "");
+const idKey = (values) => asArray(values).map(String).filter(Boolean).sort().join("|");
 
-function getVariationOverrideImage(variation = {}) {
-  const overrides = variation.mockup_screen_overrides || {};
-  return Object.values(overrides).find(Boolean) || "";
-}
-
-function getTemplateFallbackImage(template = {}) {
-  return firstTruthy(
-    template.creator_catalogue_thumbnail_url,
-    template.product_image_url,
-    template.mockup_url,
-    asArray(template.mockup_images)[0],
-    asArray(template.mockup_screens).find((screen) => screen.image_url)?.image_url
-  );
-}
-
-function getVariationImage(variation = {}, template = {}) {
-  return firstTruthy(
-    variation.image_url,
-    variation.product_image_url,
-    variation.mockup_image_url,
-    getVariationOverrideImage(variation),
-    getTemplateFallbackImage(template)
-  );
-}
-
-function VariationImagePreview({ image, label }) {
-  return (
-    <div className="w-16 h-16 shrink-0 rounded-lg border border-white/10 bg-black/40 flex items-center justify-center overflow-hidden">
-      {image ? (
-        <img
-          src={assetUrl(image)}
-          alt={label || "Variation"}
-          className="w-full h-full object-contain"
-          onError={(event) => { event.currentTarget.style.display = "none"; }}
-        />
-      ) : (
-        <ImageIcon size={20} className="text-zinc-700" />
-      )}
-    </div>
-  );
-}
-
-function normalise(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function collectAttributeKeys(variations = []) {
-  const keys = [];
+function collectAttributeOptions(variations = []) {
+  const map = new Map();
   asArray(variations).forEach((variation) => {
-    Object.keys(getVariationAttributes(variation)).forEach((key) => {
-      if (!keys.includes(key)) keys.push(key);
+    Object.entries(getVariationAttributes(variation)).forEach(([key, value]) => {
+      if (value === undefined || value === null || String(value).trim() === "") return;
+      if (!map.has(key)) map.set(key, new Set());
+      map.get(key).add(String(value));
     });
   });
-
-  return keys.sort((a, b) => {
-    const priority = ["Colour", "Color", "Size", "Keyring Size", "Keyring Material", "Material"];
-    const ai = priority.findIndex((item) => normalise(item) === normalise(a));
-    const bi = priority.findIndex((item) => normalise(item) === normalise(b));
+  const priority = ["Colour", "Color", "Size", "Keyring Size", "Keyring Material", "Material"];
+  return [...map.entries()].map(([key, values]) => ({ key, label: key, values: [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })) })).sort((a, b) => {
+    const ai = priority.findIndex((item) => normalise(item) === normalise(a.key));
+    const bi = priority.findIndex((item) => normalise(item) === normalise(b.key));
     if (ai !== -1 && bi !== -1) return ai - bi;
     if (ai !== -1) return -1;
     if (bi !== -1) return 1;
-    return String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
+    return a.key.localeCompare(b.key, undefined, { sensitivity: "base" });
   });
 }
 
-function collectAttributeValues(variations = [], key = "") {
-  const values = new Set();
-  asArray(variations).forEach((variation) => {
-    const attrs = getVariationAttributes(variation);
-    const actualKey = Object.keys(attrs).find((item) => normalise(item) === normalise(key));
-    const value = actualKey ? attrs[actualKey] : "";
-    if (value !== undefined && value !== null && String(value).trim() !== "") values.add(String(value));
-  });
-  return [...values].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }));
-}
-
-function variationMatchesAttribute(variation, key, value) {
-  if (!key || !value) return true;
+function variationValue(variation, key) {
   const attrs = getVariationAttributes(variation);
-  const actualKey = Object.keys(attrs).find((item) => normalise(item) === normalise(key));
-  return actualKey && normalise(attrs[actualKey]) === normalise(value);
+  const actual = Object.keys(attrs).find((item) => normalise(item) === normalise(key));
+  return actual ? String(attrs[actual]) : "";
+}
+
+function deriveSelectedIds(variations, options) {
+  const activeKeys = Object.keys(options).filter((key) => asArray(options[key]).length);
+  if (!activeKeys.length) return [];
+  return asArray(variations)
+    .filter((variation) => activeKeys.every((key) => asArray(options[key]).map(normalise).includes(normalise(variationValue(variation, key)))))
+    .map(variationId)
+    .filter(Boolean);
+}
+
+function seedSelections(variations, selectedIds) {
+  const selected = new Set(asArray(selectedIds).map(String));
+  const options = collectAttributeOptions(variations);
+  return Object.fromEntries(options.map((option) => {
+    const values = option.values.filter((value) => {
+      const matching = variations.filter((variation) => normalise(variationValue(variation, option.key)) === normalise(value));
+      return matching.length > 0 && matching.every((variation) => selected.has(variationId(variation)));
+    });
+    return [option.key, values];
+  }));
+}
+
+function getFallbackImage(template = {}) {
+  return template.creator_catalogue_thumbnail_url || template.product_image_url || template.mockup_url || asArray(template.mockup_images)[0] || asArray(template.mockup_screens).find((screen) => screen.image_url)?.image_url || "";
 }
 
 export default function ProductVariationMatrix({ template, selectedIds, onChange, hasTemplateVariations = true }) {
-  const [filter, setFilter] = useState("");
-  const [attributeFilterKey, setAttributeFilterKey] = useState("");
-  const [attributeFilterValue, setAttributeFilterValue] = useState("");
+  const sourceVariations = useMemo(() => asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived"), [template]);
+  const attributes = useMemo(() => collectAttributeOptions(sourceVariations), [sourceVariations]);
+  const selectedIdsKey = idKey(selectedIds);
+  const [selectedValues, setSelectedValues] = useState(() => seedSelections(sourceVariations, selectedIds));
 
-  const sourceVariations = useMemo(
-    () => asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived"),
-    [template]
-  );
+  // Edit mode can hydrate selected IDs after the template is already present.
+  // Keep the local checkbox state aligned with the persisted product instead of
+  // letting stale local state emit an empty/different selection back upstream.
+  useEffect(() => {
+    setSelectedValues(seedSelections(sourceVariations, selectedIds));
+  }, [template?.id, selectedIdsKey, sourceVariations]);
 
-  const attributeKeys = useMemo(() => collectAttributeKeys(sourceVariations), [sourceVariations]);
-  const attributeFilterValues = useMemo(() => collectAttributeValues(sourceVariations, attributeFilterKey), [sourceVariations, attributeFilterKey]);
+  useEffect(() => {
+    const ids = deriveSelectedIds(sourceVariations, selectedValues);
+    if (idKey(ids) !== selectedIdsKey) onChange(ids);
+  }, [selectedValues, sourceVariations, selectedIdsKey, onChange]);
 
-  const variations = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    return sourceVariations.filter((variation) => {
-      const searchText = `${getVariationLabel(variation)} ${variation.sku || ""} ${JSON.stringify(getVariationAttributes(variation))}`.toLowerCase();
-      const matchesSearch = !q || searchText.includes(q);
-      const matchesAttribute = variationMatchesAttribute(variation, attributeFilterKey, attributeFilterValue);
-      return matchesSearch && matchesAttribute;
-    });
-  }, [sourceVariations, filter, attributeFilterKey, attributeFilterValue]);
+  const selectedCount = asArray(selectedIds).length;
+  const toggleValue = (key, value) => setSelectedValues((current) => {
+    const next = { ...current, [key]: asArray(current[key]) };
+    const values = new Set(next[key]);
+    if (values.has(value)) values.delete(value); else values.add(value);
+    next[key] = [...values];
+    return next;
+  });
+  const clearAll = () => setSelectedValues(Object.fromEntries(attributes.map((option) => [option.key, []])));
 
-  const selected = useMemo(() => new Set(asArray(selectedIds)), [selectedIds]);
-  const setSelected = (nextSet) => onChange([...nextSet]);
+  if (!template) return <div className="card text-sm text-zinc-500">Choose a template first.</div>;
+  if (!hasTemplateVariations || !sourceVariations.length) return <div className="card text-sm text-zinc-500">This template has no selectable variations. It will use the standard/default product setup.</div>;
 
-  const toggleOne = (variationId) => {
-    const next = new Set(selected);
-    if (next.has(variationId)) next.delete(variationId);
-    else next.add(variationId);
-    setSelected(next);
-  };
-
-  const selectAll = () => setSelected(new Set(sourceVariations.map((variation) => variation.id)));
-  const selectVisible = () => {
-    const next = new Set(selected);
-    variations.forEach((variation) => next.add(variation.id));
-    setSelected(next);
-  };
-  const clearVisible = () => {
-    const next = new Set(selected);
-    variations.forEach((variation) => next.delete(variation.id));
-    setSelected(next);
-  };
-  const clearAll = () => setSelected(new Set());
-
-  return (
-    <div className="space-y-4 product-variation-matrix-shell" data-testid="product-variation-matrix">
-      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
-        <div>
-          <div className="overline mb-1">Variation Selection</div>
-          <p className="text-sm text-zinc-500">
-            Select the exact template variations this sellable product will offer. This now supports any template attributes, not only Colour and Size.
-          </p>
-        </div>
-        {hasTemplateVariations && (
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-secondary" onClick={selectAll}>Select all</button>
-            <button type="button" className="btn-secondary" onClick={selectVisible}>Select visible</button>
-            <button type="button" className="btn-secondary" onClick={clearVisible}>Clear visible</button>
-            <button type="button" className="btn-secondary" onClick={clearAll}>Clear all</button>
-          </div>
-        )}
-      </div>
-
-      {hasTemplateVariations && (
-        <div className="grid md:grid-cols-[minmax(0,1fr)_220px_220px] gap-3">
-          <input
-            className="input-base"
-            placeholder="Filter by variation, SKU or attribute"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-          />
-          <select
-            className="input-base"
-            value={attributeFilterKey}
-            onChange={(event) => {
-              setAttributeFilterKey(event.target.value);
-              setAttributeFilterValue("");
-            }}
-          >
-            <option value="">All attributes</option>
-            {attributeKeys.map((key) => <option key={key} value={key}>{key}</option>)}
-          </select>
-          <select
-            className="input-base"
-            value={attributeFilterValue}
-            onChange={(event) => setAttributeFilterValue(event.target.value)}
-            disabled={!attributeFilterKey}
-          >
-            <option value="">All values</option>
-            {attributeFilterValues.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </div>
-      )}
-
-      <div className="rounded-xl border border-white/10 bg-black/30 p-4 min-h-[420px]">
-        {hasTemplateVariations && variations.length > 0 && (
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
-            {variations.map((variation) => {
-              const active = selected.has(variation.id);
-              const attrs = getVariationAttributes(variation);
-              const image = getVariationImage(variation, template);
-
-              return (
-                <button
-                  key={variation.id}
-                  type="button"
-                  onClick={() => toggleOne(variation.id)}
-                  className={`text-left border rounded-xl p-3 transition ${active ? "border-[#FF3B30] bg-[#FF3B30]/15" : "border-white/10 bg-black/30 hover:border-white/30"}`}
-                >
-                  <div className="flex items-start gap-3">
-                    <span className={`mt-1 ${active ? "text-[#34C759]" : "text-zinc-500"}`}>
-                      {active ? <CheckSquare size={16} /> : <Square size={16} />}
-                    </span>
-                    <VariationImagePreview image={image} label={getVariationLabel(variation)} />
-                    <div className="min-w-0 flex-1">
-                      <div className="font-bold text-white leading-tight">{getVariationLabel(variation)}</div>
-                      <div className="text-[11px] text-zinc-500 mt-1 break-all">{variation.sku || variation.supplier_sku || variation.id}</div>
-                      <div className="mt-3 flex flex-wrap gap-1">
-                        {Object.entries(attrs).map(([key, value]) => (
-                          <span key={`${variation.id}-${key}`} className="rounded border border-white/10 bg-black/40 px-2 py-1 text-[10px] text-zinc-300">
-                            <span className="text-zinc-500">{key}:</span> {String(value)}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-                        <span className="rounded border border-white/10 px-2 py-1 text-zinc-400">Blank {money(getVariationCost(variation, template))}</span>
-                        <span className={`rounded border px-2 py-1 ${image ? "border-[#34C759]/40 text-[#B8F5C3]" : "border-white/10 text-zinc-500"}`}>{image ? "Image ready" : "No image"}</span>
-                      </div>
-                    </div>
-                    {active && <Check size={14} className="text-[#34C759] shrink-0" />}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {hasTemplateVariations && variations.length === 0 && (
-          <div className="p-8 text-center text-zinc-500">No variations match this filter.</div>
-        )}
-
-        {!hasTemplateVariations && (
-          <div className="p-8 text-center text-zinc-500">
-            This product option has no selectable variations. It will be created as a standard/default product.
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <div className="space-y-5" data-testid="product-variation-matrix">
+    <section className="card space-y-5">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3"><div><div className="overline mb-1">Choose attributes</div><p className="text-sm text-zinc-500 max-w-3xl">Pick the colours, sizes and other attribute values you want to sell. FandomForge creates the actual combinations automatically — you do not need to tick Red XS, Red S, Red M one by one.</p></div><button type="button" className="btn-secondary" onClick={clearAll}>Clear all</button></div>
+      <div className="space-y-4">{attributes.map((attribute) => { const active = new Set(asArray(selectedValues[attribute.key])); return <div key={attribute.key} className="rounded-xl border border-white/10 bg-black/20 p-4"><div className="flex items-center justify-between gap-3 mb-3"><div className="font-display text-xl uppercase">{attribute.label}</div><div className="text-[10px] uppercase tracking-widest text-zinc-500">{active.size} selected</div></div><div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">{attribute.values.map((value) => { const checked = active.has(value); return <label key={value} className={`flex items-center gap-3 rounded-lg border px-3 py-3 cursor-pointer transition ${checked ? "border-emerald-400 bg-emerald-500/10" : "border-white/10 bg-black/20 hover:border-white/30"}`}><input type="checkbox" checked={checked} onChange={() => toggleValue(attribute.key, value)} /><span className="text-sm text-white">{value}</span>{checked && <Check size={14} className="ml-auto text-emerald-300" />}</label>; })}</div></div>; })}</div>
+      <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3"><div><div className="overline">Generated combinations</div><div className="font-display text-3xl mt-1">{selectedCount}</div></div><div className="text-sm text-zinc-400 max-w-xl">Every selected attribute combination is stored as a real product variation for production, pricing and artwork scope. The creator only has to choose attributes.</div></div>
+    </section>
+    <details className="card"><summary className="flex items-center gap-2 cursor-pointer text-xs uppercase tracking-widest text-zinc-400"><ChevronDown size={14} /> Preview generated variations</summary><div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">{sourceVariations.filter((variation) => asArray(selectedIds).map(String).includes(variationId(variation))).slice(0, 60).map((variation) => <div key={variationId(variation)} className="flex items-center gap-3 border border-white/10 rounded-lg p-3"><div className="w-12 h-12 shrink-0 rounded bg-black border border-white/10 flex items-center justify-center overflow-hidden">{(variation.image_url || getFallbackImage(template)) ? <img src={assetUrl(variation.image_url || getFallbackImage(template))} alt={getVariationLabel(variation)} className="w-full h-full object-contain" /> : <ImageIcon size={18} className="text-zinc-700" />}</div><div className="min-w-0"><div className="text-sm font-bold text-white truncate">{getVariationLabel(variation)}</div><div className="text-[10px] text-zinc-500">{variation.sku || variationId(variation)}</div><div className="text-[10px] text-zinc-500 mt-1">Blank {money(getVariationCost(variation, template))}</div></div></div>)}</div></details>
+  </div>;
 }

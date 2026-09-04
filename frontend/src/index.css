@@ -1289,334 +1289,116 @@ html[data-theme-bg-tone="light"] option {
 
 
 /* ---------------------------------------------------------
-   Admin workspace fixed operational theme
-   Public branding applies to storefront pages only.
-   Admin/creator/printer dashboards stay dark, red and readable.
+   Admin workspace semantic theme compatibility
+   Platform Settings owns the active admin palette. These rules only bridge
+   legacy admin classes that have not yet migrated to ff-admin-* primitives.
 --------------------------------------------------------- */
 
-.admin-workspace {
-  --admin-bg: #0A0A0A;
-  --admin-panel-bg: #111111;
-  --admin-panel-soft: #181818;
-  --admin-panel-text: #FFFFFF;
-  --admin-muted: #A1A1AA;
-  --admin-border: rgba(255,255,255,0.15);
-  --admin-primary: #FF3B30;
-  --admin-primary-text: #FFFFFF;
-
-  background: var(--admin-bg) !important;
-  color: var(--admin-panel-text) !important;
-}
-
+.admin-workspace,
 .admin-workspace main,
 .admin-workspace [data-testid$="-main"] {
-  background: var(--admin-bg) !important;
-  color: var(--admin-panel-text) !important;
+  background: var(--ff-page-bg) !important;
+  color: var(--ff-page-text) !important;
 }
 
+.admin-workspace .admin-sidebar,
 .admin-workspace aside,
-.admin-workspace [data-testid$="-sidebar"] {
-  background: var(--admin-bg) !important;
-  color: var(--admin-panel-text) !important;
-  border-color: var(--admin-border) !important;
-}
-
-/* Header / top bar */
+.admin-workspace [data-testid$="-sidebar"],
+.admin-workspace .admin-topbar,
 .admin-workspace main > .sticky,
 .admin-workspace .sticky.top-0 {
-  background: rgba(10,10,10,0.96) !important;
-  color: var(--admin-panel-text) !important;
-  border-color: var(--admin-border) !important;
+  background: var(--ff-header-bg) !important;
+  color: var(--ff-header-text) !important;
+  border-color: var(--ff-card-border) !important;
 }
 
-/* Cards, panels and dark form blocks */
 .admin-workspace .card,
 .admin-workspace .card-interactive,
+.admin-workspace .surface,
+.admin-workspace .panel,
 .admin-workspace .dropzone,
 .admin-workspace .overflow-x-auto,
 .admin-workspace .table-brutal,
-.admin-workspace [class*="bg-[var(--ff-card-bg)]"],
-.admin-workspace [class*="bg-[var(--ff-surface-bg)]"],
-.admin-workspace .bg-black,
-.admin-workspace .bg-black\/20,
-.admin-workspace .bg-black\/30,
-.admin-workspace .bg-black\/40,
-.admin-workspace .bg-black\/60,
-.admin-workspace .bg-black\/80,
-.admin-workspace .bg-\[\#111\],
-.admin-workspace .bg-\[\#0A0A0A\] {
-  background-color: var(--admin-panel-bg) !important;
-  color: var(--admin-panel-text) !important;
-  border-color: var(--admin-border) !important;
-}
-
-/* Text */
-.admin-workspace h1,
-.admin-workspace h2,
-.admin-workspace h3,
-.admin-workspace h4,
-.admin-workspace .font-display,
-.admin-workspace strong,
-.admin-workspace b {
-  color: var(--admin-panel-text) !important;
+.admin-workspace .notification-card,
+.admin-workspace .activity-card {
+  background: var(--ff-card-bg) !important;
+  color: var(--ff-card-text) !important;
+  border-color: var(--ff-card-border) !important;
 }
 
 .admin-workspace .overline,
 .admin-workspace .label,
 .admin-workspace [class*="text-zinc"],
 .admin-workspace [class*="text-[var(--ff-muted-text)]"] {
-  color: var(--admin-muted) !important;
+  color: var(--ff-muted-text) !important;
 }
 
-.admin-workspace .text-white,
-.admin-workspace [class*="text-[var(--ff-card-text)]"],
-.admin-workspace [class*="text-[var(--ff-page-text)]"] {
-  color: var(--admin-panel-text) !important;
-}
-
-/* Inputs: keep fields light for data entry readability */
 .admin-workspace .input-base,
 .admin-workspace input,
 .admin-workspace select,
-.admin-workspace textarea {
-  background: #FFFFFF !important;
-  color: #111111 !important;
-  border-color: var(--admin-border) !important;
-  color-scheme: light !important;
+.admin-workspace textarea,
+.admin-workspace option {
+  background: var(--ff-input-bg) !important;
+  color: var(--ff-input-text) !important;
+  border-color: var(--ff-input-border) !important;
+  color-scheme: normal !important;
 }
 
 .admin-workspace input::placeholder,
 .admin-workspace textarea::placeholder {
-  color: #6B7280 !important;
+  color: var(--ff-muted-text) !important;
 }
 
-/* Tables */
-.admin-workspace .table-brutal {
-  background: var(--admin-bg) !important;
-  color: var(--admin-panel-text) !important;
-}
-
-.admin-workspace .table-brutal th {
-  color: var(--admin-muted) !important;
-  border-color: var(--admin-border) !important;
-}
-
-.admin-workspace .table-brutal td {
-  color: var(--admin-panel-text) !important;
-  border-color: var(--admin-border) !important;
-}
-
-/* Buttons and active tabs */
 .admin-workspace .btn-primary,
-.admin-workspace [class*="bg-[var(--ff-primary)]"] {
-  background: var(--admin-primary) !important;
-  color: var(--admin-primary-text) !important;
-  border-color: var(--admin-primary) !important;
+.admin-workspace .btn-primary * {
+  background: var(--ff-button-primary-bg) !important;
+  color: var(--ff-button-primary-text) !important;
+  border-color: var(--ff-button-primary-border) !important;
 }
 
-.admin-workspace .btn-secondary {
-  background: transparent !important;
-  color: var(--admin-panel-text) !important;
-  border-color: var(--admin-border) !important;
+.admin-workspace .btn-primary:hover,
+.admin-workspace .btn-primary:hover * {
+  background: var(--ff-button-alternate-bg) !important;
+  color: var(--ff-button-alternate-text) !important;
+  border-color: var(--ff-button-alternate-border) !important;
 }
 
-.admin-workspace .btn-secondary:hover {
-  border-color: var(--admin-primary) !important;
-  color: var(--admin-primary) !important;
+.admin-workspace .btn-secondary,
+.admin-workspace .btn-secondary * {
+  background: var(--ff-button-alternate-bg) !important;
+  color: var(--ff-button-alternate-text) !important;
+  border-color: var(--ff-button-secondary-idle-border) !important;
 }
 
-.admin-workspace a,
-.admin-workspace button {
-  color: inherit;
-}
-
-.admin-workspace a:hover,
-.admin-workspace button:hover {
-  color: var(--admin-primary);
-}
-
-/* Sidebar links */
 .admin-workspace .sidebar-link {
-  color: var(--admin-muted) !important;
+  color: var(--ff-muted-text) !important;
+}
+
+.admin-workspace .sidebar-link:hover,
+.admin-workspace .sidebar-link.active {
+  color: var(--ff-header-text) !important;
+  background: color-mix(in srgb, var(--ff-primary) 12%, transparent) !important;
 }
 
 .admin-workspace .sidebar-link.active {
-  background: rgba(255,59,48,0.12) !important;
-  color: var(--admin-panel-text) !important;
-  border-color: var(--admin-primary) !important;
+  border-left-color: var(--ff-primary) !important;
 }
 
-/* File/image wells */
+.admin-workspace .table-brutal th {
+  color: var(--ff-muted-text) !important;
+  border-color: var(--ff-card-border) !important;
+}
+
+.admin-workspace .table-brutal td {
+  color: var(--ff-card-text) !important;
+  border-color: var(--ff-card-border) !important;
+}
+
 .admin-workspace .admin-image-well,
 .admin-workspace .template-preview-well {
-  background: #050505 !important;
-  color: #FFFFFF !important;
-}
-
-/* Notification/activity panels */
-.admin-workspace .notification-card,
-.admin-workspace .activity-card {
-  background: var(--admin-panel-bg) !important;
-  color: var(--admin-panel-text) !important;
-  border-color: var(--admin-border) !important;
-}
-
-
-/* ---------------------------------------------------------
-   Admin shell hard override
-   This must stay after public theme lockdown rules.
---------------------------------------------------------- */
-
-html[data-theme-bg-tone] .admin-workspace,
-html[data-theme-bg-tone] .admin-workspace *,
-.admin-workspace,
-.admin-workspace * {
-  box-sizing: border-box;
-}
-
-html[data-theme-bg-tone] .admin-workspace {
-  background: #0A0A0A !important;
-  color: #FFFFFF !important;
-}
-
-html[data-theme-bg-tone] .admin-workspace main,
-html[data-theme-bg-tone] .admin-workspace [data-testid$="-main"] {
-  background: #0A0A0A !important;
-  color: #FFFFFF !important;
-}
-
-html[data-theme-bg-tone] .admin-workspace .admin-sidebar,
-html[data-theme-bg-tone] .admin-workspace aside,
-html[data-theme-bg-tone] .admin-workspace [data-testid$="-sidebar"] {
-  background: #0A0A0A !important;
-  color: #FFFFFF !important;
-  border-color: rgba(255,255,255,0.15) !important;
-}
-
-html[data-theme-bg-tone] .admin-workspace .admin-topbar,
-html[data-theme-bg-tone] .admin-workspace main > .sticky,
-html[data-theme-bg-tone] .admin-workspace .sticky.top-0 {
-  background: rgba(10,10,10,0.96) !important;
-  color: #FFFFFF !important;
-  border-color: rgba(255,255,255,0.15) !important;
-}
-
-/* Admin typography */
-html[data-theme-bg-tone] .admin-workspace h1,
-html[data-theme-bg-tone] .admin-workspace h2,
-html[data-theme-bg-tone] .admin-workspace h3,
-html[data-theme-bg-tone] .admin-workspace h4,
-html[data-theme-bg-tone] .admin-workspace h5,
-html[data-theme-bg-tone] .admin-workspace h6,
-html[data-theme-bg-tone] .admin-workspace .font-display,
-html[data-theme-bg-tone] .admin-workspace strong,
-html[data-theme-bg-tone] .admin-workspace b {
-  color: #FFFFFF !important;
-}
-
-html[data-theme-bg-tone] .admin-workspace p,
-html[data-theme-bg-tone] .admin-workspace label,
-html[data-theme-bg-tone] .admin-workspace div,
-html[data-theme-bg-tone] .admin-workspace span,
-html[data-theme-bg-tone] .admin-workspace td {
-  color: inherit;
-}
-
-html[data-theme-bg-tone] .admin-workspace .overline,
-html[data-theme-bg-tone] .admin-workspace .label,
-html[data-theme-bg-tone] .admin-workspace [class*="text-zinc"],
-html[data-theme-bg-tone] .admin-workspace [class*="text-[var(--ff-muted-text)]"] {
-  color: #A1A1AA !important;
-}
-
-/* Admin cards/panels */
-html[data-theme-bg-tone] .admin-workspace .card,
-html[data-theme-bg-tone] .admin-workspace .card *,
-html[data-theme-bg-tone] .admin-workspace .surface,
-html[data-theme-bg-tone] .admin-workspace .surface *,
-html[data-theme-bg-tone] .admin-workspace .panel,
-html[data-theme-bg-tone] .admin-workspace .panel *,
-html[data-theme-bg-tone] .admin-workspace .dropzone,
-html[data-theme-bg-tone] .admin-workspace .overflow-x-auto {
-  background-color: #111111 !important;
-  color: #FFFFFF !important;
-  border-color: rgba(255,255,255,0.15) !important;
-}
-
-/* Admin direct dark/source-variable surfaces */
-html[data-theme-bg-tone] .admin-workspace [class*="bg-[var(--ff-card-bg)]"],
-html[data-theme-bg-tone] .admin-workspace [class*="bg-[var(--ff-surface-bg)]"],
-html[data-theme-bg-tone] .admin-workspace .bg-black,
-html[data-theme-bg-tone] .admin-workspace .bg-black\/20,
-html[data-theme-bg-tone] .admin-workspace .bg-black\/30,
-html[data-theme-bg-tone] .admin-workspace .bg-black\/40,
-html[data-theme-bg-tone] .admin-workspace .bg-black\/60,
-html[data-theme-bg-tone] .admin-workspace .bg-black\/80,
-html[data-theme-bg-tone] .admin-workspace .bg-\[\#111\],
-html[data-theme-bg-tone] .admin-workspace .bg-\[\#0A0A0A\] {
-  background-color: #111111 !important;
-  color: #FFFFFF !important;
-  border-color: rgba(255,255,255,0.15) !important;
-}
-
-/* Inputs stay light for readability */
-html[data-theme-bg-tone] .admin-workspace .input-base,
-html[data-theme-bg-tone] .admin-workspace input,
-html[data-theme-bg-tone] .admin-workspace select,
-html[data-theme-bg-tone] .admin-workspace textarea,
-html[data-theme-bg-tone] .admin-workspace option {
-  background: #FFFFFF !important;
-  color: #111111 !important;
-  border-color: rgba(255,255,255,0.22) !important;
-  color-scheme: light !important;
-}
-
-html[data-theme-bg-tone] .admin-workspace input::placeholder,
-html[data-theme-bg-tone] .admin-workspace textarea::placeholder {
-  color: #6B7280 !important;
-}
-
-/* Admin table contrast */
-html[data-theme-bg-tone] .admin-workspace .table-brutal,
-html[data-theme-bg-tone] .admin-workspace .table-brutal * {
-  background: #111111 !important;
-  color: #FFFFFF !important;
-  border-color: rgba(255,255,255,0.15) !important;
-}
-
-html[data-theme-bg-tone] .admin-workspace .table-brutal th {
-  color: #A1A1AA !important;
-}
-
-/* Admin buttons/tabs */
-html[data-theme-bg-tone] .admin-workspace .btn-primary,
-html[data-theme-bg-tone] .admin-workspace .btn-primary *,
-html[data-theme-bg-tone] .admin-workspace [class*="bg-[var(--ff-primary)]"] {
-  background: #FF3B30 !important;
-  color: #FFFFFF !important;
-  border-color: #FF3B30 !important;
-}
-
-html[data-theme-bg-tone] .admin-workspace .btn-secondary,
-html[data-theme-bg-tone] .admin-workspace .btn-secondary * {
-  background: transparent !important;
-  color: #FFFFFF !important;
-  border-color: rgba(255,255,255,0.2) !important;
-}
-
-html[data-theme-bg-tone] .admin-workspace .sidebar-link {
-  color: #A1A1AA !important;
-}
-
-html[data-theme-bg-tone] .admin-workspace .sidebar-link.active {
-  background: rgba(255,59,48,0.12) !important;
-  color: #FFFFFF !important;
-  border-left-color: #FF3B30 !important;
-}
-
-html[data-theme-bg-tone] .admin-workspace .sidebar-link:hover {
-  background: rgba(255,255,255,0.05) !important;
-  color: #FFFFFF !important;
+  background: var(--ff-surface-bg) !important;
+  color: var(--ff-surface-text) !important;
+  border-color: var(--ff-card-border) !important;
 }
 
 /* ---------------------------------------------------------

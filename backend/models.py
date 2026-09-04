@@ -682,7 +682,7 @@ class ProductTemplateMockupScreen(BaseModel):
 
 
 class ProductTemplatePrintArea(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     name: str
@@ -725,7 +725,7 @@ class ProductTemplatePrintArea(BaseModel):
 
 
 class ProductTemplatePrintOption(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     print_method: Optional[str] = None
@@ -758,7 +758,7 @@ class ProductTemplatePrintOption(BaseModel):
 
 
 class ProductTemplateVariation(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     sku: Optional[str] = None
@@ -788,6 +788,8 @@ class ProductTemplateVariation(BaseModel):
 
 
 class ProductTemplateBase(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     name: str
     slug: Optional[str] = None
     product_type_id: Optional[str] = None
@@ -836,6 +838,13 @@ class ProductTemplateBase(BaseModel):
 
     attribute_ids: List[str] = Field(default_factory=list)
     selected_attribute_values: dict = Field(default_factory=dict)
+
+    # Attribute-owned variation production profiles.
+    # Example: colour owns editor images while size owns print geometry.
+    variation_inheritance: Dict[str, Any] = Field(default_factory=dict)
+    attribute_image_profiles: Dict[str, Any] = Field(default_factory=dict)
+    attribute_production_profiles: Dict[str, Any] = Field(default_factory=dict)
+
     variations: List[ProductTemplateVariation] = Field(default_factory=list)
 
     print_option_ids: List[str] = Field(default_factory=list)
@@ -846,10 +855,14 @@ class ProductTemplateBase(BaseModel):
 
 
 class ProductTemplateCreate(ProductTemplateBase):
+    model_config = ConfigDict(extra="allow")
+
     pass
 
 
 class ProductTemplateUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     name: Optional[str] = None
     slug: Optional[str] = None
     product_type_id: Optional[str] = None
@@ -892,6 +905,9 @@ class ProductTemplateUpdate(BaseModel):
 
     attribute_ids: Optional[List[str]] = None
     selected_attribute_values: Optional[dict] = None
+    variation_inheritance: Optional[Dict[str, Any]] = None
+    attribute_image_profiles: Optional[Dict[str, Any]] = None
+    attribute_production_profiles: Optional[Dict[str, Any]] = None
     variations: Optional[List[ProductTemplateVariation]] = None
 
     print_option_ids: Optional[List[str]] = None
@@ -902,7 +918,7 @@ class ProductTemplateUpdate(BaseModel):
 
 
 class ProductTemplate(ProductTemplateBase):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     slug: str
@@ -948,7 +964,7 @@ class ProductVariation(BaseModel):
 
 
 class ProductArtworkSnapshot(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     original_url: Optional[str] = None
     original_width_px: Optional[float] = None
@@ -963,7 +979,7 @@ class ProductArtworkSnapshot(BaseModel):
 
 
 class ProductArtworkPlacement(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     screen_id: Optional[str] = None
     print_area_id: Optional[str] = None
@@ -976,7 +992,7 @@ class ProductArtworkPlacement(BaseModel):
 
 
 class ProductArtworkSlot(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     print_area_id: str
@@ -1048,7 +1064,7 @@ class ProductArtworkSlot(BaseModel):
 
 
 class ProductArtworkGroup(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     label: str = "Default artwork"
@@ -1063,6 +1079,8 @@ class ProductArtworkGroup(BaseModel):
     sort_order: int = 0
 
 class ProductBase(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     title: str
     description: str = ""
     specs: str = ""
@@ -1130,10 +1148,14 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
+    model_config = ConfigDict(extra="allow")
+
     pass
 
 
 class ProductUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     title: Optional[str] = None
     description: Optional[str] = None
     specs: Optional[str] = None
@@ -1196,7 +1218,7 @@ class ProductUpdate(BaseModel):
 
 
 class Product(ProductBase):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     band_id: str
@@ -1263,7 +1285,7 @@ class ShippingAddress(BaseModel):
 
 
 class ProductionSnapshot(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     template_id: Optional[str] = None
     template_name: Optional[str] = None
@@ -1300,7 +1322,7 @@ class ProductionSnapshot(BaseModel):
 
 
 class OrderItem(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     product_id: str
@@ -2031,6 +2053,55 @@ class PlatformPackageUpdate(BaseModel):
     default_printer_id: Optional[str] = None
 
 
+def default_theme_palettes() -> Dict[str, Dict[str, str]]:
+    return {
+        "light": {
+            "background_color": "#FFFFFF",
+            "page_text_color": "#111111",
+            "surface_background_color": "#F7F7F8",
+            "surface_text_color": "#111111",
+            "card_background_color": "#FFFFFF",
+            "card_text_color": "#111111",
+            "card_border_color": "#D9DCE1",
+            "muted_text_color": "#6B7280",
+            "input_background_color": "#FFFFFF",
+            "input_text_color": "#111111",
+            "input_border_color": "#CDD1D6",
+            "header_background_color": "#FFFFFF",
+            "header_text_color": "#111111",
+            "button_primary_background_color": "",
+            "button_primary_text_color": "#FFFFFF",
+            "button_primary_border_color": "",
+            "button_alternate_background_color": "#111111",
+            "button_alternate_text_color": "#FFFFFF",
+            "button_alternate_border_color": "#111111",
+            "button_secondary_border_color": "#CDD1D6",
+        },
+        "dark": {
+            "background_color": "#0A0A0A",
+            "page_text_color": "#FFFFFF",
+            "surface_background_color": "#111111",
+            "surface_text_color": "#FFFFFF",
+            "card_background_color": "#161616",
+            "card_text_color": "#FFFFFF",
+            "card_border_color": "#343434",
+            "muted_text_color": "#A3A3A3",
+            "input_background_color": "#0F0F0F",
+            "input_text_color": "#FFFFFF",
+            "input_border_color": "#3A3A3A",
+            "header_background_color": "#0A0A0A",
+            "header_text_color": "#FFFFFF",
+            "button_primary_background_color": "",
+            "button_primary_text_color": "#FFFFFF",
+            "button_primary_border_color": "",
+            "button_alternate_background_color": "#FFFFFF",
+            "button_alternate_text_color": "#000000",
+            "button_alternate_border_color": "#FFFFFF",
+            "button_secondary_border_color": "#444444",
+        },
+    }
+
+
 class PublicPlatformConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -2046,6 +2117,10 @@ class PublicPlatformConfig(BaseModel):
     favicon_url: Optional[str] = ""
     primary_color: Optional[str] = "#FF3B30"
     accent_color: Optional[str] = "#FF7A1A"
+    storefront_theme_mode: Literal["light", "dark", "system"] = "light"
+    admin_theme_mode: Literal["light", "dark", "system"] = "dark"
+    allow_theme_toggle: bool = False
+    theme_palettes: Dict[str, Dict[str, str]] = Field(default_factory=default_theme_palettes)
     country: str = "ZA"
     timezone: str = "Africa/Johannesburg"
     business_name: Optional[str] = ""
@@ -2072,6 +2147,12 @@ class PlatformSettings(BaseModel):
     logo_url: Optional[str] = ""
     favicon_url: Optional[str] = ""
     accent_color: str = "#FF7A1A"
+    # Context-aware theme ownership. Flat fields below remain compatibility
+    # fallbacks until every legacy component has migrated to semantic tokens.
+    storefront_theme_mode: Literal["light", "dark", "system"] = "light"
+    admin_theme_mode: Literal["light", "dark", "system"] = "dark"
+    allow_theme_toggle: bool = False
+    theme_palettes: Dict[str, Dict[str, str]] = Field(default_factory=default_theme_palettes)
     theme_mode: str = "dark"
     background_color: str = "#0A0A0A"
     page_text_color: str = ""

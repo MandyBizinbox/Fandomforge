@@ -7,7 +7,22 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from fastapi import HTTPException
 
+from platform_fee_pricing import (
+    creator_amount_for_sale,
+    production_fee_amount,
+    total_cost_to_produce,
+)
 from seed_production_operations import normalize_method_key
+from unified_manufacturing_costing import resolve_costing_profile
+from manufacturing_profile_colours import (
+    STOCKED_METHODS,
+    profile_available_colour_ids,
+    profile_colour_mode,
+    profile_stocked_colours,
+    profile_supported_colour_ids,
+    selected_colour_token,
+    slot_colour_is_allowed,
+)
 from seed_production_rules import DEFAULT_PRODUCTION_SETTINGS, PRODUCTION_RULES_VERSION
 
 
@@ -280,36 +295,103 @@ async def load_settings(db) -> dict:
 
 
 def cost_integrity(product: dict, settings: dict) -> dict:
-    packaging = money(product.get("platform_packaging_cost") or settings.get("default_packaging_cost"))
-    packaging_creator = money(product.get("creator_packaging_price") or packaging * (1 + number(settings.get("default_packaging_creator_markup_percent"), 10) / 100))
-    additional_platform = 0.0; additional_creator = 0.0; charges = []
-    for charge in settings.get("default_additional_manufacturing_charges") or []:
+    packaging = money(
+        product.get("platform_packaging_cost")
+        or settings.get("default_packaging_cost")
+    )
+
+    additional_platform = 0.0
+    charges = []
+
+    for charge in settings.get(
+        "default_additional_manufacturing_charges"
+    ) or []:
         if isinstance(charge, dict) and charge.get("active") is not False:
-            pc = money(charge.get("platform_cost") or charge.get("cost")); cc = money(charge.get("creator_price") or pc)
-            additional_platform += pc; additional_creator += cc; charges.append({**charge, "platform_cost": pc, "creator_price": cc})
-    platform_blank = money(product.get("platform_blank_cost") or product.get("estimated_blank_cost"))
-    creator_blank = money(product.get("creator_blank_price") or product.get("estimated_blank_cost"))
-    platform_print = money(product.get("platform_print_cost") or product.get("estimated_print_cost") or product.get("print_cost"))
-    creator_print = money(product.get("creator_print_price") or product.get("estimated_print_cost") or product.get("print_cost"))
+            platform_cost = money(
+                charge.get("platform_cost") or charge.get("cost")
+            )
+            additional_platform += platform_cost
+            charges.append({
+                **charge,
+                "platform_cost": platform_cost,
+                "creator_price": 0.0,
+                "pricing_treatment": "internal_only",
+            })
+
+    platform_blank = money(
+        product.get("platform_blank_cost")
+        or product.get("estimated_blank_cost")
+    )
+    creator_blank = money(
+        product.get("creator_blank_price")
+        or product.get("estimated_blank_cost")
+    )
+    platform_print = money(
+        product.get("platform_print_cost")
+        or product.get("estimated_print_cost")
+        or product.get("print_cost")
+    )
+    creator_print = money(
+        product.get("creator_print_price")
+        or product.get("estimated_print_cost")
+        or product.get("print_cost")
+    )
+
     rate = number(product.get("commission_rate"), 0.15)
-    selling = money(product.get("customer_selling_price") or product.get("selling_price"))
-    creator_total = money(creator_blank + creator_print + packaging_creator + additional_creator)
-    platform_total = money(platform_blank + platform_print + packaging + additional_platform)
-    minimum = money(creator_total / (1 - rate)) if rate < 1 else creator_total
-    commission = money(selling * rate)
-    profit = money(selling - creator_total - commission)
+    selling = money(
+        product.get("customer_selling_price")
+        or product.get("selling_price")
+    )
+
+    creator_subtotal = money(creator_blank + creator_print)
+    platform_fee = money(
+        production_fee_amount(creator_subtotal, rate)
+    )
+    creator_total = money(
+        total_cost_to_produce(creator_subtotal, rate)
+    )
+    platform_total = money(
+        platform_blank
+        + platform_print
+        + packaging
+        + additional_platform
+    )
+    profit = money(
+        creator_amount_for_sale(
+            selling,
+            creator_subtotal,
+            rate,
+        )
+    )
+
     return {
         "version": PRODUCTION_RULES_VERSION,
-        "blank_product_cost": platform_blank, "creator_blank_price": creator_blank,
-        "artwork_production_cost": platform_print, "creator_artwork_price": creator_print,
-        "packaging_cost": packaging, "creator_packaging_price": packaging_creator,
+        "blank_product_cost": platform_blank,
+        "creator_blank_price": creator_blank,
+        "artwork_production_cost": platform_print,
+        "creator_artwork_price": creator_print,
+        "packaging_cost": packaging,
+        "creator_packaging_price": 0.0,
         "additional_manufacturing_charges": charges,
         "additional_manufacturing_cost": money(additional_platform),
-        "creator_additional_manufacturing_price": money(additional_creator),
-        "production_cost": platform_total, "creator_product_cost": creator_total,
-        "platform_fee_rate": rate, "platform_fee_amount": commission,
-        "minimum_selling_price": minimum, "selling_price": selling, "creator_profit": profit,
-        "pricing_integrity": "valid" if profit >= number(settings.get("minimum_creator_profit_required"), 0) else "below_minimum",
+        "creator_additional_manufacturing_price": 0.0,
+        "production_cost": platform_total,
+        "production_subtotal": creator_subtotal,
+        "creator_product_cost": creator_total,
+        "platform_fee_rate": rate,
+        "platform_fee_amount": platform_fee,
+        "platform_fee_basis": "blank_plus_printing",
+        "minimum_selling_price": creator_total,
+        "selling_price": selling,
+        "creator_profit": profit,
+        "pricing_integrity": (
+            "valid"
+            if profit >= number(
+                settings.get("minimum_creator_profit_required"),
+                0,
+            )
+            else "below_minimum"
+        ),
     }
 
 
@@ -395,6 +477,26 @@ async def apply_production_rules(db, product_data: dict, *, template: Optional[d
             unsupported = [c for c in colours if c not in library]
             if unsupported:
                 errors.append(issue("error", "unsupported_colour", f"{rule.get('display_name')} can only use stocked colours.", slot, method, {"unsupported_colours": unsupported, "approved_colours": [c.get("name") for c in library.values()]}))
+
+        if method in STOCKED_METHODS:
+            profile = resolve_costing_profile(rule, slot=slot)
+            if profile:
+                approved_profile_colours = profile_stocked_colours(rule, profile)
+                selection_mode = profile_colour_mode(profile)
+                slot.update({
+                    "colour_selection_mode": selection_mode,
+                    "color_selection_mode": selection_mode,
+                    "supported_colour_ids": profile_supported_colour_ids(profile),
+                    "available_colour_ids": profile_available_colour_ids(profile),
+                    "approved_stocked_colours": deepcopy(approved_profile_colours),
+                    "approved_colours": deepcopy(approved_profile_colours),
+                })
+                selected = selected_colour_token(slot)
+                profile_name = profile.get("display_name") or profile.get("profile_name") or "manufacturing profile"
+                if selection_mode == "restricted" and not approved_profile_colours:
+                    errors.append(issue("error", "profile_has_no_stocked_colours", f"{profile_name} has no available stocked colours configured.", slot, method, {"manufacturing_profile_id": profile.get("id"), "profile_name": profile_name, "approved_colours": []}))
+                elif selected and not slot_colour_is_allowed(selected, approved_profile_colours):
+                    errors.append(issue("error", "unsupported_profile_colour", f"The selected colour is not available for {profile_name}.", slot, method, {"manufacturing_profile_id": profile.get("id"), "profile_name": profile_name, "approved_colours": [colour.get("name") for colour in approved_profile_colours]}))
 
         behaviour = rule.get("layer_behaviour") or {}
         layer_count = int(number(slot.get("layer_count") or slot.get("operation_count"), 0) or (max(1, len(colours)) if behaviour.get("colour_creates_layer") else behaviour.get("default_layers", 1)))
