@@ -1,9 +1,5 @@
 import unittest
 
-# Applies financial half-up rounding and clears legacy fixed defaults before the
-# pure costing functions are exercised, matching the live server import order.
-import outsourced_rate_runtime_patch  # noqa: F401
-
 from artwork_print_job_pricing import aggregate_artwork_print_jobs
 from outsourced_production_rates import (
     EXPECTED_PROFILE_KEYS,

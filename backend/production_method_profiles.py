@@ -3,13 +3,23 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+import outsourced_production_rates as outsourced_rates
 from seed_production_operations import normalize_method_key
 from unified_manufacturing_costing import (
+    UNIFIED_COSTING_ENGINE_VERSION,
     canonical_profiles_for_method,
     method_with_unified_profiles,
     profile_to_print_option,
 )
 
+
+
+
+def _number(value: Any, fallback: float = 0.0) -> float:
+    try:
+        return float(value if value not in (None, "") else fallback)
+    except (TypeError, ValueError):
+        return float(fallback)
 
 def _normalise_colour(colour: Any) -> Dict[str, Any] | None:
     if isinstance(colour, str):
@@ -89,7 +99,7 @@ async def list_production_method_print_profiles(db, *, active: bool = True) -> L
                 row["id"] = aliases[0] if aliases else profile.get("id")
                 row["legacy_print_option_id"] = aliases[0] if aliases else None
             rows.append(row)
-    return sorted(
+    rows = sorted(
         rows,
         key=lambda row: (
             str(row.get("production_method_display_name") or ""),
@@ -97,3 +107,24 @@ async def list_production_method_print_profiles(db, *, active: bool = True) -> L
             str(row.get("profile_label") or ""),
         ),
     )
+
+    # Only legacy compatibility rows still need approved outsourced defaults.
+    # Canonical manufacturing profiles must preserve their editable saved values.
+    legacy_rows = [
+        row for row in rows
+        if row.get("costing_engine_version") != UNIFIED_COSTING_ENGINE_VERSION
+        and row.get("source_type") != "manufacturing_costing_profile"
+    ]
+    enriched_legacy = await outsourced_rates.enrich_profile_rows(db, legacy_rows) if legacy_rows else []
+    legacy_by_id = {str(row.get("id")): row for row in enriched_legacy}
+    output: List[Dict[str, Any]] = []
+    for row in rows:
+        current = legacy_by_id.get(str(row.get("id")), row)
+        if current.get("outsourced_rate_profile_key"):
+            current["calculation_type"] = "area_fixed_rate"
+            current["platform_print_cost"] = 0.0
+            current["print_cost_max"] = 0.0
+            current["creator_print_price"] = 0.0
+            current["minimum_print_cost"] = _number(current.get("minimum_print_cost"), 0.0)
+        output.append(current)
+    return output

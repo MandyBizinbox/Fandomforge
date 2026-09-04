@@ -177,6 +177,13 @@ def canonical_profile_id(method_key: str, profile: Dict[str, Any]) -> str:
 
 
 def _apply_approved_rate(profile: Dict[str, Any], method_key: str) -> Dict[str, Any]:
+    # Canonical profiles are editable manufacturing records. Once migrated, do not
+    # overwrite their saved pricing with legacy outsourced defaults on every read.
+    if (
+        profile.get("costing_engine_version") == UNIFIED_COSTING_ENGINE_VERSION
+        and str(profile.get("id") or profile.get("profile_id") or "").startswith("profile:")
+    ):
+        return profile
     values = pricing_values_for_record(profile, method_key)
     if not values:
         return profile
