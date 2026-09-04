@@ -46,8 +46,7 @@ on:
       - "backend/outsourced_production_rates.py"
       - "backend/production_operation_pricing.py"
       - "backend/production_method_profiles.py"
-      - "backend/profile_stocked_colours_patch.py"
-      - "backend/profile_colour_projection_repair.py"
+      - "backend/manufacturing_profile_colours.py"
       - "backend/classic_htv_colour_seed.py"
       - "backend/glitter_htv_colour_seed.py"
       - "backend/puff_htv_colour_seed.py"
@@ -62,7 +61,6 @@ on:
       - "backend/production_geometry_profile_copy_color_patch.py"
       - "backend/production_geometry_profile_copy_warning_patch.py"
       - "backend/unified_manufacturing_costing.py"
-      - "backend/production_profile_resolution_patch.py"
       - "backend/routes_production_rules.py"
       - "backend/routes_main.py"
       - "backend/server.py"
@@ -85,7 +83,7 @@ on:
       - "backend/tests/test_puff_htv_colour_seed.py"
       - "backend/tests/test_speciality_htv_colour_seeds.py"
       - "backend/tests/test_htv_profile_colour_assignment.py"
-      - "backend/tests/test_production_profile_resolution_patch.py"
+      - "backend/tests/test_production_profile_resolution.py"
       - "backend/tests/test_template_lifecycle_routes.py"
       - "backend/tests/test_product_template_csv.py"
       - "backend/tests/test_product_template_geometry_csv_patch.py"
@@ -169,7 +167,7 @@ jobs:
             tests/test_puff_htv_colour_seed.py \
             tests/test_speciality_htv_colour_seeds.py \
             tests/test_htv_profile_colour_assignment.py \
-            tests/test_production_profile_resolution_patch.py \
+            tests/test_production_profile_resolution.py \
             tests/test_template_lifecycle_routes.py \
             tests/test_product_template_csv.py \
             tests/test_product_template_geometry_csv_patch.py \
@@ -189,8 +187,7 @@ jobs:
           outsourced_production_rates.py
           production_operation_pricing.py
           production_method_profiles.py
-          profile_stocked_colours_patch.py
-          profile_colour_projection_repair.py
+          manufacturing_profile_colours.py
           classic_htv_colour_seed.py
           glitter_htv_colour_seed.py
           puff_htv_colour_seed.py
@@ -205,7 +202,6 @@ jobs:
           production_geometry_profile_copy_color_patch.py
           production_geometry_profile_copy_warning_patch.py
           unified_manufacturing_costing.py
-          production_profile_resolution_patch.py
           routes_production_rules.py
           models.py
           routes_main.py
