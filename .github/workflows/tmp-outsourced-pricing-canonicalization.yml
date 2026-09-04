@@ -20,7 +20,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Apply guarded canonicalization
-        run: python scripts/tmp_outsourced_pricing_canonicalize.py
+        run: |
+          python scripts/tmp_outsourced_pricing_canonicalize.py
+          python scripts/tmp_outsourced_pricing_followup.py
       - name: Verify runtime patches are gone
         run: |
           python - <<'PY'
@@ -28,10 +30,14 @@ jobs:
           server=Path('backend/server.py').read_text()
           routes=Path('backend/routes_main.py').read_text()
           pricing=Path('backend/production_operation_pricing.py').read_text()
+          rates=Path('backend/outsourced_production_rates.py').read_text()
+          test=Path('backend/tests/test_outsourced_production_rates.py').read_text()
           for token in ['install_outsourced_rate_runtime','install_production_operation_pricing']:
               assert token not in server, token
           assert 'apply_production_operation_pricing' in routes
           assert 'def install_production_operation_pricing' not in pricing
+          assert 'ROUND_HALF_UP' in rates
+          assert 'outsourced_rate_runtime_patch' not in test
           PY
       - name: Remove obsolete runtime module before validation
         run: rm backend/outsourced_rate_runtime_patch.py
@@ -41,7 +47,7 @@ jobs:
           pip install -r backend/requirements.txt pytest
       - name: Compile canonical backend
         working-directory: backend
-        run: python -m py_compile production_operation_pricing.py production_method_profiles.py unified_manufacturing_costing.py routes_main.py server.py
+        run: python -m py_compile outsourced_production_rates.py production_operation_pricing.py production_method_profiles.py unified_manufacturing_costing.py routes_main.py server.py
       - name: Import server startup graph
         working-directory: backend
         env:
@@ -85,7 +91,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add backend/production_operation_pricing.py backend/production_method_profiles.py backend/unified_manufacturing_costing.py backend/routes_main.py backend/server.py backend/tests/test_production_operation_pricing_service.py backend/tests/test_unified_canonical_profile_editability.py
+          git add backend/outsourced_production_rates.py backend/production_operation_pricing.py backend/production_method_profiles.py backend/unified_manufacturing_costing.py backend/routes_main.py backend/server.py backend/tests/test_outsourced_production_rates.py backend/tests/test_production_operation_pricing_service.py backend/tests/test_unified_canonical_profile_editability.py
           git rm backend/outsourced_rate_runtime_patch.py
           git diff --cached --quiet && exit 0
           git commit -m "Canonicalize outsourced production pricing"
