@@ -13,6 +13,7 @@ Supplier billing increments are deliberately excluded from product-level costing
 from __future__ import annotations
 
 import re
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -31,6 +32,11 @@ COMMON_PRICING = {
     "minimum_print_cost": 0.0,
     "waste_percentage": 0.0,
     "markup_percentage": 5.0,
+    # Canonical outsourced profiles derive their raw cost from area rates, not
+    # legacy fixed Print Option fields. Keep those compatibility fields neutral.
+    "platform_print_cost": 0.0,
+    "print_cost_max": 0.0,
+    "creator_print_price": 0.0,
 }
 
 RATE_SPECS: Dict[str, Dict[str, Any]] = {
@@ -64,7 +70,12 @@ def number(value: Any, fallback: float = 0.0) -> float:
 
 
 def money(value: Any) -> float:
-    return round(number(value), 2)
+    # Financial manufacturing values use decimal half-up rounding consistently.
+    try:
+        decimal_value = Decimal(str(value if value not in (None, "") else 0))
+    except Exception:
+        decimal_value = Decimal("0")
+    return float(decimal_value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def area(value: Any) -> float:

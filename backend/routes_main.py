@@ -38,6 +38,7 @@ from product_artwork_costing import (
     calculate_artwork_area_cost,
     apply_combined_artwork_costing,
 )
+from production_operation_pricing import apply_production_operation_pricing
 
 from auth import create_token, get_current_user, hash_password, optional_user, require_role
 from models import (
@@ -4055,10 +4056,16 @@ async def _normalize_template_product_payload_core(db, data: dict, creator: dict
 
 
 async def normalize_template_product_payload(db, data: dict, creator: dict, user: User, allow_admin_publish: bool = False) -> dict:
-    return await normalize_builder_product_payload(
+    product_data = await normalize_builder_product_payload(
         db=db, data=data, creator=creator, user=user,
         allow_admin_publish=allow_admin_publish,
         core_normalizer=_normalize_template_product_payload_core,
+    )
+    return await apply_production_operation_pricing(
+        db,
+        product_data,
+        resolve_marked_price=_resolve_marked_price,
+        platform_costing_breakdown=_platform_costing_breakdown,
     )
 
 
