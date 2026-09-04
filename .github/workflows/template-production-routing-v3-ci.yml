@@ -56,6 +56,7 @@ on:
       - "backend/template_lifecycle.py"
       - "backend/template_lifecycle_routes.py"
       - "backend/product_template_csv.py"
+      - "backend/product_template_csv_base.py"
       - "backend/product_template_geometry_csv_patch.py"
       - "backend/production_geometry_profile_copy_patch.py"
       - "backend/production_geometry_profile_copy_color_patch.py"
@@ -86,6 +87,7 @@ on:
       - "backend/tests/test_production_profile_resolution.py"
       - "backend/tests/test_template_lifecycle_routes.py"
       - "backend/tests/test_product_template_csv.py"
+      - "backend/tests/test_product_template_csv_canonical_facade.py"
       - "backend/tests/test_product_template_geometry_csv_patch.py"
       - "backend/tests/test_production_geometry_profile_copy_patch.py"
       - "backend/tests/test_production_geometry_profile_copy_color_patch.py"
@@ -170,6 +172,7 @@ jobs:
             tests/test_production_profile_resolution.py \
             tests/test_template_lifecycle_routes.py \
             tests/test_product_template_csv.py \
+            tests/test_product_template_csv_canonical_facade.py \
             tests/test_product_template_geometry_csv_patch.py \
             tests/test_production_geometry_profile_copy_patch.py \
             tests/test_production_geometry_profile_copy_color_patch.py \
@@ -196,6 +199,7 @@ jobs:
           htv_profile_colour_assignment.py
           template_lifecycle.py
           template_lifecycle_routes.py
+          product_template_csv_base.py
           product_template_csv.py
           product_template_geometry_csv_patch.py
           production_geometry_profile_copy_patch.py
