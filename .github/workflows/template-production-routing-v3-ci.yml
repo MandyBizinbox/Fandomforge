@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - feature/template-production-routing-v3
-      - refactor/canonical-e2e-gateway-routing
       - refactor/unified-manufacturing-costing-engine
       - feature/profile-stocked-colours
       - feature/seed-classic-htv-colours
@@ -104,7 +103,7 @@ on:
       - ".github/workflows/template-production-routing-v3-ci.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -125,10 +124,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Apply canonical E2E gateway routing
-        if: github.event_name == 'push' && github.ref == 'refs/heads/refactor/canonical-e2e-gateway-routing'
-        run: python scripts/tmp_canonicalize_e2e_gateway_routing.py
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -245,16 +240,3 @@ jobs:
         env:
           CI: "false"
         run: npm run build
-
-      - name: Commit application changes
-        if: github.event_name == 'push' && github.ref == 'refs/heads/refactor/canonical-e2e-gateway-routing'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A -- backend/e2e_runtime.py backend/e2e_support.py backend/e2e_gateway_patch.py backend/routes_main.py backend/server.py
-          if git diff --cached --quiet; then
-            echo "No application changes to commit."
-            exit 0
-          fi
-          git commit -m "Canonicalize isolated E2E gateway routing"
-          git push origin HEAD:refactor/canonical-e2e-gateway-routing
