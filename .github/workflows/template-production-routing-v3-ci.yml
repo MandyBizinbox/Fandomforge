@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/template-production-routing-v3
+      - refactor/canonical-e2e-gateway-routing
       - refactor/unified-manufacturing-costing-engine
       - feature/profile-stocked-colours
       - feature/seed-classic-htv-colours
@@ -40,6 +41,9 @@ on:
       - "backend/platform_fee_pricing.py"
       - "backend/models.py"
       - "backend/production_model_compat.py"
+      - "backend/e2e_runtime.py"
+      - "backend/e2e_gateway_patch.py"
+      - "backend/e2e_support.py"
       - "backend/artwork_print_job_pricing.py"
       - "backend/product_normalization_service.py"
       - "backend/generated_text_artwork.py"
@@ -70,6 +74,7 @@ on:
       - "backend/launch_integrity/pricing.py"
       - "backend/tests/conftest.py"
       - "backend/tests/test_canonical_production_model_policy.py"
+      - "backend/tests/test_canonical_e2e_gateway_routing.py"
       - "backend/tests/test_product_normalization_service.py"
       - "backend/tests/test_product_artwork_costing.py"
       - "backend/tests/test_generated_text_artwork.py"
@@ -99,7 +104,7 @@ on:
       - ".github/workflows/template-production-routing-v3-ci.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -120,6 +125,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Apply canonical E2E gateway routing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/refactor/canonical-e2e-gateway-routing'
+        run: python scripts/tmp_canonicalize_e2e_gateway_routing.py
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -179,6 +188,7 @@ jobs:
             tests/test_product_template_csv_canonical_facade.py \
             tests/test_product_template_csv_module_ownership.py \
             tests/test_canonical_production_model_policy.py \
+            tests/test_canonical_e2e_gateway_routing.py \
             tests/test_product_template_geometry_csv_patch.py \
             tests/test_production_geometry_profile_copy_patch.py \
             tests/test_production_geometry_profile_copy_color_patch.py \
@@ -203,6 +213,8 @@ jobs:
           metallic_htv_colour_seed.py
           glow_htv_colour_seed.py
           htv_profile_colour_assignment.py
+          e2e_runtime.py
+          e2e_support.py
           template_lifecycle.py
           template_lifecycle_routes.py
           product_template_csv_base.py
@@ -233,3 +245,16 @@ jobs:
         env:
           CI: "false"
         run: npm run build
+
+      - name: Commit application changes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/refactor/canonical-e2e-gateway-routing'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- backend/e2e_runtime.py backend/e2e_support.py backend/e2e_gateway_patch.py backend/routes_main.py backend/server.py
+          if git diff --cached --quiet; then
+            echo "No application changes to commit."
+            exit 0
+          fi
+          git commit -m "Canonicalize isolated E2E gateway routing"
+          git push origin HEAD:refactor/canonical-e2e-gateway-routing
