@@ -1,10 +1,10 @@
-"""Backend patch for Builder V2 artwork payloads and outsourced area costing."""
+"""Canonical artwork area costing and combined-layer pricing."""
 from __future__ import annotations
 
 from copy import deepcopy
-from urllib.parse import quote
 
 from outsourced_production_rates import calculate_outsourced_area_cost, number
+from generated_text_artwork import is_text_layer
 
 
 def _method_key(value) -> str:
@@ -48,52 +48,7 @@ def _option_policy(option: dict | None, method: str) -> bool:
 def _slot_has_artwork(slot: dict | None) -> bool:
     if not slot:
         return False
-    return bool(slot.get("original_url") or slot.get("text_layer") or slot.get("text_content"))
-
-
-def _escape_svg(value: str) -> str:
-    return (
-        str(value or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
-
-
-def _text_svg_data_url(slot: dict) -> str:
-    text = str(slot.get("text_content") or slot.get("text") or "Custom Text")[:240]
-    font = str(slot.get("text_font_family") or "Arial")
-    weight = str(slot.get("text_font_weight") or "700")
-    size = max(24, min(int(float(slot.get("text_font_size") or 180)), 1200))
-    colour = str(slot.get("text_color") or "#111111")
-    lines = [line for line in text.splitlines() if line.strip()] or ["Custom Text"]
-    width = max(320, min(2400, max(len(line) for line in lines) * int(size * 0.62) + int(size * 0.6)))
-    height = max(160, min(2400, len(lines) * int(size * 1.35) + int(size * 0.6)))
-    tspans = []
-    y = int(size * 0.85)
-    for index, line in enumerate(lines):
-        tspans.append(f'<tspan x="50%" y="{y + index * int(size * 1.28)}" text-anchor="middle">{_escape_svg(line)}</tspan>')
-    svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
-        f'<rect width="100%" height="100%" fill="transparent"/>'
-        f'<text font-family="{_escape_svg(font)}" font-size="{size}" font-weight="{_escape_svg(weight)}" fill="{_escape_svg(colour)}">'
-        f'{"".join(tspans)}</text></svg>'
-    )
-    return f"data:image/svg+xml;charset=utf-8,{quote(svg)}"
-
-
-def _ensure_text_slot_file(slot: dict) -> None:
-    if not slot or slot.get("original_url"):
-        return
-    if not (slot.get("text_layer") or slot.get("text_content")):
-        return
-    slot["original_url"] = _text_svg_data_url(slot)
-    slot["file_name"] = slot.get("file_name") or "text-layer.svg"
-    slot["mime_type"] = slot.get("mime_type") or "image/svg+xml"
-    slot["original_width_px"] = slot.get("original_width_px") or 1000
-    slot["original_height_px"] = slot.get("original_height_px") or 350
-    slot["artwork_aspect_ratio"] = slot.get("artwork_aspect_ratio") or 2.85
+    return bool(slot.get("original_url") or is_text_layer(slot))
 
 
 def _pricing_row(option: dict | None, slot: dict | None) -> dict:
@@ -209,7 +164,6 @@ def _adjust_combined_costing(routes_main_module, template: dict, global_print_op
     for group in groups or []:
         buckets: dict[str, list[dict]] = {}
         for slot in group.get("artworks") or []:
-            _ensure_text_slot_file(slot)
             if not _slot_has_artwork(slot) or not slot.get("print_option_id"):
                 continue
             option = option_map.get(str(slot.get("print_option_id"))) or {}
@@ -255,42 +209,13 @@ def _adjust_combined_costing(routes_main_module, template: dict, global_print_op
                 duplicate["combined_priced_on_slot_id"] = first.get("id")
 
 
-def install_builder_artwork_costing_patch(routes_main_module):
-    """Install monkey patches into routes_main without replacing the large router file."""
-    if getattr(routes_main_module, "_builder_artwork_costing_patch_installed", False):
-        return
 
-    original_has_file = routes_main_module._artwork_slot_has_file
-    original_normalize_slot = routes_main_module._normalize_product_artwork_slot
-    original_enrich = routes_main_module._enrich_and_validate_product_artwork_slots
-    original_calculate = routes_main_module._calculate_area_print_cost
 
-    def patched_calculate(slot: dict, area: dict, option: dict) -> dict:
-        return _patched_calculation(original_calculate, slot, area, option)
+def calculate_artwork_area_cost(base_calculate, slot: dict, area: dict, option: dict) -> dict:
+    """Apply outsourced area-rate costing on top of the canonical base calculation."""
+    return _patched_calculation(base_calculate, slot, area, option)
 
-    def patched_has_file(slot: dict) -> bool:
-        return bool(original_has_file(slot) or _slot_has_artwork(slot))
 
-    def patched_normalize_slot(row: dict, index: int = 0) -> dict:
-        slot = original_normalize_slot(row, index)
-        _ensure_text_slot_file(slot)
-        return slot
-
-    def patched_enrich(template: dict, global_print_options: list, groups: list, flat_artworks: list) -> None:
-        for group in groups or []:
-            for slot in group.get("artworks") or []:
-                _ensure_text_slot_file(slot)
-        for slot in flat_artworks or []:
-            _ensure_text_slot_file(slot)
-        original_enrich(template, global_print_options, groups, flat_artworks)
-        _adjust_combined_costing(routes_main_module, template, global_print_options, groups)
-        by_id = {slot.get("id"): slot for group in groups or [] for slot in group.get("artworks") or [] if slot.get("id")}
-        for slot in flat_artworks or []:
-            if slot.get("id") in by_id:
-                slot.update(by_id[slot.get("id")])
-
-    routes_main_module._calculate_area_print_cost = patched_calculate
-    routes_main_module._artwork_slot_has_file = patched_has_file
-    routes_main_module._normalize_product_artwork_slot = patched_normalize_slot
-    routes_main_module._enrich_and_validate_product_artwork_slots = patched_enrich
-    routes_main_module._builder_artwork_costing_patch_installed = True
+def apply_combined_artwork_costing(routes_main_module, template: dict, global_print_options: list, groups: list) -> None:
+    """Apply same-method combined-layer pricing after canonical slot enrichment."""
+    _adjust_combined_costing(routes_main_module, template, global_print_options, groups)

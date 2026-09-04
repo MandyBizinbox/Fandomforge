@@ -127,10 +127,6 @@ if E2E_MODE:
 from production_operation_pricing import install_production_operation_pricing
 from production_profile_resolution_patch import install_production_profile_resolution_patch
 from order_finance_patches import install_order_finance_patches
-from builder_artwork_costing_patch import install_builder_artwork_costing_patch
-from builder_production_rules_patch import install_builder_production_rules_patch
-from builder_product_save_patch import install_builder_product_save_patch
-from builder_text_artwork_patch import install_builder_text_artwork_patch
 from platform_launch_policy_patch import install_platform_launch_policy_patch
 from outsourced_rate_runtime_patch import install_outsourced_rate_runtime
 from profile_stocked_colours_patch import install_profile_stocked_colours_patch
@@ -139,9 +135,6 @@ from template_lifecycle_routes import install_template_lifecycle_routes
 install_production_profile_resolution_patch()
 install_production_operation_pricing(routes_main_module)
 install_order_finance_patches(routes_main_module)
-install_builder_artwork_costing_patch(routes_main_module)
-install_builder_production_rules_patch(routes_main_module)
-install_builder_text_artwork_patch(routes_main_module)
 install_platform_launch_policy_patch(routes_main_module)
 install_outsourced_rate_runtime(routes_main_module)
 install_profile_stocked_colours_patch()
@@ -151,9 +144,6 @@ from launch_integrity.compat import ensure_core_compat
 ensure_core_compat(routes_main_module)
 from launch_integrity.install import install_launch_integrity
 install_launch_integrity(app, routes_main_module)
-# Install Product Builder save sanitization last so no compatibility layer can
-# replace the normalizer afterwards and reintroduce server-owned Product fields.
-install_builder_product_save_patch(routes_main_module)
 
 from routes_main import (
     bands_router, printers_router, product_templates_router, products_router, artworks_router,

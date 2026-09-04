@@ -24,6 +24,20 @@ from platform_fee_pricing import (
     total_cost_to_produce,
 )
 from artwork_print_job_pricing import aggregate_artwork_print_jobs
+from product_normalization_service import (
+    normalize_builder_product_payload,
+    copy_production_snapshot,
+    product_save_http_exception,
+)
+from generated_text_artwork import (
+    materialize_text_slot,
+    materialize_product_artworks,
+    copy_text_metadata_to_snapshot,
+)
+from product_artwork_costing import (
+    calculate_artwork_area_cost,
+    apply_combined_artwork_costing,
+)
 
 from auth import create_token, get_current_user, hash_password, optional_user, require_role
 from models import (
@@ -3341,7 +3355,7 @@ def _product_print_option_map(template: dict, global_options: list) -> dict:
 
 
 
-def _calculate_area_print_cost(slot: dict, area: dict, option: dict) -> dict:
+def _calculate_area_print_cost_core(slot: dict, area: dict, option: dict) -> dict:
     calculation_type = option.get("calculation_type") or slot.get("calculation_type") or "fixed"
 
     placement = slot.get("placement") or {}
@@ -3428,7 +3442,11 @@ def _calculate_area_print_cost(slot: dict, area: dict, option: dict) -> dict:
         "calculated_print_cost": round(final, 2),
     }
 
-def _enrich_and_validate_product_artwork_slots(template: dict, global_print_options: list, groups: list, flat_artworks: list) -> None:
+
+def _calculate_area_print_cost(slot: dict, area: dict, option: dict) -> dict:
+    return calculate_artwork_area_cost(_calculate_area_print_cost_core, slot, area, option)
+
+def _enrich_and_validate_product_artwork_slots_core(template: dict, global_print_options: list, groups: list, flat_artworks: list) -> None:
     area_map = _product_template_print_area_map(template)
     option_map = _product_print_option_map(template, global_print_options)
 
@@ -3539,7 +3557,23 @@ def _enrich_and_validate_product_artwork_slots(template: dict, global_print_opti
             enrich(slot)
 
 
-def _normalize_product_artwork_slot(row: dict, index: int = 0) -> dict:
+def _enrich_and_validate_product_artwork_slots(template: dict, global_print_options: list, groups: list, flat_artworks: list) -> None:
+    _enrich_and_validate_product_artwork_slots_core(template, global_print_options, groups, flat_artworks)
+    import sys
+    routes_module = sys.modules[__name__]
+    apply_combined_artwork_costing(routes_module, template, global_print_options, groups)
+    by_id = {
+        slot.get("id"): slot
+        for group in groups or []
+        for slot in group.get("artworks") or []
+        if slot.get("id")
+    }
+    for slot in flat_artworks or []:
+        if slot.get("id") in by_id:
+            slot.update(by_id[slot.get("id")])
+
+
+def _normalize_product_artwork_slot_core(row: dict, index: int = 0) -> dict:
     row = dict(row or {})
     if not row.get("id"):
         row["id"] = uid()
@@ -3562,6 +3596,11 @@ def _normalize_product_artwork_slot(row: dict, index: int = 0) -> dict:
     if not row["placement"].get("screen_id"):
         row["placement"]["screen_id"] = row.get("screen_id") or ""
     return row
+
+
+def _normalize_product_artwork_slot(row: dict, index: int = 0) -> dict:
+    slot = _normalize_product_artwork_slot_core(row, index)
+    return materialize_text_slot(slot)
 
 
 def _normalize_product_artwork_groups(groups: list, fallback_artworks: list, is_admin: bool = False) -> tuple[list, list]:
@@ -3768,7 +3807,7 @@ def _template_product_variations_with_overrides(submitted_variations: list, sele
     return out
 
 
-async def normalize_template_product_payload(db, data: dict, creator: dict, user: User, allow_admin_publish: bool = False) -> dict:
+async def _normalize_template_product_payload_core(db, data: dict, creator: dict, user: User, allow_admin_publish: bool = False) -> dict:
     """
     Normalizes sellable creator/admin products created from admin product templates.
     Keeps old product fields populated so Shop/ProductCard/Cart continue to work.
@@ -4013,6 +4052,14 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
         data["selected_print_option_id"] = data.get("selected_print_option_id") or first_artwork.get("print_option_id")
 
     return data
+
+
+async def normalize_template_product_payload(db, data: dict, creator: dict, user: User, allow_admin_publish: bool = False) -> dict:
+    return await normalize_builder_product_payload(
+        db=db, data=data, creator=creator, user=user,
+        allow_admin_publish=allow_admin_publish,
+        core_normalizer=_normalize_template_product_payload_core,
+    )
 
 
 @product_templates_router.get("")
@@ -5491,7 +5538,7 @@ def _snapshot_print_area_from_artwork_or_product(product: dict, template: dict, 
     }
 
 
-def _build_production_snapshot(product: dict, template: Optional[dict], product_variation: Optional[dict], quantity: int) -> dict:
+def _build_production_snapshot_core(product: dict, template: Optional[dict], product_variation: Optional[dict], quantity: int) -> dict:
     template = template or {}
     product_variation = product_variation or {}
 
@@ -5743,6 +5790,13 @@ def _build_production_snapshot(product: dict, template: Optional[dict], product_
         "estimated_platform_profit": costing["estimated_platform_profit"],
         "creator_product_cost": costing["creator_product_cost"],
     }
+
+
+def _build_production_snapshot(product: dict, template, product_variation, quantity: int) -> dict:
+    prepared_product = materialize_product_artworks(product or {})
+    snapshot = _build_production_snapshot_core(prepared_product, template, product_variation, quantity)
+    snapshot = copy_production_snapshot(prepared_product, snapshot)
+    return copy_text_metadata_to_snapshot(snapshot, prepared_product)
 
 
 
@@ -9611,8 +9665,7 @@ async def admin_products(
     return [Product(**_decorate_product_effective_pricing(d, expose_manual_overrides=True)) for d in docs]
 
 
-@admin_router.post("/products", response_model=Product)
-async def admin_create_product(
+async def _admin_create_product_core(
     payload: AdminProductCreate,
     request: Request,
     user: User = Depends(get_current_user),
@@ -9669,6 +9722,20 @@ async def admin_create_product(
 
     await db.products.insert_one(iso_dates(product.model_dump()))
     return product
+
+
+@admin_router.post("/products", response_model=Product)
+async def admin_create_product(
+    payload: AdminProductCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    try:
+        return await _admin_create_product_core(payload=payload, request=request, user=user)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise product_save_http_exception(payload, exc) from exc
 
 
 
@@ -9837,7 +9904,7 @@ async def admin_update_product_pricing_control(
     return await _product_pricing_control_response(db, updated)
 
 
-@admin_router.patch("/products/{product_id}", response_model=Product)
+@admin_router.api_route("/products/{product_id}", methods=["PATCH", "PUT"], response_model=Product)
 async def admin_update_product(
     product_id: str,
     payload: ProductUpdate,

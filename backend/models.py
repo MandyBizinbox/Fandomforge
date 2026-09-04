@@ -1058,7 +1058,7 @@ class ProductArtworkSlot(BaseModel):
 
 
 class ProductArtworkGroup(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     label: str = "Default artwork"
@@ -1073,6 +1073,8 @@ class ProductArtworkGroup(BaseModel):
     sort_order: int = 0
 
 class ProductBase(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     title: str
     description: str = ""
     specs: str = ""
@@ -1144,6 +1146,8 @@ class ProductCreate(ProductBase):
 
 
 class ProductUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     title: Optional[str] = None
     description: Optional[str] = None
     specs: Optional[str] = None
@@ -1206,7 +1210,7 @@ class ProductUpdate(BaseModel):
 
 
 class Product(ProductBase):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     band_id: str
