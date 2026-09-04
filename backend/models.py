@@ -682,7 +682,7 @@ class ProductTemplateMockupScreen(BaseModel):
 
 
 class ProductTemplatePrintArea(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     name: str
@@ -725,7 +725,7 @@ class ProductTemplatePrintArea(BaseModel):
 
 
 class ProductTemplatePrintOption(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     print_method: Optional[str] = None
@@ -758,7 +758,7 @@ class ProductTemplatePrintOption(BaseModel):
 
 
 class ProductTemplateVariation(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     sku: Optional[str] = None
@@ -788,6 +788,8 @@ class ProductTemplateVariation(BaseModel):
 
 
 class ProductTemplateBase(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     name: str
     slug: Optional[str] = None
     product_type_id: Optional[str] = None
@@ -853,10 +855,14 @@ class ProductTemplateBase(BaseModel):
 
 
 class ProductTemplateCreate(ProductTemplateBase):
+    model_config = ConfigDict(extra="allow")
+
     pass
 
 
 class ProductTemplateUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     name: Optional[str] = None
     slug: Optional[str] = None
     product_type_id: Optional[str] = None
@@ -912,7 +918,7 @@ class ProductTemplateUpdate(BaseModel):
 
 
 class ProductTemplate(ProductTemplateBase):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     slug: str
@@ -958,7 +964,7 @@ class ProductVariation(BaseModel):
 
 
 class ProductArtworkSnapshot(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     original_url: Optional[str] = None
     original_width_px: Optional[float] = None
@@ -973,7 +979,7 @@ class ProductArtworkSnapshot(BaseModel):
 
 
 class ProductArtworkPlacement(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     screen_id: Optional[str] = None
     print_area_id: Optional[str] = None
@@ -986,7 +992,7 @@ class ProductArtworkPlacement(BaseModel):
 
 
 class ProductArtworkSlot(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     print_area_id: str
@@ -1142,6 +1148,8 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
+    model_config = ConfigDict(extra="allow")
+
     pass
 
 
@@ -1277,7 +1285,7 @@ class ShippingAddress(BaseModel):
 
 
 class ProductionSnapshot(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     template_id: Optional[str] = None
     template_name: Optional[str] = None
@@ -1314,7 +1322,7 @@ class ProductionSnapshot(BaseModel):
 
 
 class OrderItem(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     product_id: str

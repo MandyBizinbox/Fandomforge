@@ -102,8 +102,6 @@ async def health(request: Request):
     return {"status": "ok", "launch_integrity_version": LAUNCH_INTEGRITY_VERSION, "email_delivery": email}
 
 
-from production_model_compat import install_production_model_compat
-install_production_model_compat()
 from auth import auth_router
 import routes_main as routes_main_module
 if E2E_MODE:

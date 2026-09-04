@@ -39,6 +39,7 @@ on:
       - "frontend/src/routes/AdminTemplateStudioRoute.jsx"
       - "backend/platform_fee_pricing.py"
       - "backend/models.py"
+      - "backend/production_model_compat.py"
       - "backend/artwork_print_job_pricing.py"
       - "backend/product_normalization_service.py"
       - "backend/generated_text_artwork.py"
@@ -68,6 +69,7 @@ on:
       - "backend/production_rules_engine.py"
       - "backend/launch_integrity/pricing.py"
       - "backend/tests/conftest.py"
+      - "backend/tests/test_canonical_production_model_policy.py"
       - "backend/tests/test_product_normalization_service.py"
       - "backend/tests/test_product_artwork_costing.py"
       - "backend/tests/test_generated_text_artwork.py"
@@ -176,6 +178,7 @@ jobs:
             tests/test_product_template_csv.py \
             tests/test_product_template_csv_canonical_facade.py \
             tests/test_product_template_csv_module_ownership.py \
+            tests/test_canonical_production_model_policy.py \
             tests/test_product_template_geometry_csv_patch.py \
             tests/test_production_geometry_profile_copy_patch.py \
             tests/test_production_geometry_profile_copy_color_patch.py \
