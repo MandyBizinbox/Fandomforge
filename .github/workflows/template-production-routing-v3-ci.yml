@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - feature/template-production-routing-v3
-      - refactor/canonical-production-model-policy
       - refactor/unified-manufacturing-costing-engine
       - feature/profile-stocked-colours
       - feature/seed-classic-htv-colours
@@ -100,7 +99,7 @@ on:
       - ".github/workflows/template-production-routing-v3-ci.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -121,10 +120,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Apply canonical production model policy
-        if: github.event_name == 'push' && github.ref == 'refs/heads/refactor/canonical-production-model-policy'
-        run: python scripts/tmp_canonicalize_production_model_policy.py
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -238,16 +233,3 @@ jobs:
         env:
           CI: "false"
         run: npm run build
-
-      - name: Commit application changes
-        if: github.event_name == 'push' && github.ref == 'refs/heads/refactor/canonical-production-model-policy'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A -- backend/models.py backend/server.py backend/production_model_compat.py
-          if git diff --cached --quiet; then
-            echo "No application changes to commit."
-            exit 0
-          fi
-          git commit -m "Canonicalize production model extra-field policy"
-          git push origin HEAD:refactor/canonical-production-model-policy
