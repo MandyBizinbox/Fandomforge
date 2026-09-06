@@ -43,6 +43,7 @@ on:
       - "backend/e2e_runtime.py"
       - "backend/e2e_gateway_patch.py"
       - "backend/e2e_support.py"
+      - "backend/platform_launch_policy_patch.py"
       - "backend/artwork_print_job_pricing.py"
       - "backend/product_normalization_service.py"
       - "backend/generated_text_artwork.py"
@@ -74,6 +75,7 @@ on:
       - "backend/tests/conftest.py"
       - "backend/tests/test_canonical_production_model_policy.py"
       - "backend/tests/test_canonical_e2e_gateway_routing.py"
+      - "backend/tests/test_canonical_platform_policy_defaults.py"
       - "backend/tests/test_product_normalization_service.py"
       - "backend/tests/test_product_artwork_costing.py"
       - "backend/tests/test_generated_text_artwork.py"
@@ -184,6 +186,7 @@ jobs:
             tests/test_product_template_csv_module_ownership.py \
             tests/test_canonical_production_model_policy.py \
             tests/test_canonical_e2e_gateway_routing.py \
+            tests/test_canonical_platform_policy_defaults.py \
             tests/test_product_template_geometry_csv_patch.py \
             tests/test_production_geometry_profile_copy_patch.py \
             tests/test_production_geometry_profile_copy_color_patch.py \
