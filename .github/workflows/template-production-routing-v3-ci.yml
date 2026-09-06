@@ -76,6 +76,7 @@ on:
       - "backend/tests/test_canonical_production_model_policy.py"
       - "backend/tests/test_canonical_e2e_gateway_routing.py"
       - "backend/tests/test_canonical_platform_policy_defaults.py"
+      - "backend/tests/test_product_template_list_summary.py"
       - "backend/tests/test_product_normalization_service.py"
       - "backend/tests/test_product_artwork_costing.py"
       - "backend/tests/test_generated_text_artwork.py"
@@ -151,6 +152,7 @@ jobs:
           templateProductionResolver.test.js
           cataloguePricingUtils.test.js
           templateReadiness.test.js
+          productTemplatesPerformance.test.js
           derivedMockupRenderer.test.js
           productBuilderPricingGallery.test.js
           outsourcedProductionPricing.test.js
@@ -187,6 +189,7 @@ jobs:
             tests/test_canonical_production_model_policy.py \
             tests/test_canonical_e2e_gateway_routing.py \
             tests/test_canonical_platform_policy_defaults.py \
+            tests/test_product_template_list_summary.py \
             tests/test_product_template_geometry_csv_patch.py \
             tests/test_production_geometry_profile_copy_patch.py \
             tests/test_production_geometry_profile_copy_color_patch.py \

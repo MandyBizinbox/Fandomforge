@@ -7791,6 +7791,94 @@ async def admin_delete_product_type(
     await db.product_types.delete_one({"id": product_type_id})
     return {"status": "deleted", "linked_templates": linked_templates}
 
+PRODUCT_TEMPLATE_LIST_PROJECTION: Dict[str, int] = {
+    "_id": 0,
+    "id": 1,
+    "name": 1,
+    "brand": 1,
+    "blank_sku": 1,
+    "status": 1,
+    "category": 1,
+    "product_type_id": 1,
+    "product_type": 1,
+    "product_type_slug": 1,
+    "product_type_name": 1,
+    "creator_catalogue_thumbnail_url": 1,
+    "product_image_url": 1,
+    "mockup_url": 1,
+    "mockup_images": 1,
+    "creator_blank_price": 1,
+    "base_blank_cost": 1,
+    "base_price": 1,
+    "platform_blank_cost": 1,
+    "creator_visible": 1,
+    "admin_visible": 1,
+    "template_gallery": 1,
+    "print_options": 1,
+    "print_option_ids": 1,
+    "print_areas": 1,
+    "variation_production_rules": 1,
+    "production_rules": 1,
+    "mockup_screens.id": 1,
+    "mockup_screens.status": 1,
+    "mockup_screens.archived": 1,
+    "mockup_screens.deleted": 1,
+    "mockup_screens.image_url": 1,
+    "mockup_screens.view_key": 1,
+    "mockup_screens.view": 1,
+    "mockup_screens.screen_view": 1,
+    "mockup_screens.name": 1,
+    "variations.id": 1,
+    "variations.attributes": 1,
+    "variations.enabled": 1,
+    "variations.status": 1,
+    "variations.archived": 1,
+    "variations.deleted": 1,
+    "variations.image_url": 1,
+    "variations.product_image_url": 1,
+    "variations.mockup_image_url": 1,
+    "variations.mockup_screen_overrides": 1,
+    "variations.view_overrides": 1,
+    "variations.creator_blank_price": 1,
+    "variations.base_blank_cost": 1,
+    "variations.platform_blank_cost": 1,
+    "variations.cost": 1,
+    "variations.print_area_overrides": 1,
+    "variations.print_area_override": 1,
+    "variations.print_width_mm": 1,
+    "variations.width_mm": 1,
+    "variations.print_area_width_mm": 1,
+    "variations.print_height_mm": 1,
+    "variations.height_mm": 1,
+    "variations.print_area_height_mm": 1,
+}
+
+
+@admin_router.get("/product-templates/summary")
+async def admin_product_template_summaries(
+    request: Request,
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    _require_manager_permission(user, "manage_product_templates")
+    db = request.app.state.db
+    q: Dict = {}
+
+    if status:
+        q["status"] = status
+
+    if category:
+        q["category"] = category
+
+    return await (
+        db.product_templates
+        .find(q, PRODUCT_TEMPLATE_LIST_PROJECTION)
+        .sort("name", 1)
+        .to_list(1000)
+    )
+
+
 @admin_router.get("/product-templates", response_model=List[ProductTemplate])
 async def admin_product_templates(
     request: Request,

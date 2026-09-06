@@ -185,34 +185,43 @@ function readiness(template = {}, globalPrintOptions = []) {
   return resolveTemplateReadiness(template, globalPrintOptions);
 }
 
-function countWhere(templates, predicate, globalPrintOptions = []) {
-  return safeArray(templates).filter((template) => predicate(readiness(template, globalPrintOptions), template)).length;
+function resolvedReadiness(template, globalPrintOptions = [], readinessById = null) {
+  const templateId = template?.id ? String(template.id) : "";
+  return (templateId && readinessById?.get(templateId)) || readiness(template, globalPrintOptions);
 }
 
-function templateStats(templates, globalPrintOptions = []) {
+function countWhere(templates, predicate, globalPrintOptions = [], readinessById = null) {
+  return safeArray(templates).filter((template) =>
+    predicate(resolvedReadiness(template, globalPrintOptions, readinessById), template)
+  ).length;
+}
+
+function templateStats(templates, globalPrintOptions = [], readinessById = null) {
   const rows = safeArray(templates);
+  const count = (predicate) => countWhere(rows, predicate, globalPrintOptions, readinessById);
+
   return {
     total: rows.length,
     active: rows.filter((template) => !["inactive", "archived"].includes(normalise(template.status))).length,
-    launchReady: countWhere(rows, (ready) => ready.launchReady, globalPrintOptions),
-    missingImages: countWhere(rows, (ready) => !ready.checks.mainImage, globalPrintOptions),
-    missingVariationImages: countWhere(rows, (ready) => !ready.checks.variationImages, globalPrintOptions),
-    missingBlankCost: countWhere(rows, (ready) => !ready.checks.blankCost, globalPrintOptions),
-    missingPrintAreas: countWhere(rows, (ready) => !ready.checks.printAreas || !ready.checks.printAreaViews, globalPrintOptions),
-    missingMockups: countWhere(rows, (ready) => !ready.checks.mockup, globalPrintOptions),
-    missingCreatorPricing: countWhere(rows, (ready) => !ready.checks.creatorPricing, globalPrintOptions),
-    inactiveMethods: countWhere(
-      rows,
-      (ready, template) => templatePrintOptions(template, globalPrintOptions).some((option) => INACTIVE_METHOD_KEYS.some((inactive) => resolvedMethodKey(option).includes(inactive))),
-      globalPrintOptions
+    launchReady: count((ready) => ready.launchReady),
+    missingImages: count((ready) => !ready.checks.mainImage),
+    missingVariationImages: count((ready) => !ready.checks.variationImages),
+    missingBlankCost: count((ready) => !ready.checks.blankCost),
+    missingPrintAreas: count((ready) => !ready.checks.printAreas || !ready.checks.printAreaViews),
+    missingMockups: count((ready) => !ready.checks.mockup),
+    missingCreatorPricing: count((ready) => !ready.checks.creatorPricing),
+    inactiveMethods: count((ready) =>
+      safeArray(ready.activeMethods).some((option) =>
+        INACTIVE_METHOD_KEYS.some((inactive) => resolvedMethodKey(option).includes(inactive))
+      )
     ),
-    manualReview: countWhere(rows, (ready) => !ready.launchReady, globalPrintOptions),
+    manualReview: count((ready) => !ready.launchReady),
   };
 }
 
-function readinessMatchesFilter(template, filter, globalPrintOptions = []) {
+function readinessMatchesFilter(template, filter, globalPrintOptions = [], readinessById = null) {
   if (filter === "all") return true;
-  const ready = readiness(template, globalPrintOptions);
+  const ready = resolvedReadiness(template, globalPrintOptions, readinessById);
 
   if (filter === "launch_ready") return ready.launchReady;
   if (filter === "pricing_ready") return ready.pricingReady;
@@ -246,24 +255,29 @@ export default function ProductTemplatesPage() {
 
   const load = async () => {
     setLoading(true);
+    const qs = status !== "all" ? `?status=${status}` : "";
+    const templateRequest = http.get(`/admin/product-templates/summary${qs}`);
+    const printOptionRequest = http.get("/print-options").catch(() => ({ data: [] }));
+    const productTypeRequest = http.get("/admin/product-types").catch(() =>
+      http.get("/product-types").catch(() => ({ data: [] }))
+    );
+
     try {
-      const qs = status !== "all" ? `?status=${status}` : "";
-      const [templateResponse, printOptionResponse, productTypeResponse] = await Promise.all([
-        http.get(`/admin/product-templates${qs}`),
-        http.get("/print-options").catch(() => ({ data: [] })),
-        http.get("/admin/product-types").catch(() => http.get("/product-types").catch(() => ({ data: [] }))),
-      ]);
+      const templateResponse = await templateRequest;
       setTemplates(collectionFromResponse(templateResponse.data));
-      setPrintOptions(collectionFromResponse(printOptionResponse.data));
-      setProductTypes(collectionFromResponse(productTypeResponse.data));
     } catch (error) {
       setTemplates([]);
-      setPrintOptions([]);
-      setProductTypes([]);
       toast.error(error.response?.data?.detail || "Could not load product templates");
     } finally {
       setLoading(false);
     }
+
+    const [printOptionResponse, productTypeResponse] = await Promise.all([
+      printOptionRequest,
+      productTypeRequest,
+    ]);
+    setPrintOptions(collectionFromResponse(printOptionResponse.data));
+    setProductTypes(collectionFromResponse(productTypeResponse.data));
   };
 
   useEffect(() => {
@@ -294,18 +308,27 @@ export default function ProductTemplatesPage() {
       .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
   }, [templates, productTypes, productTypeLookup]);
 
+  const readinessById = useMemo(() => {
+    const map = new Map();
+    safeArray(templates).forEach((template) => {
+      if (!template?.id) return;
+      map.set(String(template.id), readiness(template, printOptions));
+    });
+    return map;
+  }, [templates, printOptions]);
+
   const filteredTemplates = useMemo(
     () =>
       safeArray(templates).filter((template) => {
-        const matchesReadiness = readinessMatchesFilter(template, readinessFilter, printOptions);
+        const matchesReadiness = readinessMatchesFilter(template, readinessFilter, printOptions, readinessById);
         const keys = templateProductTypeKeys(template);
         const matchesProductType = productTypeFilter === "all" || keys.includes(String(productTypeFilter));
         return matchesReadiness && matchesProductType;
       }),
-    [templates, readinessFilter, printOptions, productTypeFilter]
+    [templates, readinessFilter, printOptions, productTypeFilter, readinessById]
   );
 
-  const stats = useMemo(() => templateStats(templates, printOptions), [templates, printOptions]);
+  const stats = useMemo(() => templateStats(templates, printOptions, readinessById), [templates, printOptions, readinessById]);
 
   const duplicateTemplate = async (event, template) => {
     event.preventDefault();
@@ -789,7 +812,7 @@ export default function ProductTemplatesPage() {
         <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
           {filteredTemplates.map((template) => {
             const image = templateImage(template);
-            const ready = readiness(template, printOptions);
+            const ready = resolvedReadiness(template, printOptions, readinessById);
             const isArchived = normalise(template.status) === "archived";
             const areas = safeArray(template.print_areas).filter((area) => area.status !== "archived" && !area.archived && !area.deleted).length;
             const views = safeArray(template.mockup_screens).filter((screen) => screen.status !== "archived" && !screen.archived && !screen.deleted).length;
