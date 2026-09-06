@@ -147,6 +147,7 @@ from product_template_csv import (
     remove_unset_fields,
 )
 
+from template_lifecycle import template_delete_impact_payload
 from e2e_runtime import with_e2e_mock_gateway
 
 
@@ -8326,6 +8327,35 @@ async def admin_replace_product_template(
         payload=ProductTemplateUpdate(**payload.model_dump()),
         request=request,
         user=user,
+    )
+
+
+@admin_router.get("/product-templates/{template_id}/delete-impact")
+async def admin_product_template_delete_impact(
+    template_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    _require_manager_permission(user, "manage_product_templates")
+    db = request.app.state.db
+
+    template = await db.product_templates.find_one(
+        {"id": template_id},
+        {"_id": 0, "id": 1, "name": 1, "status": 1},
+    )
+    if not template:
+        raise HTTPException(status_code=404, detail="Product template not found")
+
+    total_products = await db.products.count_documents({"template_id": template_id})
+    published_products = await db.products.count_documents({
+        "template_id": template_id,
+        "published": True,
+    })
+
+    return template_delete_impact_payload(
+        template,
+        linked_products=total_products,
+        sellable_products=published_products,
     )
 
 

@@ -211,7 +211,6 @@ jobs:
           e2e_runtime.py
           e2e_support.py
           template_lifecycle.py
-          template_lifecycle_routes.py
           product_template_csv_base.py
           product_template_csv.py
           product_template_geometry_csv.py

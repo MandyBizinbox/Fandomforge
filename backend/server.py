@@ -103,10 +103,8 @@ from auth import auth_router
 import routes_main as routes_main_module
 from order_finance_patches import install_order_finance_patches
 from platform_launch_policy_patch import install_platform_launch_policy_patch
-from template_lifecycle_routes import install_template_lifecycle_routes
 install_order_finance_patches(routes_main_module)
 install_platform_launch_policy_patch(routes_main_module)
-install_template_lifecycle_routes(routes_main_module)
 from launch_integrity.compat import ensure_core_compat
 ensure_core_compat(routes_main_module)
 from launch_integrity.install import install_launch_integrity
