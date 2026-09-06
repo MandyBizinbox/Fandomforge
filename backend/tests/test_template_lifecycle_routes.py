@@ -45,7 +45,7 @@ class TemplateLifecycleImpactTests(unittest.TestCase):
         matches = [
             route
             for route in routes_main.admin_router.routes
-            if getattr(route, "path", None) == "/product-templates/{template_id}/delete-impact"
+            if getattr(route, "path", None) == "/admin/product-templates/{template_id}/delete-impact"
             and "GET" in (getattr(route, "methods", set()) or set())
         ]
         self.assertEqual(len(matches), 1)
