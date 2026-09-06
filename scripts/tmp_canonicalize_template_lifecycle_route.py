@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# This file exists only to perform the guarded branch migration.
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 ROUTES_PATH = BACKEND / "routes_main.py"
