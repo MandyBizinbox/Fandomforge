@@ -519,6 +519,11 @@ DEFAULT_POLICY_SETTINGS = {
     "shipping_policy": "Shipping policy will be published here.",
     "creator_terms": "Creator terms will be published here.",
     "printer_terms": "Printer terms will be published here.",
+    "intellectual_property_policy": "Approved Intellectual Property Policy content is required before broad creator onboarding.",
+    "prohibited_content_policy": "Approved Prohibited Content Policy content is required before broad creator onboarding.",
+    "copyright_complaint_procedure": "Approved Copyright Complaint Procedure content is required before broad creator onboarding.",
+    "payout_policy": "Approved Payout Policy content is required before creator earnings and payout promises are published.",
+    "store_suspension_termination_policy": "Approved Store Suspension and Termination Policy content is required before broad creator onboarding.",
 }
 
 PUBLIC_POLICY_KEYS = set(DEFAULT_POLICY_SETTINGS.keys())
