@@ -63,8 +63,7 @@ jobs:
           git add -A -- \
             backend/routes_main.py \
             backend/server.py \
-            backend/template_lifecycle_routes.py \
-            .github/workflows/template-production-routing-v3-ci.yml
+            backend/template_lifecycle_routes.py
           if git diff --cached --quiet; then
             echo "No application changes to commit."
             exit 0
