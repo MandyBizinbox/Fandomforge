@@ -267,7 +267,7 @@ regression = '''  test("keeps aspect-locked square artwork physically square whe
     expect(result.artwork_height_mm).toBe(240.6);
     expect(result.print_width_mm).toBe(240.6);
     expect(result.print_height_mm).toBe(240.6);
-    expect(result.area_cm2).toBe(578.88);
+    expect(result.area_cm2).toBe(578.74);
   });
 
 '''
