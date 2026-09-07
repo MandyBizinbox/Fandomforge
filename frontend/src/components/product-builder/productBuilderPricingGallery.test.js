@@ -257,3 +257,24 @@ describe("Product Builder V4 progressive Basics selection", () => {
     expect(css).toContain("grid-template-columns: minmax(0, 1.45fr) minmax(18rem, 0.75fr)");
   });
 });
+
+
+describe("Product Builder active-ready template eligibility", () => {
+  const builderPath = path.join(__dirname, "ProductBuilderV4.jsx");
+
+  test("new template choices use canonical readiness and require active status", () => {
+    const source = fs.readFileSync(builderPath, "utf8");
+    expect(source).toContain('import { templateReadiness } from "../../lib/templateReadiness";');
+    expect(source).toContain('normalise(template?.status) === "active"');
+    expect(source).toContain("templateReadiness(template, globalPrintOptions).isLaunchReady");
+    expect(source).toContain("loadedTemplates.filter((template) => isBuilderSelectableTemplate(template, loadedPrintOptions))");
+  });
+
+  test("existing products retain their already-linked template for editing", () => {
+    const source = fs.readFileSync(builderPath, "utf8");
+    expect(source).toContain("const existingTemplate = loadedTemplates.find");
+    expect(source).toContain("templatesForBuilder = [...selectableTemplates, existingTemplate]");
+    expect(source).toContain("setTemplates(templatesForBuilder)");
+  });
+});
+
