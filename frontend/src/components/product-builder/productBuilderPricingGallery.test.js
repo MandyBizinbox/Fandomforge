@@ -278,3 +278,24 @@ describe("Product Builder active-ready template eligibility", () => {
   });
 });
 
+
+describe("creator dashboard canonical Product Builder ownership", () => {
+  const dashboardPath = path.join(__dirname, "../../pages/BandDashboard.jsx");
+
+  test("creator product create/edit routes use ProductBuilder with no legacy form generation", () => {
+    const source = fs.readFileSync(dashboardPath, "utf8");
+    expect(source).toContain('<Route path="products/new" element={<ProductBuilder mode="creator" backTo="/creator/products" />} />');
+    expect(source).toContain('<Route path="products/:id" element={<ProductBuilder mode="creator" backTo="/creator/products" />} />');
+    expect(source).not.toContain("function ProductForm()");
+    expect(source).not.toContain("useParams");
+    expect(source).not.toContain("AttributeVariationEditor");
+  });
+
+  test("creator dashboard overview and banner preview use the cleaned UI", () => {
+    const source = fs.readFileSync(dashboardPath, "utf8");
+    expect(source).toContain('className="grid grid-cols-2 lg:grid-cols-5 gap-3"');
+    expect(source).toContain('className="ff-admin-stat-card min-w-0"');
+    expect(source).toContain('previewImageClassName = "object-contain p-3"');
+    expect(source).toContain('previewImageClassName="object-cover"');
+  });
+});
