@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import {
   calculatePricing,
   getAggregatedPrintCostLines,
@@ -193,5 +195,40 @@ describe("combined same-method print-job pricing", () => {
 
     expect(lines).toHaveLength(2);
     expect(lines.every((line) => line.combined === false)).toBe(true);
+  });
+});
+
+
+describe("Product Builder V4 semantic UI contract", () => {
+  const builderPath = path.join(__dirname, "ProductBuilderV4.jsx");
+  const cssPath = path.join(__dirname, "productBuilderV4.css");
+
+  test("builder chrome uses the dedicated semantic theme layer", () => {
+    const source = fs.readFileSync(builderPath, "utf8");
+    expect(source).toContain('import "./productBuilderV4.css";');
+    expect(source).toContain("pb4-step-tab");
+    expect(source).toContain("pb4-step-summary");
+    expect(source).toContain("pb4-footer");
+    expect(source).not.toContain('border-[#FF3B30] bg-[#FF3B30]/15');
+    expect(source).not.toContain("bg-black/90 backdrop-blur-xl");
+  });
+
+  test("semantic styles are driven by Platform Settings tokens and responsive footer rules", () => {
+    const css = fs.readFileSync(cssPath, "utf8");
+    expect(css).toContain("var(--ff-primary)");
+    expect(css).toContain("var(--ff-card-bg)");
+    expect(css).toContain("var(--ff-card-border)");
+    expect(css).toContain("var(--ff-muted-text)");
+    expect(css).toContain("grid-template-columns: 1fr 1fr");
+    expect(css).toContain("@media (min-width: 640px)");
+  });
+
+  test("business behavior owners remain in ProductBuilderV4", () => {
+    const source = fs.readFileSync(builderPath, "utf8");
+    expect(source).toContain("const validateStep = (key) =>");
+    expect(source).toContain("const buildPayload = () =>");
+    expect(source).toContain("const save = async ({ publish = false } = {}) =>");
+    expect(source).toContain("const publishCreator = async (target) =>");
+    expect(source).toContain("pricing.canPublishWithOverride");
   });
 });
