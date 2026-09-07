@@ -232,3 +232,28 @@ describe("Product Builder V4 semantic UI contract", () => {
     expect(source).toContain("pricing.canPublishWithOverride");
   });
 });
+
+
+describe("Product Builder V4 progressive Basics selection", () => {
+  const builderPath = path.join(__dirname, "ProductBuilderV4.jsx");
+  const cssPath = path.join(__dirname, "productBuilderV4.css");
+
+  test("type selection gates compact template cards and selected-template details", () => {
+    const source = fs.readFileSync(builderPath, "utf8");
+    expect(source).toContain("pb4-type-grid");
+    expect(source).toContain("selectedProductTypeId ? <section");
+    expect(source).toContain("pb4-template-card");
+    expect(source).toContain("pb4-template-detail");
+    expect(source).toContain("getTemplateShortDescription(selectedTemplate)");
+    expect(source).toContain("Select a product type above to open its available templates.");
+    expect(source).toContain("selectedTemplate && <section");
+  });
+
+  test("progressive selection uses dense responsive grids with a desktop detail rail", () => {
+    const css = fs.readFileSync(cssPath, "utf8");
+    expect(css).toContain("grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr))");
+    expect(css).toContain("grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr))");
+    expect(css).toContain("@media (min-width: 1024px)");
+    expect(css).toContain("grid-template-columns: minmax(0, 1.45fr) minmax(18rem, 0.75fr)");
+  });
+});
