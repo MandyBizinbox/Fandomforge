@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Image as ImageIcon } from "lucide-react";
 import { assetUrl } from "../../lib/api";
 import "./productBuilderV2.css";
@@ -35,25 +35,23 @@ function variationValue(variation, key) {
   return actual ? String(attrs[actual]) : "";
 }
 
-function deriveSelectedIds(variations, options) {
-  const activeKeys = Object.keys(options).filter((key) => asArray(options[key]).length);
-  if (!activeKeys.length) return [];
+export function deriveSelectedIds(variations, options) {
+  const attributeKeys = Object.keys(options || {});
+  if (!attributeKeys.length || attributeKeys.some((key) => !asArray(options[key]).length)) return [];
   return asArray(variations)
-    .filter((variation) => activeKeys.every((key) => asArray(options[key]).map(normalise).includes(normalise(variationValue(variation, key)))))
+    .filter((variation) => attributeKeys.every((key) => asArray(options[key]).map(normalise).includes(normalise(variationValue(variation, key)))))
     .map(variationId)
     .filter(Boolean);
 }
 
-function seedSelections(variations, selectedIds) {
+export function seedSelections(variations, selectedIds) {
   const selected = new Set(asArray(selectedIds).map(String));
   const options = collectAttributeOptions(variations);
-  return Object.fromEntries(options.map((option) => {
-    const values = option.values.filter((value) => {
-      const matching = variations.filter((variation) => normalise(variationValue(variation, option.key)) === normalise(value));
-      return matching.length > 0 && matching.every((variation) => selected.has(variationId(variation)));
-    });
-    return [option.key, values];
-  }));
+  const selectedVariations = asArray(variations).filter((variation) => selected.has(variationId(variation)));
+  return Object.fromEntries(options.map((option) => [
+    option.key,
+    option.values.filter((value) => selectedVariations.some((variation) => normalise(variationValue(variation, option.key)) === normalise(value))),
+  ]));
 }
 
 function getFallbackImage(template = {}) {
@@ -65,17 +63,27 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
   const attributes = useMemo(() => collectAttributeOptions(sourceVariations), [sourceVariations]);
   const selectedIdsKey = idKey(selectedIds);
   const [selectedValues, setSelectedValues] = useState(() => seedSelections(sourceVariations, selectedIds));
+  const lastEmittedIdsKey = useRef("");
 
   // Edit mode can hydrate selected IDs after the template is already present.
-  // Keep the local checkbox state aligned with the persisted product instead of
-  // letting stale local state emit an empty/different selection back upstream.
+  // Do not re-seed from IDs that this component just emitted: selected IDs only
+  // describe generated combinations, while selectedValues preserves the user's
+  // independent attribute choices (for example one colour + every size).
   useEffect(() => {
+    if (selectedIdsKey === lastEmittedIdsKey.current) {
+      lastEmittedIdsKey.current = "";
+      return;
+    }
     setSelectedValues(seedSelections(sourceVariations, selectedIds));
-  }, [template?.id, selectedIdsKey, sourceVariations]);
+  }, [template?.id, selectedIdsKey, sourceVariations, selectedIds]);
 
   useEffect(() => {
     const ids = deriveSelectedIds(sourceVariations, selectedValues);
-    if (idKey(ids) !== selectedIdsKey) onChange(ids);
+    const nextIdsKey = idKey(ids);
+    if (nextIdsKey !== selectedIdsKey) {
+      lastEmittedIdsKey.current = nextIdsKey;
+      onChange(ids);
+    }
   }, [selectedValues, sourceVariations, selectedIdsKey, onChange]);
 
   const selectedCount = asArray(selectedIds).length;
