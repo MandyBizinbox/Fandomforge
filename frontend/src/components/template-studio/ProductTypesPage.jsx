@@ -26,7 +26,7 @@ function blueprintFlags(row) {
   ].filter(Boolean);
 }
 
-export default function ProductTypesPage() {
+export default function ProductTypesPage({ embedded = false } = {}) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("all");
@@ -63,12 +63,13 @@ export default function ProductTypesPage() {
     }
   };
 
+  const HeadingTag = embedded ? "h2" : "h1";
   return (
     <div data-testid="admin-product-types-page">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-8">
         <div>
           <div className="overline mb-2">Production blueprints</div>
-          <h1 className="font-display text-5xl uppercase">Product Types</h1>
+          <HeadingTag className={`font-display uppercase ${embedded ? "text-3xl" : "text-5xl"}`}>Product Types</HeadingTag>
           <p className="text-zinc-400 text-sm mt-3 max-w-2xl">
             Manage reusable product families. Supplier templates own visual mockups, print areas, print rules and blank costing.
           </p>

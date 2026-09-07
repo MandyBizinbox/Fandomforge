@@ -3,7 +3,7 @@ import { http } from "../../lib/api";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 
-export default function CategoriesAdmin() {
+export default function CategoriesAdmin({ embedded = false } = {}) {
   const [rows, setRows] = useState([]);
   const [name, setName] = useState("");
 
@@ -40,10 +40,11 @@ export default function CategoriesAdmin() {
     } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
   };
 
+  const HeadingTag = embedded ? "h2" : "h1";
   return (
     <div data-testid="admin-categories-page">
       <div className="overline mb-2">Taxonomy</div>
-      <h1 className="font-display text-5xl uppercase mb-8">Categories</h1>
+      <HeadingTag className={`font-display uppercase ${embedded ? "text-3xl" : "text-5xl"} mb-8`}>Categories</HeadingTag>
 
       <form onSubmit={create} className="flex gap-3 mb-8 max-w-lg" data-testid="cat-create-form">
         <input className="input-base" placeholder="New category name (e.g., Sticker)" value={name} onChange={(e) => setName(e.target.value)} data-testid="cat-name-input" />

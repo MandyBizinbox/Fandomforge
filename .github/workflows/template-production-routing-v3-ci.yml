@@ -24,10 +24,16 @@ on:
     paths:
       - "frontend/src/components/template-studio/**"
       - "frontend/src/components/product-builder/**"
+      - "frontend/src/components/product-system/**"
       - "frontend/src/components/product/**"
+      - "frontend/src/components/admin/adminProductSystemUi.test.js"
+      - "frontend/src/components/admin/dashboard/**"
+      - "frontend/src/pages/admin/CategoriesAdmin.jsx"
+      - "frontend/src/pages/admin/AttributesAdmin.jsx"
       - "frontend/src/pages/admin/AdminManufacturingRulesUnified.jsx"
       - "frontend/src/pages/admin/ManufacturingProfilesPanel.jsx"
       - "frontend/src/pages/admin/manufacturingRulesShared.jsx"
+      - "frontend/src/routes/AdminProductSystemRoute.jsx"
       - "frontend/src/routes/AdminManufacturingRulesRoute.jsx"
       - "frontend/src/components/orders/ManualOrderBuilder.jsx"
       - "frontend/src/lib/**"
@@ -153,6 +159,7 @@ jobs:
           cataloguePricingUtils.test.js
           templateReadiness.test.js
           productTemplatesPerformance.test.js
+          adminProductSystemUi.test.js
           derivedMockupRenderer.test.js
           productBuilderPricingGallery.test.js
           outsourcedProductionPricing.test.js

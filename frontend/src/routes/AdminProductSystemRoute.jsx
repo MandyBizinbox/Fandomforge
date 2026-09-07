@@ -54,7 +54,7 @@ function ProductSystemPage({ children }) {
           <p className="overline mb-2">Product System</p>
           <h1 className="font-display text-5xl uppercase">Products & Templates</h1>
           <p className="text-sm text-[var(--ff-muted-text)] mt-2 max-w-3xl">
-            Product definitions now use real routes instead of JavaScript-selected workspace tabs. Each tool can be deep-linked, refreshed and maintained independently.
+            Manage product blueprints, templates, sellable products, categories and attributes from one workspace. Manufacturing rules stay separate so product setup remains easy to scan.
           </p>
         </div>
 
@@ -90,11 +90,11 @@ export default function AdminProductSystemRoute() {
   return (
     <Routes>
       <Route element={<DashboardLayout title="Platform Admin" links={adminLinks} testidPrefix="admin-dash" notificationEndpoint="/admin/notifications" notificationPath="/admin/notifications" />}>
-        <Route path="product-templates" element={<Wrapped><ProductTemplatesPage /></Wrapped>} />
-        <Route path="product-types" element={<Wrapped><ProductTypesPage /></Wrapped>} />
-        <Route path="products" element={<Wrapped><SellableProductsPage /></Wrapped>} />
-        <Route path="categories" element={<Wrapped><CategoriesAdmin /></Wrapped>} />
-        <Route path="attributes" element={<Wrapped><AttributesAdmin /></Wrapped>} />
+        <Route path="product-templates" element={<Wrapped><ProductTemplatesPage embedded /></Wrapped>} />
+        <Route path="product-types" element={<Wrapped><ProductTypesPage embedded /></Wrapped>} />
+        <Route path="products" element={<Wrapped><SellableProductsPage embedded /></Wrapped>} />
+        <Route path="categories" element={<Wrapped><CategoriesAdmin embedded /></Wrapped>} />
+        <Route path="attributes" element={<Wrapped><AttributesAdmin embedded /></Wrapped>} />
         <Route path="print-options" element={<Navigate to="/admin/manufacturing-rules" replace />} />
       </Route>
     </Routes>
