@@ -1,0 +1,59 @@
+name: Temporary Product Builder V4 Theme Clean
+
+on:
+  push:
+    branches:
+      - ui/product-builder-theme-clean-pass
+
+permissions:
+  contents: write
+
+jobs:
+  migrate-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Apply Product Builder theme migration
+        run: python scripts/tmp_product_builder_theme_clean.py
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Run Product Builder UI regressions
+        working-directory: frontend
+        env:
+          CI: "true"
+        run: >-
+          npm test -- --watchAll=false --runInBand
+          productBuilderV4Ui.test.js
+          productBuilderPricingGallery.test.js
+          theme.test.js
+          variationProductionRouting.test.js
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          CI: "false"
+        run: npm run build
+
+      - name: Commit application changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- frontend/src/components/product-builder/ProductBuilderV4.jsx
+          if git diff --cached --quiet; then
+            echo "No application changes to commit."
+            exit 0
+          fi
+          git commit -m "Polish Product Builder V4 theme and responsive chrome"
+          git push origin HEAD:ui/product-builder-theme-clean-pass
