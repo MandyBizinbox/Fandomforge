@@ -4,7 +4,6 @@ import { useAuth } from "../../context/AuthContext";
 import { toast } from "sonner";
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Package, Save, Star } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
-import { templateReadiness } from "../../lib/templateReadiness";
 import {
   emitCreatorProductsReadyRefresh,
   canPublishCreatorProduct,
@@ -52,9 +51,6 @@ const EMPTY_PLACEMENT = { x: 0, y: 0, width: 0, height: 0, rotation: 0 };
 
 function normalise(value) { return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"); }
 function idKey(values) { return asArray(values).map(String).filter(Boolean).sort().join("|"); }
-function isBuilderSelectableTemplate(template, globalPrintOptions = []) {
-  return normalise(template?.status) === "active" && templateReadiness(template, globalPrintOptions).isLaunchReady;
-}
 function templateMatchesType(template, type) {
   if (!type) return true;
   const templateKeys = [template.product_type_id, template.product_type_slug, template.product_type_key, template.product_type, template.category, template.category_id, template.category_slug].map(normalise).filter(Boolean);
@@ -212,19 +208,13 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
         const responses = await Promise.all(requests);
         if (!mounted) return;
         const loadedTemplates = asArray(responses[0].data);
-        const loadedPrintOptions = asArray(responses[1].data);
         const loadedProductTypes = asArray(responses[2].data);
-        const selectableTemplates = loadedTemplates.filter((template) => isBuilderSelectableTemplate(template, loadedPrintOptions));
-        let templatesForBuilder = selectableTemplates;
-        setPrintOptions(loadedPrintOptions); setProductTypes(loadedProductTypes);
+        setTemplates(loadedTemplates); setPrintOptions(asArray(responses[1].data)); setProductTypes(loadedProductTypes);
         let cursor = 3;
         if (isAdmin) { setCreators(asArray(responses[cursor].data)); cursor += 1; }
         if (!isNew) {
           const existing = responses[cursor].data;
           const existingTemplate = loadedTemplates.find((template) => String(template.id) === String(existing.template_id)) || null;
-          if (existingTemplate && !selectableTemplates.some((template) => String(template.id) === String(existingTemplate.id))) {
-            templatesForBuilder = [...selectableTemplates, existingTemplate];
-          }
           const existingVariationIds = resolveExistingVariationIds(existing, existingTemplate);
           setProduct(existing);
           const groups = asArray(existing.artwork_groups).length ? asArray(existing.artwork_groups) : asArray(existing.artworks).length ? [{ ...createDefaultArtworkGroup(), artworks: asArray(existing.artworks), primary_mockup_image_url: existing.primary_mockup_image_url || existing.mockup_image_url || "" }] : [];
@@ -242,7 +232,6 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
           const type = resolveExistingProductType(existing, existingTemplate, loadedProductTypes);
           if (type) setSelectedProductTypeId(type.id);
         }
-        setTemplates(templatesForBuilder);
       } catch (error) { toast.error(error.response?.data?.detail || "Could not load product builder"); }
       finally { if (mounted) setLoading(false); }
     }
