@@ -13,6 +13,7 @@ function ValueChips({ values, onChange }) {
     setDraft("");
   };
   const remove = (v) => onChange(values.filter((x) => x !== v));
+  const HeadingTag = embedded ? "h2" : "h1";
   return (
     <div>
       <div className="flex flex-wrap gap-2 mb-2">
@@ -34,7 +35,7 @@ function ValueChips({ values, onChange }) {
   );
 }
 
-export default function AttributesAdmin() {
+export default function AttributesAdmin({ embedded = false } = {}) {
   const [rows, setRows] = useState([]);
   const [editing, setEditing] = useState(null);
   const load = () => http.get("/attributes").then((r) => setRows(r.data));
@@ -75,7 +76,7 @@ export default function AttributesAdmin() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <div className="overline mb-2">Catalog</div>
-          <h1 className="font-display text-5xl uppercase">Attributes</h1>
+          <HeadingTag className={`font-display uppercase ${embedded ? "text-3xl" : "text-5xl"}`}>Attributes</HeadingTag>
         </div>
         {!editing && <button onClick={startNew} className="btn-primary" data-testid="attr-new-btn"><Plus size={14} /> New Attribute</button>}
       </div>

@@ -16,7 +16,7 @@ export default function AdminOverview() {
   }, []);
   if (!stats) return <div className="overline">Loading…</div>;
   const card = (label, value, tone = "") => (
-    <div className="p-6 border-r border-b border-[var(--ff-card-border)]" data-testid={`admin-stat-${label.toLowerCase().replace(/ /g, '-')}`}>
+    <div className="p-5 md:p-6 rounded-xl border border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] min-w-0" data-testid={`admin-stat-${label.toLowerCase().replace(/ /g, '-')}`}>
       <div className="overline mb-2">{label}</div>
       <div className={`font-display text-3xl ${tone}`}>{value}</div>
     </div>
@@ -36,7 +36,7 @@ export default function AdminOverview() {
         </div>
         <div className="font-display text-4xl text-[var(--ff-primary)]">{artworkReviewCount}</div>
       </button>
-      <div className="grid grid-cols-2 md:grid-cols-4 border-t border-l border-[var(--ff-card-border)]">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {card("Creators", stats.creators)}
         {card("Active Creators", stats.bands_active, "ff-admin-success-text")}
         {card("Printers", stats.printers)}

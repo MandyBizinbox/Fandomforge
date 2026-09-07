@@ -237,7 +237,7 @@ function readinessMatchesFilter(template, filter, globalPrintOptions = [], readi
   return true;
 }
 
-export default function ProductTemplatesPage() {
+export default function ProductTemplatesPage({ embedded = false } = {}) {
   const [templates, setTemplates] = useState([]);
   const [productTypes, setProductTypes] = useState([]);
   const [printOptions, setPrintOptions] = useState([]);
@@ -572,18 +572,20 @@ export default function ProductTemplatesPage() {
     }
   };
 
+  const HeadingTag = embedded ? "h2" : "h1";
   return (
     <div data-testid="admin-product-templates-page">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-8">
         <div>
           <div className="overline mb-2">Production catalogue</div>
-          <h1 className="font-display text-5xl uppercase">Product Templates</h1>
+          <HeadingTag className={`font-display uppercase ${embedded ? "text-3xl" : "text-5xl"}`}>Product Templates</HeadingTag>
           <p className="text-zinc-400 text-sm mt-3 max-w-2xl">
             Build blank product templates with variation images, production costs, mockup views and printable areas.
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <select className="input-base md:w-44" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <div className="flex flex-col gap-3 xl:items-end">
+          <div data-testid="template-filter-controls" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+          <select className="input-base xl:w-44" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="all">All statuses</option>
             <option value="active">Active</option>
             <option value="launch_ready">Launch ready</option>
@@ -610,6 +612,8 @@ export default function ProductTemplatesPage() {
             <option value="inactive_methods">Using inactive methods</option>
             <option value="manual_review">Manual review required</option>
           </select>
+          </div>
+          <div data-testid="template-action-controls" className="flex flex-wrap gap-2 xl:justify-end">
           <button
             type="button"
             onClick={() => exportTemplateCsv(false)}
@@ -651,6 +655,7 @@ export default function ProductTemplatesPage() {
           <button type="button" onClick={() => navigate("/admin/product-templates/new")} className="btn-primary">
             <Plus size={14} /> New Template
           </button>
+          </div>
         </div>
       </div>
 

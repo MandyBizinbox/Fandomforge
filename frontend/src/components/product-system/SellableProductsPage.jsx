@@ -9,7 +9,7 @@ function money(value) {
   return `R ${Number(value || 0).toFixed(2)}`;
 }
 
-export default function SellableProductsPage() {
+export default function SellableProductsPage({ embedded = false } = {}) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -42,12 +42,13 @@ export default function SellableProductsPage() {
     }
   };
 
+  const HeadingTag = embedded ? "h2" : "h1";
   return (
     <div data-testid="admin-products-page" className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="overline mb-2">Sellable catalogue</div>
-          <h1 className="font-display text-5xl uppercase">Products</h1>
+          <HeadingTag className={`font-display uppercase ${embedded ? "text-3xl" : "text-5xl"}`}>Products</HeadingTag>
           <p className="text-sm text-[var(--ff-muted-text)] mt-2 max-w-3xl">
             Customer-facing products backed by Mongo product records. Template products open in the Product Builder.
           </p>
