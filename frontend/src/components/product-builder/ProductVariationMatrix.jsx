@@ -62,20 +62,26 @@ export default function ProductVariationMatrix({ template, selectedIds, onChange
   const sourceVariations = useMemo(() => asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived"), [template]);
   const attributes = useMemo(() => collectAttributeOptions(sourceVariations), [sourceVariations]);
   const selectedIdsKey = idKey(selectedIds);
+  const sourceVariationsKey = useMemo(() => idKey(sourceVariations.map(variationId)), [sourceVariations]);
+  const selectionContextKey = `${String(template?.id || "")}|${sourceVariationsKey}`;
   const [selectedValues, setSelectedValues] = useState(() => seedSelections(sourceVariations, selectedIds));
   const lastEmittedIdsKey = useRef("");
+  const lastSelectionContextKey = useRef(selectionContextKey);
 
   // Edit mode can hydrate selected IDs after the template is already present.
   // Do not re-seed from IDs that this component just emitted: selected IDs only
   // describe generated combinations, while selectedValues preserves the user's
   // independent attribute choices (for example one colour + every size).
   useEffect(() => {
-    if (selectedIdsKey === lastEmittedIdsKey.current) {
+    const contextChanged = lastSelectionContextKey.current !== selectionContextKey;
+    lastSelectionContextKey.current = selectionContextKey;
+    if (!contextChanged && selectedIdsKey === lastEmittedIdsKey.current) {
       lastEmittedIdsKey.current = "";
       return;
     }
+    lastEmittedIdsKey.current = "";
     setSelectedValues(seedSelections(sourceVariations, selectedIds));
-  }, [template?.id, selectedIdsKey, sourceVariations, selectedIds]);
+  }, [selectionContextKey, selectedIdsKey, sourceVariations]);
 
   useEffect(() => {
     const ids = deriveSelectedIds(sourceVariations, selectedValues);
