@@ -14,6 +14,7 @@ import {
   makeId,
   money,
   normalizeProductionMethodKey,
+  resolveArtworkPhysicalDimensions,
 } from "./productBuilderUtils";
 
 const TEXT_RENDER_MIN = 24;
@@ -521,16 +522,17 @@ function resolveProfileForSlot(slot = {}, profiles = [], legacyPrintOptions = []
   return legacy ? profileFromLegacyPrintOption(legacy) : null;
 }
 
-function calculateArtworkPrintSize(area, placement) {
-  const areaWidthMm = Number(area?.width_mm || 0);
-  const areaHeightMm = Number(area?.height_mm || 0);
-  const widthPct = Number(placement?.width ?? placement?.width_pct ?? 100);
-  const heightPct = Number(placement?.height ?? placement?.height_pct ?? 100);
-  if (!areaWidthMm || !areaHeightMm || !widthPct || !heightPct) {
+function calculateArtworkPrintSize(area, placement, slot = {}) {
+  const physical = resolveArtworkPhysicalDimensions({ ...slot, placement }, area);
+  const areaWidthMm = physical.areaWidthMm;
+  const areaHeightMm = physical.areaHeightMm;
+  const widthPct = physical.placementWidthPct;
+  const heightPct = physical.placementHeightPct;
+  const widthMm = physical.artworkWidthMm;
+  const heightMm = physical.artworkHeightMm;
+  if (!areaWidthMm || !areaHeightMm || !widthMm || !heightMm) {
     return { valid: false, widthPct, heightPct, areaWidthMm, areaHeightMm };
   }
-  const widthMm = areaWidthMm * (widthPct / 100);
-  const heightMm = areaHeightMm * (heightPct / 100);
   const areaCm2 = (widthMm / 10) * (heightMm / 10);
   if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm) || !Number.isFinite(areaCm2) || areaCm2 <= 0) {
     return { valid: false, widthPct, heightPct, areaWidthMm, areaHeightMm };
@@ -548,6 +550,8 @@ function calculateArtworkPrintSize(area, placement) {
     areaHeightCm: Math.round((areaHeightMm / 10) * 10) / 10,
     widthPct: round(widthPct),
     heightPct: round(heightPct),
+    aspectRatio: physical.aspectRatio,
+    aspectLocked: physical.aspectLocked,
   };
 }
 
@@ -663,8 +667,8 @@ function NumericControl({ label, value, onChange }) {
   );
 }
 
-function ArtworkPrintSizeBlock({ area, placement }) {
-  const size = calculateArtworkPrintSize(area, placement);
+function ArtworkPrintSizeBlock({ area, placement, slot }) {
+  const size = calculateArtworkPrintSize(area, placement, slot);
   return (
     <div className="border border-[#34C759]/30 bg-[#0A1B10] rounded-xl p-3">
       <div className="overline mb-2">Artwork Print Size</div>
@@ -674,7 +678,7 @@ function ArtworkPrintSizeBlock({ area, placement }) {
           <div>{size.widthMm.toFixed(0)} × {size.heightMm.toFixed(0)} mm</div>
           <div>{size.areaCm2.toFixed(1)} cm²</div>
           <div className="text-zinc-500 pt-2">Print area: {size.areaWidthCm.toFixed(1)} × {size.areaHeightCm.toFixed(1)} cm</div>
-          <div className="text-zinc-500">Layer: {size.widthPct.toFixed(1)}% × {size.heightPct.toFixed(1)}%</div>
+          <div className="text-zinc-500">{size.aspectLocked ? `Scale: ${size.widthPct.toFixed(1)}% of print-area width · Aspect ${size.aspectRatio.toFixed(3)}:1` : `Layer: ${size.widthPct.toFixed(1)}% × ${size.heightPct.toFixed(1)}%`}</div>
         </div>
       ) : (
         <div className="text-xs text-zinc-500">Set print-area dimensions and layer size to calculate physical artwork dimensions safely.</div>
@@ -1803,7 +1807,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                   <label><span className="label">Colour</span><input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(event) => updateTextLayer({ text_color: event.target.value })} /></label>
                 )}</div><p className="text-[11px] text-zinc-500">Use handles to resize text. Render size controls sharpness, not final product size.</p></div>}
               {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingReplaceSlotIdRef.current = activeSlot.id; pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
-              <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} />
+              <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} slot={activeSlot} />
               <ColourRestrictionBlock profile={selectedProfile} slot={activeSlot} onChange={(value) => setLayerStockedColour(activeSlot.id, value)} />
               <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">
                 <div className="overline mb-2">Costing</div>
