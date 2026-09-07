@@ -71,6 +71,39 @@ describe("outsourced production area pricing", () => {
     expect(result.calculated_print_cost).toBe(53.32);
   });
 
+  test("keeps aspect-locked square artwork physically square when preview geometry is non-square", () => {
+    const result = calculateAreaPrintCost(
+      {
+        ...layer("square-artwork"),
+        original_width_px: 1000,
+        original_height_px: 1000,
+        artwork_aspect_ratio: 1,
+        lock_aspect_ratio: true,
+        placement: {
+          x: 10,
+          y: 10,
+          width: 72.9,
+          height: 49.5,
+        },
+      },
+      {
+        id: "front-shirt-area",
+        screen_id: "front-screen",
+        width_mm: 330,
+        height_mm: 320,
+      },
+      standardDtf
+    );
+
+    expect(result.placement_box_width_mm).toBe(240.6);
+    expect(result.placement_box_height_mm).toBe(158.4);
+    expect(result.artwork_width_mm).toBe(240.6);
+    expect(result.artwork_height_mm).toBe(240.6);
+    expect(result.print_width_mm).toBe(240.6);
+    expect(result.print_height_mm).toBe(240.6);
+    expect(result.area_cm2).toBe(578.74);
+  });
+
   test("uses the 100 cm² minimum rather than a monetary minimum", () => {
     const result = calculateAreaPrintCost(
       layer("small"),

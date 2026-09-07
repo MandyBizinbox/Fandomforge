@@ -95,13 +95,7 @@ export function isCombinablePrintMethod(methodKey, option = {}) {
   return ["dtf", "sublimation", "uv_dtf"].includes(normalizeProductionMethodKey(methodKey));
 }
 
-export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
-  const calculationType = String(
-    option.calculation_type
-    || slot.calculation_type
-    || "fixed"
-  ).toLowerCase();
-  const warnings = [];
+export function resolveArtworkPhysicalDimensions(slot = {}, area = {}, option = {}) {
   const placement = slot.placement || {};
   const areaWidthMm = safeNumber(
     area.width_mm
@@ -125,16 +119,8 @@ export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
     placement.height ?? placement.height_pct ?? 100,
     100
   );
-  const printWidthMm = areaWidthMm * (placementWidthPct / 100);
-  const printHeightMm = areaHeightMm * (placementHeightPct / 100);
-  const placementAreaCm2 = Math.max(
-    0,
-    (printWidthMm / 10) * (printHeightMm / 10)
-  );
-  const explicitCombinedAreaCm2 = safeNumber(slot.combined_area_cm2 || 0);
-  const actualAreaCm2 = explicitCombinedAreaCm2 > 0
-    ? explicitCombinedAreaCm2
-    : placementAreaCm2;
+  const placementBoxWidthMm = areaWidthMm * (placementWidthPct / 100);
+  const placementBoxHeightMm = areaHeightMm * (placementHeightPct / 100);
 
   const artworkWidthPx = safeNumber(
     slot.original_width_px
@@ -149,6 +135,65 @@ export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
   const aspectRatio = artworkWidthPx > 0 && artworkHeightPx > 0
     ? artworkWidthPx / artworkHeightPx
     : safeNumber(slot.artwork_aspect_ratio || 0);
+  const aspectLocked = slot.lock_aspect_ratio !== false && aspectRatio > 0;
+
+  // Placement width is the canonical scale for aspect-locked artwork. The
+  // studio derives placement height from the on-screen print-area rectangle
+  // solely so the preview preserves the source image's visual aspect ratio.
+  // That preview height percentage is therefore not a physical-height scale.
+  let artworkWidthMm = placementBoxWidthMm;
+  let artworkHeightMm = placementBoxHeightMm;
+  if (aspectLocked) {
+    artworkWidthMm = placementBoxWidthMm;
+    artworkHeightMm = artworkWidthMm / aspectRatio;
+
+    // A locked artwork can never physically exceed the print area's height.
+    // Reduce both dimensions together instead of stretching the source.
+    if (areaHeightMm > 0 && artworkHeightMm > areaHeightMm) {
+      artworkHeightMm = areaHeightMm;
+      artworkWidthMm = artworkHeightMm * aspectRatio;
+    }
+  }
+
+  return {
+    areaWidthMm,
+    areaHeightMm,
+    placementWidthPct,
+    placementHeightPct,
+    placementBoxWidthMm,
+    placementBoxHeightMm,
+    artworkWidthMm,
+    artworkHeightMm,
+    aspectRatio,
+    aspectLocked,
+  };
+}
+
+export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
+  const calculationType = String(
+    option.calculation_type
+    || slot.calculation_type
+    || "fixed"
+  ).toLowerCase();
+  const warnings = [];
+  const physicalDimensions = resolveArtworkPhysicalDimensions(slot, area, option);
+  const {
+    areaWidthMm,
+    areaHeightMm,
+    placementBoxWidthMm,
+    placementBoxHeightMm,
+    artworkWidthMm: printWidthMm,
+    artworkHeightMm: printHeightMm,
+    aspectRatio,
+  } = physicalDimensions;
+  const placementAreaCm2 = Math.max(
+    0,
+    (printWidthMm / 10) * (printHeightMm / 10)
+  );
+  const explicitCombinedAreaCm2 = safeNumber(slot.combined_area_cm2 || 0);
+  const actualAreaCm2 = explicitCombinedAreaCm2 > 0
+    ? explicitCombinedAreaCm2
+    : placementAreaCm2;
 
   const minimumAreaCm2 = Math.max(
     0,
@@ -238,8 +283,8 @@ export function calculateAreaPrintCost(slot = {}, area = {}, option = {}) {
 
   return {
     calculation_type: calculationType,
-    placement_box_width_mm: roundMm(printWidthMm),
-    placement_box_height_mm: roundMm(printHeightMm),
+    placement_box_width_mm: roundMm(placementBoxWidthMm),
+    placement_box_height_mm: roundMm(placementBoxHeightMm),
     artwork_aspect_ratio: Math.round(aspectRatio * 10000) / 10000,
     print_area_width_mm: roundMm(areaWidthMm),
     print_area_height_mm: roundMm(areaHeightMm),
