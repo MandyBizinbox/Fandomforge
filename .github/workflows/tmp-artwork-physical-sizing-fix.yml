@@ -1,0 +1,61 @@
+name: Temporary Artwork Physical Sizing Fix
+
+on:
+  push:
+    branches:
+      - fix/artwork-physical-aspect-sizing
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/artwork-physical-aspect-sizing
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Apply guarded source patch
+        run: python3 scripts/tmp_fix_artwork_physical_dimensions.py
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Run artwork sizing and Product Builder regressions
+        working-directory: frontend
+        env:
+          CI: 'true'
+        run: >-
+          npm test -- --watchAll=false --runInBand
+          outsourcedProductionPricing.test.js
+          productBuilderPricingGallery.test.js
+
+      - name: Build production frontend
+        working-directory: frontend
+        env:
+          CI: 'false'
+        run: npm run build
+
+      - name: Commit validated source patch
+        run: |
+          test -n "$(git status --short)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/product-builder/ProductArtworkStudio.jsx \
+                  frontend/src/components/product-builder/productBuilderUtils.js \
+                  frontend/src/components/product-builder/outsourcedProductionPricing.test.js
+          git diff --cached --check
+          git commit -m "Fix artwork physical aspect sizing"
+          git push origin HEAD:fix/artwork-physical-aspect-sizing
