@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { http } from "../../lib/api";
 import { toast } from "sonner";
-
-const MASKED_SECRET = "********";
+import { FieldRenderer, MethodShell, TextInput } from "./shipping/ShippingMethodFields";
 
 function cloneMethod(method) {
   return {
@@ -19,115 +18,6 @@ function cloneMethod(method) {
     public_config: { ...(method.public_config || {}) },
     settings: { ...(method.settings || {}) },
   };
-}
-
-function TextInput({ label, value, onChange, placeholder = "", type = "text", help = "" }) {
-  return (
-    <div>
-      <label className="label">{label}</label>
-      <input className="input-base" type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
-      {help && <p className="text-xs text-[var(--ff-muted-text)] mt-1">{help}</p>}
-    </div>
-  );
-}
-
-function ToggleRow({ label, checked, onChange, help = "" }) {
-  return (
-    <label className="flex items-start gap-3 border border-[var(--ff-card-border)] p-3 bg-[var(--ff-card-bg)] cursor-pointer">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-1" />
-      <span>
-        <span className="block text-sm font-bold">{label}</span>
-        {help && <span className="block text-xs text-[var(--ff-muted-text)] mt-1">{help}</span>}
-      </span>
-    </label>
-  );
-}
-
-function CapabilityPill({ active, children }) {
-  return (
-    <span className={`text-[10px] uppercase tracking-widest border px-2 py-1 ${active ? "border-[#34C759]/50 text-[#34C759]" : "border-[var(--ff-card-border)] text-[var(--ff-muted-text)]"}`}>
-      {children}
-    </span>
-  );
-}
-
-function FieldRenderer({ field, value, onChange }) {
-  const type = field.type || "text";
-  if (type === "textarea") {
-    return (
-      <div>
-        <label className="label">{field.label}</label>
-        <textarea className="input-base min-h-[90px]" value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder || ""} />
-        {field.help && <p className="text-xs text-[var(--ff-muted-text)] mt-1">{field.help}</p>}
-      </div>
-    );
-  }
-  if (type === "checkbox") {
-    return <ToggleRow label={field.label} checked={Boolean(value)} onChange={onChange} help={field.help || ""} />;
-  }
-  if (type === "select") {
-    return (
-      <div>
-        <label className="label">{field.label}</label>
-        <select className="input-base" value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
-          {(field.options || []).map((option) => (
-            <option key={option.value ?? option.key ?? option.label} value={option.value ?? option.key ?? ""}>{option.label}</option>
-          ))}
-        </select>
-        {field.help && <p className="text-xs text-[var(--ff-muted-text)] mt-1">{field.help}</p>}
-      </div>
-    );
-  }
-  return (
-    <TextInput
-      label={field.label}
-      type={type === "number" ? "number" : type === "password" ? "password" : "text"}
-      value={value ?? (type === "password" ? MASKED_SECRET : "")}
-      onChange={onChange}
-      placeholder={field.placeholder || ""}
-      help={field.help || ""}
-    />
-  );
-}
-
-function MethodShell({ children, method, adapter, setMethod, saving, save }) {
-  return (
-    <div className="card space-y-5">
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-        <div>
-          <p className="overline mb-2">Shipping Adapter</p>
-          <h2 className="font-display text-3xl uppercase">{method.display_name}</h2>
-          <p className="text-sm text-[var(--ff-muted-text)] mt-1">{method.description || adapter?.description || "Configure checkout availability, rates and dispatch behaviour."}</p>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <CapabilityPill active={adapter?.supports_live_rates}>Live rates</CapabilityPill>
-            <CapabilityPill active={adapter?.supports_waybills}>Waybills</CapabilityPill>
-            <CapabilityPill active={adapter?.supports_tracking}>Tracking</CapabilityPill>
-            <CapabilityPill active={adapter?.supports_pickup}>Pickup</CapabilityPill>
-          </div>
-        </div>
-        <button type="button" onClick={save} disabled={saving} className="btn-primary whitespace-nowrap">
-          {saving ? "Saving…" : "Save method"}
-        </button>
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-4">
-        <ToggleRow label="Enabled at checkout" checked={method.enabled} onChange={(v) => setMethod({ ...method, enabled: v })} />
-        <div>
-          <label className="label">Adapter key</label>
-          <input className="input-base" value={method.adapter_key || method.key} readOnly />
-          <p className="text-xs text-[var(--ff-muted-text)] mt-1">New couriers are added as backend adapters, then appear here automatically after deploy.</p>
-        </div>
-        <TextInput label="Display name" value={method.display_name} onChange={(v) => setMethod({ ...method, display_name: v })} />
-        <TextInput label="Sort order" type="number" value={method.sort_order} onChange={(v) => setMethod({ ...method, sort_order: Number(v || 0) })} />
-        <div className="md:col-span-2">
-          <label className="label">Description</label>
-          <textarea className="input-base min-h-[90px]" value={method.description || ""} onChange={(e) => setMethod({ ...method, description: e.target.value })} />
-        </div>
-      </div>
-
-      {children}
-    </div>
-  );
 }
 
 export default function ShippingSettings() {
@@ -207,11 +97,11 @@ export default function ShippingSettings() {
   };
 
   if (loading) return <div className="overline">Loading shipping settings…</div>;
-  if (!activeMethod) return <div className="card text-sm text-[var(--ff-muted-text)]">No shipping methods available.</div>;
+  if (!activeMethod) return <div className="ff-admin-card text-sm ff-admin-muted">No shipping methods available.</div>;
 
   return (
     <div className="grid lg:grid-cols-[280px_1fr] gap-6">
-      <div className="card h-fit space-y-2">
+      <div className="ff-admin-card h-fit space-y-2">
         <p className="overline mb-3">Methods</p>
         {methods.map((method) => {
           const adapter = adapterByKey[method.adapter_key || method.key];
@@ -220,13 +110,13 @@ export default function ShippingSettings() {
               key={method.key}
               type="button"
               onClick={() => selectMethod(method.key)}
-              className={`w-full text-left border p-3 ${activeKey === method.key ? "border-[var(--ff-primary)] bg-[var(--ff-primary)]/10" : "border-[var(--ff-card-border)] hover:border-[var(--ff-card-border)]"}`}
+              className={`ff-admin-method-link w-full text-left p-3 ${activeKey === method.key ? "is-active" : ""}`}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-bold">{method.display_name}</span>
-                <span className={`text-[10px] uppercase tracking-widest ${method.enabled ? "text-[#34C759]" : "text-[var(--ff-muted-text)]"}`}>{method.enabled ? "On" : "Off"}</span>
+                <span className={`text-[10px] uppercase tracking-widest ${method.enabled ? "ff-admin-success-text" : "ff-admin-muted"}`}>{method.enabled ? "On" : "Off"}</span>
               </div>
-              <div className="text-xs text-[var(--ff-muted-text)] mt-1">{adapter?.display_name || method.method_type.replace(/_/g, " ")} · R {Number(method.rate || 0).toFixed(2)}</div>
+              <div className="text-xs ff-admin-muted mt-1">{adapter?.display_name || method.method_type.replace(/_/g, " ")} · R {Number(method.rate || 0).toFixed(2)}</div>
             </button>
           );
         })}
@@ -271,7 +161,7 @@ export default function ShippingSettings() {
           </div>
         )}
 
-        <div className="border-t border-[var(--ff-card-border)] pt-5 text-xs text-[var(--ff-muted-text)] leading-relaxed">
+        <div className="border-t border-[var(--ff-card-border)] pt-5 text-xs ff-admin-muted leading-relaxed">
           To add another courier, create a backend adapter in <code>backend/shipping_methods/</code>, register it in <code>registry.py</code>, push to GitHub, then pull/restart the VPS. No checkout UI rewrite should be needed.
         </div>
       </MethodShell>

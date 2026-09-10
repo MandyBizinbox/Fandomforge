@@ -380,7 +380,11 @@ function apiUrl(path) {
 }
 
 function authHeaders() {
-  const token = window.localStorage.getItem("mf_token");
+  const token =
+    window.localStorage.getItem("ff_token")
+    || window.localStorage.getItem("mf_token")
+    || window.localStorage.getItem("fandomforge_token");
+
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

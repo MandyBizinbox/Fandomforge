@@ -8,6 +8,11 @@ import hashlib
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
+from platform_fee_pricing import (
+    production_fee_amount,
+    total_cost_to_produce,
+)
+
 from .settings import (
     estimate_gateway_fee,
     gateway_fee_snapshot,
@@ -15,7 +20,7 @@ from .settings import (
     tax_snapshot,
 )
 
-PRICING_VERSION = "pricing_v1"
+PRICING_VERSION = "pricing_v2_production_cost_fee"
 CENT = Decimal("0.01")
 
 
@@ -181,8 +186,9 @@ async def _print_costs(db, product: Dict[str, Any]) -> Tuple[Decimal, Decimal, L
 def _operation_costs(product: Dict[str, Any]) -> Tuple[Decimal, Decimal, List[Dict[str, Any]]]:
     lines = deepcopy(product.get("production_operation_lines") or [])
     platform = money(sum(D(row.get("platform_cost")) for row in lines))
-    explicit_creator = product.get("production_operation_cost")
-    creator = money(explicit_creator) if explicit_creator not in (None, "") else marked_price(platform)
+    # Operations are retained for internal costing but are not added to the
+    # creator-facing print price as a second charge.
+    creator = Decimal("0")
     return platform, creator, lines
 
 
@@ -245,18 +251,33 @@ async def calculate_product_pricing(
     print_platform, print_creator, print_sources = await _print_costs(db, product)
     operation_platform, operation_creator, operation_lines = _operation_costs(product)
     packaging = money(settings.launch.packaging_cost)
-    creator_product_cost = money(blank_creator + print_creator + operation_creator + packaging)
-    platform_internal_cost = money(blank_platform + print_platform + operation_platform + packaging)
-    printer_liability, printer_source = await _printer_liability(db, product, printer_id, creator_product_cost)
+    creator_production_subtotal = money(blank_creator + print_creator)
+    rate = _commission_rate(product, creator, settings.raw)
+    commission = money(
+        production_fee_amount(creator_production_subtotal, rate)
+    )
+    creator_product_cost = money(
+        total_cost_to_produce(creator_production_subtotal, rate)
+    )
+    platform_internal_cost = money(
+        blank_platform
+        + print_platform
+        + operation_platform
+        + packaging
+    )
+    printer_liability, printer_source = await _printer_liability(
+        db,
+        product,
+        printer_id,
+        platform_internal_cost,
+    )
     unit_price = money(
         customer_unit_price
         if customer_unit_price is not None
         else variation.get("price_override") if variation.get("price_override") is not None
         else product.get("selling_price") or product.get("customer_selling_price")
     )
-    rate = _commission_rate(product, creator, settings.raw)
-    commission = money(unit_price * rate)
-    creator_earnings = money(unit_price - creator_product_cost - commission)
+    creator_earnings = money(unit_price - creator_product_cost)
     if creator_earnings < 0:
         creator_earnings = Decimal("0")
     platform_gross_revenue = money(unit_price - creator_earnings)
@@ -286,11 +307,13 @@ async def calculate_product_pricing(
         "platform_production_operation_cost": fmoney(operation_platform),
         "creator_operation_price": fmoney(operation_creator),
         "packaging_cost": fmoney(packaging),
+        "creator_production_subtotal": fmoney(creator_production_subtotal),
         "creator_facing_product_cost": fmoney(creator_product_cost),
         "customer_selling_price": fmoney(unit_price),
         "customer_unit_total": fmoney(customer_unit_total),
         "platform_commission_rate": float(rate),
         "platform_commission": fmoney(commission),
+        "platform_fee_basis": "blank_plus_printing",
         "creator_earnings": fmoney(creator_earnings),
         "printer_liability": fmoney(printer_liability),
         "platform_internal_cost": fmoney(platform_internal_cost),

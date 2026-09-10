@@ -1,0 +1,247 @@
+.template-studio-v3 {
+  --v3-page: #090909;
+  --v3-surface: #121212;
+  --v3-surface-subtle: #191919;
+  --v3-surface-muted: #222222;
+  --v3-text: #f7f7f7;
+  --v3-text-secondary: #d7d7d7;
+  --v3-muted: #a4a4a4;
+  --v3-border: #343434;
+  --v3-border-strong: #4a4a4a;
+  --v3-input-bg: #0c0c0c;
+  --v3-input-text: #ffffff;
+  --v3-success: #57c58a;
+  --v3-warning: #f0c44f;
+  --v3-danger: #ff7b72;
+  --v3-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 28px rgba(0, 0, 0, 0.22);
+
+  color: var(--v3-text) !important;
+}
+
+.template-studio-v3 .v3-page-header h1,
+.template-studio-v3 .v3-page-header h2,
+.template-studio-v3 .v3-page-header h3,
+.template-studio-v3 .v3-page-header strong,
+.template-studio-v3 .v3-page-header .overline {
+  color: #ffffff !important;
+}
+
+.template-studio-v3 .v3-page-header p {
+  color: #a4a4a4 !important;
+}
+
+.template-studio-v3 .v3-back,
+.template-studio-v3 .v3-route-nav,
+.template-studio-v3 .v3-card,
+.template-studio-v3 .v3-production-editor,
+.template-studio-v3 .studio-panel {
+  background: var(--v3-surface) !important;
+  color: var(--v3-text) !important;
+  border-color: var(--v3-border) !important;
+}
+
+.template-studio-v3 .v3-route-nav a {
+  color: var(--v3-muted) !important;
+}
+
+.template-studio-v3 .v3-route-nav a:hover,
+.template-studio-v3 .v3-route-nav a.active {
+  background: color-mix(in srgb, var(--v3-primary) 12%, var(--v3-surface)) !important;
+  color: #ffffff !important;
+}
+
+.template-studio-v3 .v3-card h1,
+.template-studio-v3 .v3-card h2,
+.template-studio-v3 .v3-card h3,
+.template-studio-v3 .v3-card strong,
+.template-studio-v3 .v3-production-editor h1,
+.template-studio-v3 .v3-production-editor h2,
+.template-studio-v3 .v3-production-editor h3,
+.template-studio-v3 .v3-production-editor strong,
+.template-studio-v3 .studio-panel h1,
+.template-studio-v3 .studio-panel h2,
+.template-studio-v3 .studio-panel h3,
+.template-studio-v3 .studio-panel strong {
+  color: #ffffff !important;
+}
+
+.template-studio-v3 .v3-card p,
+.template-studio-v3 .v3-production-editor p,
+.template-studio-v3 .studio-panel p,
+.template-studio-v3 .v3-decision-grid span,
+.template-studio-v3 .v3-variation-list span,
+.template-studio-v3 .text-muted,
+.template-studio-v3 .text-zinc-400,
+.template-studio-v3 .text-zinc-500,
+.template-studio-v3 .text-zinc-600,
+.template-studio-v3 .text-gray-400,
+.template-studio-v3 .text-gray-500,
+.template-studio-v3 .text-gray-600,
+.template-studio-v3 .text-slate-400,
+.template-studio-v3 .text-slate-500,
+.template-studio-v3 .text-slate-600 {
+  color: var(--v3-muted) !important;
+}
+
+.template-studio-v3 .text-black,
+.template-studio-v3 .text-white,
+.template-studio-v3 .text-zinc-100,
+.template-studio-v3 .text-zinc-200,
+.template-studio-v3 .text-zinc-300,
+.template-studio-v3 .text-gray-800,
+.template-studio-v3 .text-gray-900,
+.template-studio-v3 .text-slate-800,
+.template-studio-v3 .text-slate-900 {
+  color: var(--v3-text) !important;
+}
+
+.template-studio-v3 input,
+.template-studio-v3 select,
+.template-studio-v3 textarea,
+.template-studio-v3 .input-base {
+  background: var(--v3-input-bg) !important;
+  color: var(--v3-input-text) !important;
+  border-color: var(--v3-border-strong) !important;
+}
+
+.template-studio-v3 input::placeholder,
+.template-studio-v3 textarea::placeholder {
+  color: #777777 !important;
+}
+
+.template-studio-v3 option,
+.template-studio-v3 optgroup {
+  background: var(--v3-input-bg) !important;
+  color: var(--v3-input-text) !important;
+}
+
+.template-studio-v3 .v3-structure-selector,
+.template-studio-v3 .v3-metric,
+.template-studio-v3 .v3-production-summary > div,
+.template-studio-v3 .v3-attribute-values,
+.template-studio-v3 .v3-decision-grid button,
+.template-studio-v3 .v3-variation-list button,
+.template-studio-v3 .v3-copy-targets label,
+.template-studio-v3 .v3-attribute-values label,
+.template-studio-v3 .view-card,
+.template-studio-v3 .print-rule-card,
+.template-studio-v3 .dropzone,
+.template-studio-v3 .studio-subpanel,
+.template-studio-v3 .space-y-5 > div,
+.template-studio-v3 .bg-white,
+.template-studio-v3 .bg-gray-50,
+.template-studio-v3 .bg-slate-50,
+.template-studio-v3 .bg-zinc-50,
+.template-studio-v3 .bg-white\/\[0\.03\],
+.template-studio-v3 .bg-black\/20,
+.template-studio-v3 .bg-black\/30,
+.template-studio-v3 .bg-black\/40,
+.template-studio-v3 .bg-black,
+.template-studio-v3 .bg-zinc-900,
+.template-studio-v3 .bg-zinc-950 {
+  background: var(--v3-surface-subtle) !important;
+  color: var(--v3-text) !important;
+  border-color: var(--v3-border) !important;
+}
+
+.template-studio-v3 .v3-decision-grid button.active,
+.template-studio-v3 .v3-variation-list button.active,
+.template-studio-v3 .view-card.active,
+.template-studio-v3 .print-rule-card.active,
+.template-studio-v3 .canvas-overlay.selected {
+  background: color-mix(in srgb, var(--v3-primary) 14%, var(--v3-surface)) !important;
+  color: #ffffff !important;
+  border-color: var(--v3-primary) !important;
+}
+
+.template-studio-v3 .v3-decision-grid button,
+.template-studio-v3 .v3-decision-grid button strong,
+.template-studio-v3 .v3-variation-list button,
+.template-studio-v3 .v3-variation-list button strong {
+  color: #ffffff !important;
+}
+
+.template-studio-v3 .v3-decision-grid button span,
+.template-studio-v3 .v3-variation-list button span {
+  color: var(--v3-muted) !important;
+}
+
+.template-studio-v3 .v3-button-secondary,
+.template-studio-v3 .btn-secondary,
+.template-studio-v3 .studio-file-button {
+  background: #1b1b1b !important;
+  color: #ffffff !important;
+  border-color: #454545 !important;
+}
+
+.template-studio-v3 .v3-button-secondary:hover,
+.template-studio-v3 .btn-secondary:hover,
+.template-studio-v3 .studio-file-button:hover {
+  background: #242424 !important;
+  color: #ffffff !important;
+  border-color: var(--v3-primary) !important;
+}
+
+.template-studio-v3 .v3-button-primary,
+.template-studio-v3 .btn-primary,
+.template-studio-v3 .v3-upload {
+  background: var(--v3-primary) !important;
+  color: var(--v3-primary-contrast) !important;
+  border-color: var(--v3-primary) !important;
+}
+
+.template-studio-v3 .v3-button:disabled,
+.template-studio-v3 button:disabled {
+  opacity: 0.48 !important;
+  color: #b6b6b6 !important;
+}
+
+.template-studio-v3 .studio-panel-header,
+.template-studio-v3 .border-t,
+.template-studio-v3 .border-white\/10,
+.template-studio-v3 .border-white\/15,
+.template-studio-v3 .border-white\/20,
+.template-studio-v3 .border-white\/30,
+.template-studio-v3 .border-white\/40,
+.template-studio-v3 .border-zinc-700,
+.template-studio-v3 .border-zinc-800 {
+  border-color: var(--v3-border) !important;
+}
+
+.template-studio-v3 .print-canvas,
+.template-studio-v3 .print-canvas-image-shell,
+.template-studio-v3 .view-card-preview,
+.template-studio-v3 .v3-primary-image {
+  background-color: var(--v3-surface-muted) !important;
+}
+
+.template-studio-v3 .v3-helper-banner,
+.template-studio-v3 .v3-warning {
+  background: color-mix(in srgb, var(--v3-primary) 8%, var(--v3-surface)) !important;
+  color: var(--v3-text-secondary) !important;
+  border-color: color-mix(in srgb, var(--v3-primary) 34%, var(--v3-border)) !important;
+}
+
+.template-studio-v3 .v3-status,
+.template-studio-v3 .v3-check-row,
+.template-studio-v3 label {
+  color: var(--v3-text-secondary) !important;
+}
+
+.template-studio-v3 .overline,
+.template-studio-v3 .label,
+.template-studio-v3 label > span:first-child {
+  color: var(--v3-muted) !important;
+}
+
+.template-studio-v3 .studio-danger-button,
+.template-studio-v3 .v3-inline-danger {
+  color: var(--v3-danger) !important;
+  background: transparent !important;
+}
+
+.template-studio-v3 .print-area-label,
+.template-studio-v3 .print-area-meta {
+  background: rgba(0, 0, 0, 0.86) !important;
+  color: #ffffff !important;
+}

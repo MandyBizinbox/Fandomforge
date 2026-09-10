@@ -173,10 +173,24 @@ export function getFallbackProductImages(product = {}) {
 }
 
 export function getProductGalleryImages(product = {}, variation = null) {
+  const explicitStorefrontImages = uniqueValues([
+    product.primary_mockup_image_url,
+    product.mockup_image_url,
+    ...(product.mockup_images || []),
+  ]);
+
+  if (explicitStorefrontImages.length) {
+    return explicitStorefrontImages;
+  }
+
   const group = resolveArtworkGroup(product, variation);
   const groupImages = group ? getGroupMockups(group) : [];
-  const fallbackImages = getFallbackProductImages(product);
-  return uniqueValues([...groupImages, ...fallbackImages]);
+
+  return uniqueValues([
+    ...groupImages,
+    product.product_image_url,
+    product.mockup_url,
+  ]);
 }
 
 export function getProductPrimaryImage(product = {}, variation = null) {
