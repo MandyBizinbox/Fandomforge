@@ -16,6 +16,7 @@ import {
   normalizeProductionMethodKey,
   resolveArtworkPhysicalDimensions,
 } from "./productBuilderUtils";
+import { resolveArtworkMockupBox } from "./productBuilderMockupGeometry";
 
 const TEXT_RENDER_MIN = 24;
 const TEXT_RENDER_MAX = 1200;
@@ -722,11 +723,16 @@ async function renderSlotIntoPrintAreaLayer(slot, area, targetWidth, targetHeigh
   const context = layer.getContext("2d");
   const geometry = normalisePrintAreaGeometry(area);
   const placement = sanitizePlacement(slot.placement, area);
-  const artX = (Number(placement.x || 0) / 100) * width;
-  const artY = (Number(placement.y || 0) / 100) * height;
-  const artW = (Number(placement.width || 100) / 100) * width;
-  const artH = (Number(placement.height || 100) / 100) * height;
-  const rotation = (Number(placement.rotation || 0) * Math.PI) / 180;
+const renderBox = resolveArtworkMockupBox(
+  { ...slot, placement },
+  area,
+  { width, height }
+);
+const artX = renderBox.x;
+const artY = renderBox.y;
+const artW = renderBox.width;
+const artH = renderBox.height;
+const rotation = (Number(renderBox.rotation || 0) * Math.PI) / 180;
 
   context.save();
   if (geometry.geometry_type !== "mask") {

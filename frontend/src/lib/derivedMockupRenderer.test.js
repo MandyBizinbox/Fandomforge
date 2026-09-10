@@ -95,4 +95,24 @@ describe("Product Builder mockup artwork geometry parity", () => {
     expect(box.y).toBeCloseTo(80, 5);
     expect(box.rotation).toBe(3);
   });
+
+  test("Case E: live 0.773 studio artwork remains undistorted when render-area aspect differs", () => {
+    const box = resolveArtworkMockupBox({
+      original_width_px: 773,
+      original_height_px: 1000,
+      lock_aspect_ratio: true,
+      placement: { x: 28, y: 19, width: 36.5, height: 32.2, rotation: 0 },
+    }, { width_mm: 330, height_mm: 320 }, { width: 254, height: 500 });
+
+    expect(box.artworkWidthMm).toBeCloseTo(120.45, 2);
+    expect(box.artworkHeightMm).toBeCloseTo(120.45 / 0.773, 2);
+    expect(box.width).toBeCloseTo(92.71, 2);
+    expect(box.width / box.height).toBeCloseTo(0.773, 6);
+
+    // The old studio compositor would independently use 32.2% of
+    // the 500px render height (~161px), shrinking the aspect to
+    // roughly 0.576. Locked geometry must ignore that preview-only
+    // height scale and derive render height from intrinsic aspect.
+    expect(box.height).toBeCloseTo(box.width / 0.773, 5);
+  });
 });
