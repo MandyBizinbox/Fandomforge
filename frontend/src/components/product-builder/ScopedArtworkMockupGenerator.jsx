@@ -5,6 +5,7 @@ import { http, assetUrl } from "../../lib/api";
 import { resolveEffectiveProductionSetup, activeTemplatePrintAreas, activeTemplateScreens } from "../../lib/templateProductionResolver";
 import { normalisePrintAreaGeometry, traceCanvasPrintAreaPath } from "../../lib/printAreaGeometry";
 import { asArray, getAreaPreviewImage, getVariationColour, getVariationLabel } from "./productBuilderUtils";
+import { resolveArtworkMockupBox } from "./productBuilderMockupGeometry";
 
 const text = (value) => String(value ?? "").trim();
 const normalise = (value) => text(value).toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -73,13 +74,13 @@ function areaBox(area, width, height) {
 
 function placementBox(area, slot, width, height) {
   const a = areaBox(area, width, height);
-  const p = slot?.placement || {};
+  const resolved = resolveArtworkMockupBox(slot, area, { width: a.width, height: a.height });
   return {
-    x: a.x + Number(p.x ?? 0) / 100 * a.width,
-    y: a.y + Number(p.y ?? 0) / 100 * a.height,
-    width: Number(p.width ?? 100) / 100 * a.width,
-    height: Number(p.height ?? 100) / 100 * a.height,
-    rotation: Number(p.rotation || 0) * Math.PI / 180,
+    x: a.x + resolved.x,
+    y: a.y + resolved.y,
+    width: resolved.width,
+    height: resolved.height,
+    rotation: resolved.rotation * Math.PI / 180,
   };
 }
 
