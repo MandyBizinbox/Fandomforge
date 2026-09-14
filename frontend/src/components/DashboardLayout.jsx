@@ -1,9 +1,10 @@
 import React from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Factory, LogOut } from "lucide-react";
 import NotificationBell from "./notifications/NotificationBell";
 import PlatformBrand from "./branding/PlatformBrand";
+import CreatorFirstRunChecklist from "./creator/CreatorFirstRunChecklist";
 
 function formatBadgeCount(value) {
   const count = Number(value || 0);
@@ -46,10 +47,13 @@ export default function DashboardLayout({
 }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const navLinks = React.useMemo(
     () => withManufacturingRulesLink(links, testidPrefix, notificationPath),
     [links, testidPrefix, notificationPath]
   );
+  const normalizedPath = String(location.pathname || "").replace(/\/+$/, "") || "/";
+  const showCreatorFirstRunChecklist = testidPrefix === "creator-dash" && normalizedPath === "/creator";
 
   return (
     <div className={`min-h-screen admin-workspace ${testidPrefix === "creator-dash" ? "creator-workspace" : ""} flex bg-[var(--ff-page-bg)] text-[var(--ff-page-text)]`}>
@@ -134,6 +138,7 @@ export default function DashboardLayout({
           )}
         </div>
         <div className="p-4 md:p-10">
+          {showCreatorFirstRunChecklist && <CreatorFirstRunChecklist />}
           <Outlet />
         </div>
       </main>
