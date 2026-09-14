@@ -25,9 +25,9 @@ const stepContent = {
   },
   product: {
     title: "Create your first product",
-    description: "Choose a launch-ready product, add your design, pricing and product photos.",
-    action: "Create product",
-    to: "/creator/products/new",
+    description: "Browse the merch catalogue, choose a launch-ready product and start designing.",
+    action: "Browse catalogue",
+    to: "/creator?section=catalogue",
     icon: Package,
   },
   payouts: {
