@@ -153,6 +153,7 @@ jobs:
           npm test -- --watchAll=false --runInBand
           theme.test.js
           authSession.test.js
+          creatorCatalogue.test.js
           variationProductionConfig.test.js
           variationProductionRouting.test.js
           attributeProductionComposition.test.js
