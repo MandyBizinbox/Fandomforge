@@ -87,6 +87,7 @@ export function creatorCatalogueProductTypeLabel(template = {}, productTypes = [
 export function creatorCatalogueTemplates(templates = [], printOptions = []) {
   return asArray(templates)
     .filter((template) => template && template.creator_visible !== false)
+    .filter((template) => normaliseCatalogueKey(template.status) === "active")
     .filter((template) => templateReadiness(template, printOptions).isLaunchReady)
     .sort((a, b) => String(a.name || a.title || "").localeCompare(String(b.name || b.title || "")));
 }
@@ -196,6 +197,19 @@ export function creatorCatalogueColours(template = {}) {
   return rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
+const SIZE_ORDER = [
+  "xxs", "xs", "s", "small", "m", "medium", "l", "large", "xl", "xxl", "2xl", "xxxl", "3xl", "4xl", "5xl", "6xl", "7xl", "8xl",
+];
+
+function sizeRank(value) {
+  const key = String(value || "").trim().toLowerCase();
+  const index = SIZE_ORDER.indexOf(key);
+  if (index !== -1) return index;
+  const kidsMatch = key.match(/(\d{1,2})\s*[-–]\s*(\d{1,2})/);
+  if (kidsMatch) return 100 + Number(kidsMatch[1]);
+  return 1000;
+}
+
 export function creatorCatalogueSizes(template = {}) {
   const values = [];
   asArray(template.variations)
@@ -205,7 +219,11 @@ export function creatorCatalogueSizes(template = {}) {
       if (value && !values.includes(value)) values.push(value);
     });
 
-  return values.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }));
+  return values.sort((a, b) => {
+    const rankDelta = sizeRank(a) - sizeRank(b);
+    if (rankDelta !== 0) return rankDelta;
+    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+  });
 }
 
 export function creatorCataloguePrintAreas(template = {}) {
