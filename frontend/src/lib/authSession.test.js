@@ -1,4 +1,5 @@
 import { establishAuthSession } from "./authSession";
+import { legacyCreatorProfileSetupDestination } from "./creatorOnboardingRouting";
 import {
   AUTH_TOKEN_KEY,
   E2E_AUTH_TOKEN_ALIAS,
@@ -35,4 +36,20 @@ describe("establishAuthSession", () => {
       .toThrow("Authentication session response is incomplete.");
     expect(window.localStorage.getItem(AUTH_TOKEN_KEY)).toBeNull();
   });
+});
+
+describe("legacy creator profile setup routing", () => {
+  test.each(["creator", "owner", "super_admin", "admin"])(
+    "routes %s accounts to the canonical Creator Console",
+    (role) => {
+      expect(legacyCreatorProfileSetupDestination(role)).toBe("/creator");
+    },
+  );
+
+  test.each(["buyer", "customer", "printer", "manager", undefined, null])(
+    "does not expose the retired creator-creation flow to %s",
+    (role) => {
+      expect(legacyCreatorProfileSetupDestination(role)).toBe("/account");
+    },
+  );
 });
