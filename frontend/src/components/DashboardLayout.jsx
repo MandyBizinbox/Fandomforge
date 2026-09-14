@@ -6,6 +6,7 @@ import NotificationBell from "./notifications/NotificationBell";
 import PlatformBrand from "./branding/PlatformBrand";
 import CreatorFirstRunChecklist from "./creator/CreatorFirstRunChecklist";
 import CreatorCatalogue from "./creator/CreatorCatalogue";
+import CreatorHome from "./creator/CreatorHome";
 
 function formatBadgeCount(value) {
   const count = Number(value || 0);
@@ -93,7 +94,8 @@ export default function DashboardLayout({
   }, [links, testidPrefix, notificationPath, isCreatorDashboard]);
 
   const normalizedPath = String(location.pathname || "").replace(/\/+$/, "") || "/";
-  const showCreatorFirstRunChecklist = isCreatorDashboard && normalizedPath === "/creator" && !isCreatorCatalogue;
+  const isCreatorHome = isCreatorDashboard && normalizedPath === "/creator" && !isCreatorCatalogue;
+  const showCreatorFirstRunChecklist = isCreatorHome;
 
   return (
     <div className={`min-h-screen admin-workspace ${isCreatorDashboard ? "creator-workspace" : ""} flex bg-[var(--ff-page-bg)] text-[var(--ff-page-text)]`}>
@@ -185,11 +187,13 @@ export default function DashboardLayout({
         <div className="p-4 md:p-8 lg:p-10">
           {isCreatorCatalogue ? (
             <CreatorCatalogue />
-          ) : (
+          ) : isCreatorHome ? (
             <>
               {showCreatorFirstRunChecklist && <CreatorFirstRunChecklist />}
-              <Outlet />
+              <CreatorHome />
             </>
+          ) : (
+            <Outlet />
           )}
         </div>
       </main>
