@@ -28,6 +28,8 @@ on:
       - "frontend/src/components/product/**"
       - "frontend/src/components/admin/adminProductSystemUi.test.js"
       - "frontend/src/components/admin/dashboard/**"
+      - "frontend/src/context/AuthContext.jsx"
+      - "frontend/src/pages/RegisterCreator.jsx"
       - "frontend/src/pages/admin/CategoriesAdmin.jsx"
       - "frontend/src/pages/admin/AttributesAdmin.jsx"
       - "frontend/src/pages/admin/AdminManufacturingRulesUnified.jsx"
@@ -150,6 +152,7 @@ jobs:
         run: >-
           npm test -- --watchAll=false --runInBand
           theme.test.js
+          authSession.test.js
           variationProductionConfig.test.js
           variationProductionRouting.test.js
           attributeProductionComposition.test.js

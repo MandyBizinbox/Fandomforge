@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import Navbar from "../components/Navbar";
+import { useAuth } from "../context/AuthContext";
 import { http } from "../lib/api";
 import { usePlatformConfig } from "../lib/platform";
 import PlanSelector from "../components/signup/PlanSelector";
@@ -28,6 +29,7 @@ function getCheckoutUrl(data) {
 
 export default function RegisterCreator() {
   const navigate = useNavigate();
+  const { adoptSession } = useAuth();
   const { platform } = usePlatformConfig();
   const [step, setStep] = useState(1);
   const [plans, setPlans] = useState([]);
@@ -133,14 +135,14 @@ export default function RegisterCreator() {
         callback_url: callbackUrl,
       });
 
+      adoptSession(response.data);
+
       const checkoutUrl = getCheckoutUrl(response.data);
       if (checkoutUrl) {
         toast.success("Store created. Redirecting to secure billing…");
         window.location.assign(checkoutUrl);
         return;
       }
-
-      if (response.data?.access_token) localStorage.setItem("mf_token", response.data.access_token);
 
       if (response.data?.billing_error) {
         toast.warning("Your store was created, but billing still needs attention.");
