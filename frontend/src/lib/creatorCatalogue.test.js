@@ -12,14 +12,14 @@ import {
 } from "./creatorCatalogue";
 
 jest.mock("./templateReadiness", () => ({
-  templateReadiness: jest.fn((template) => ({
+  templateReadiness: (template) => ({
     isLaunchReady: Boolean(template.launch_ready),
     blankCost: Number(template.blank_cost || 0),
     activeMethods: template.active_methods || [],
-  })),
-  templateImage: jest.fn((template) => template.primary_image || template.product_image_url || ""),
-  activeTemplateGallery: jest.fn((template) => template.template_gallery || []),
-  activeTemplateScreens: jest.fn((template) => template.mockup_screens || []),
+  }),
+  templateImage: (template) => template.primary_image || template.product_image_url || "",
+  activeTemplateGallery: (template) => template.template_gallery || [],
+  activeTemplateScreens: (template) => template.mockup_screens || [],
 }));
 
 const productTypes = [
