@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { toast } from "sonner";
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Package, Save, Star } from "lucide-react";
@@ -155,10 +155,18 @@ function formatCostRange(costs) {
 
 export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/products" }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id: routeId } = useParams();
   const { user } = useAuth();
   const isAdmin = mode === "admin";
   const isNew = !routeId || routeId === "new";
+  const catalogueTemplateId = useMemo(() => {
+    if (isAdmin || !isNew) return "";
+    return new URLSearchParams(location.search).get("template") || "";
+  }, [isAdmin, isNew, location.search]);
+  const builderBackTo = catalogueTemplateId
+    ? `/creator?section=catalogue&template=${encodeURIComponent(catalogueTemplateId)}`
+    : backTo;
   const [activeStep, setActiveStep] = useState("basics");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -241,13 +249,41 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
           });
           const type = resolveExistingProductType(existing, existingTemplate, loadedProductTypes);
           if (type) setSelectedProductTypeId(type.id);
+        } else if (catalogueTemplateId) {
+          const requestedTemplate = selectableTemplates.find((template) => String(template.id) === String(catalogueTemplateId)) || null;
+          if (requestedTemplate) {
+            const type = resolveExistingProductType(
+              { product_type_id: requestedTemplate.product_type_id, category: requestedTemplate.category },
+              requestedTemplate,
+              loadedProductTypes,
+            );
+            const typeId = type?.id || requestedTemplate.product_type_id || "";
+            const templateSpecs = getTemplateSpecs(requestedTemplate);
+            if (typeId) setSelectedProductTypeId(typeId);
+            setForm((current) => ({
+              ...current,
+              template_id: requestedTemplate.id,
+              title: current.title || requestedTemplate.name || "",
+              description: current.description || requestedTemplate.description || "",
+              specs: templateSpecs || current.specs || "",
+              category: requestedTemplate.category || type?.category || current.category,
+              brand: requestedTemplate.brand || current.brand || "",
+            }));
+            if (typeId) {
+              setActiveStep("variations");
+            } else {
+              toast.error("This catalogue product is missing its product type. Choose the product details before continuing.");
+            }
+          } else {
+            toast.error("That catalogue product is no longer available. Choose another product from the catalogue.");
+          }
         }
         setTemplates(templatesForBuilder);
       } catch (error) { toast.error(error.response?.data?.detail || "Could not load product builder"); }
       finally { if (mounted) setLoading(false); }
     }
     load(); return () => { mounted = false; };
-  }, [isAdmin, isNew, routeId]);
+  }, [catalogueTemplateId, isAdmin, isNew, routeId]);
 
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const chooseType = (typeId) => {
@@ -267,8 +303,6 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
       ...current,
       selected_template_variation_ids: nextIds,
       variation_price_overrides: Object.fromEntries(Object.entries(current.variation_price_overrides || {}).filter(([key]) => nextIds.includes(String(key)))),
-      // Artwork is creator work, not disposable variation UI state. Preserve it
-      // when the variation set changes; scope tools can reconcile membership.
       artwork_groups: current.artwork_groups,
       mockup_images: current.mockup_images,
       mockup_image_url: current.mockup_image_url,
@@ -334,7 +368,7 @@ export default function ProductBuilderV4({ mode = "creator", backTo = "/creator/
   const readyToPublish = pricing.canPublishWithOverride && readyArtworkSlots.length > 0 && generatedMockups.length > 0 && Boolean(form.template_id);
   if (loading) return <div className="product-builder-shell min-h-[calc(100vh-120px)] flex items-center justify-center"><div className="text-sm pb4-muted">Loading product builder…</div></div>;
   return <div className="product-builder-shell min-h-[calc(100vh-120px)]" data-testid={`${mode}-product-builder-v4`}>
-    <header className="pb4-header"><div><div className="overline mb-1">{isAdmin ? "Admin Product Builder" : "Creator Product Builder"}</div><h1 className="font-display text-4xl md:text-5xl leading-none uppercase">{form.title || (isNew ? "New Product" : "Edit Product")}</h1><p className="text-sm pb4-muted mt-2">One clean flow: product → attributes → artwork scopes → mockups → price.</p></div><button type="button" className="btn-secondary !px-4 !py-2 text-xs" onClick={() => navigate(backTo)}><ArrowLeft size={13} /> Back</button></header>
+    <header className="pb4-header"><div><div className="overline mb-1">{isAdmin ? "Admin Product Builder" : "Creator Product Builder"}</div><h1 className="font-display text-4xl md:text-5xl leading-none uppercase">{form.title || (isNew ? "New Product" : "Edit Product")}</h1><p className="text-sm pb4-muted mt-2">One clean flow: product → attributes → artwork scopes → mockups → price.</p></div><button type="button" className="btn-secondary !px-4 !py-2 text-xs" onClick={() => navigate(builderBackTo)}><ArrowLeft size={13} /> Back</button></header>
     <nav className="pb4-step-nav" aria-label="Product builder steps"><div className="pb4-step-nav__inner">{STEPS.map((step, index) => { const active = step.key === activeStep; const complete = index < stepIndex; return <button key={step.key} type="button" onClick={() => goToStep(step.key)} className={`pb4-step-tab ${active ? "is-active" : complete ? "is-complete" : ""}`}>{complete && <Check size={12} className="inline mr-1" />}{step.label}</button>; })}</div></nav>
     <div className="pb4-step-summary"><div className="pb4-step-summary__eyebrow">Step {stepIndex + 1} of {STEPS.length}</div><div className="pb4-step-summary__title">{STEPS[stepIndex].title}</div><div className="pb4-step-summary__copy">{STEPS[stepIndex].description}</div></div>
     <main className="product-builder-main min-w-0">
