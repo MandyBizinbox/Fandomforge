@@ -31,6 +31,7 @@ const shirt = {
   id: "shirt-1",
   name: "Classic Creator Tee",
   brand: "Forge Basics",
+  status: "active",
   product_type_id: "type-shirt",
   launch_ready: true,
   blank_cost: 89.5,
@@ -54,11 +55,13 @@ const shirt = {
 };
 
 describe("creator catalogue helpers", () => {
-  test("only exposes creator-visible launch-ready templates", () => {
+  test("only exposes creator-visible active launch-ready templates", () => {
     const templates = creatorCatalogueTemplates([
       shirt,
       { ...shirt, id: "draft", launch_ready: false },
       { ...shirt, id: "hidden", creator_visible: false },
+      { ...shirt, id: "archived", status: "archived" },
+      { ...shirt, id: "manual-launch-label", status: "launch_ready" },
     ]);
 
     expect(templates.map((template) => template.id)).toEqual(["shirt-1"]);
@@ -96,7 +99,7 @@ describe("creator catalogue helpers", () => {
       "/uploads/tee-black.png",
     ]);
     expect(creatorCatalogueColours(shirt).map((row) => row.name)).toEqual(["Black", "White"]);
-    expect(creatorCatalogueSizes(shirt)).toEqual(["M", "S"]);
+    expect(creatorCatalogueSizes(shirt)).toEqual(["S", "M"]);
     expect(creatorCataloguePrintAreas(shirt)).toEqual(["Front", "Back"]);
   });
 
