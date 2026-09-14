@@ -154,6 +154,7 @@ jobs:
           theme.test.js
           authSession.test.js
           creatorCatalogue.test.js
+          creatorProductStudioUtils.test.js
           variationProductionConfig.test.js
           variationProductionRouting.test.js
           attributeProductionComposition.test.js
