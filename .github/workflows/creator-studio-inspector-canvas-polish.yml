@@ -1,0 +1,116 @@
+name: Creator Studio Inspector Canvas Polish
+
+on:
+  push:
+    branches:
+      - feature/creator-builder-studio
+    paths:
+      - ".github/workflows/creator-studio-inspector-canvas-polish.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/creator-builder-studio
+          fetch-depth: 0
+
+      - name: Move inspector into Layers drawer and free the canvas
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f"Expected block not found: {label}")
+              return text.replace(old, new, 1)
+
+          # ------------------------------------------------------------
+          # Layers drawer: selected layer + collapsible Inspector target
+          # ------------------------------------------------------------
+          layers_path = Path("frontend/src/components/product-builder/CreatorLayersPanel.jsx")
+          layers_path.write_text('''import React, { useEffect, useState } from "react";\nimport { ChevronDown, Image as ImageIcon, Type } from "lucide-react";\nimport { asArray } from "./productBuilderUtils";\n\nexport default function CreatorLayersPanel({\n  groups,\n  activeGroupId = "",\n  activeSlotId = "",\n  onSelectGroup,\n  onSelectSlot,\n}) {\n  const safeGroups = asArray(groups);\n  const [inspectorOpen, setInspectorOpen] = useState(false);\n\n  useEffect(() => {\n    setInspectorOpen(false);\n  }, [activeSlotId]);\n\n  return (\n    <div className="creator-studio-layers-panel" data-testid="creator-layers-panel">\n      {safeGroups.map((group, groupIndex) => {\n        const slots = asArray(group.artworks);\n        const groupActive = group.id === activeGroupId || (!activeGroupId && groupIndex === 0);\n        return (\n          <section key={group.id} className="creator-studio-layer-group">\n            <button type="button" className={`creator-studio-layer-group-head ${groupActive ? "is-active" : ""}`} onClick={() => onSelectGroup?.(group.id)}>\n              <strong>{group.label || `Artwork ${String.fromCharCode(65 + groupIndex)}`}</strong>\n              <span>{slots.length} layer{slots.length === 1 ? "" : "s"}</span>\n            </button>\n            {groupActive && (\n              <div className="creator-studio-layer-list">\n                {slots.map((slot, index) => {\n                  const active = slot.id === activeSlotId;\n                  const label = slot.text_layer ? (slot.text_content || "Text layer") : (slot.file_name || `Image layer ${index + 1}`);\n                  const area = slot.screen_view || slot.area_key || "Print area";\n                  return (\n                    <React.Fragment key={slot.id}>\n                      <button type="button" className={`creator-studio-layer-row ${active ? "is-active" : ""}`} onClick={() => onSelectSlot?.(group.id, slot.id)}>\n                        <span className="creator-studio-layer-icon">{slot.text_layer ? <Type size={14} /> : <ImageIcon size={14} />}</span>\n                        <span className="creator-studio-layer-copy"><strong>{label}</strong><small>{area}</small></span>\n                      </button>\n                      {active && (\n                        <div className={`creator-studio-layer-inspector ${inspectorOpen ? "is-open" : ""}`}>\n                          <button type="button" className="creator-studio-layer-inspector-toggle" onClick={() => setInspectorOpen((value) => !value)} aria-expanded={inspectorOpen}>\n                            <span>Inspector</span>\n                            <ChevronDown size={14} />\n                          </button>\n                          <div className="creator-studio-layer-inspector-body">\n                            <div id="creator-layer-inspector-slot" />\n                          </div>\n                        </div>\n                      )}\n                    </React.Fragment>\n                  );\n                })}\n                {!slots.length && <div className="creator-studio-note">No layers yet. Add an image or text from the design toolbar.</div>}\n              </div>\n            )}\n          </section>\n        );\n      })}\n      {!safeGroups.length && <div className="creator-studio-note">Create an artwork scope first, then add image or text layers.</div>}\n    </div>\n  );\n}\n''')
+
+          # ------------------------------------------------------------
+          # ProductArtworkStudio: creator canvas only; portal Inspector
+          # ------------------------------------------------------------
+          path = Path("frontend/src/components/product-builder/ProductArtworkStudio.jsx")
+          text = path.read_text()
+
+          text = replace_once(
+              text,
+              'import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";\n',
+              'import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";\nimport { createPortal } from "react-dom";\n',
+              "react-dom portal import",
+          )
+
+          text = replace_once(
+              text,
+              'export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false, creatorMode = false, activeSlotId: controlledActiveSlotId = "", onActiveSlotChange }) {',
+              'export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false, creatorMode = false, activeSlotId: controlledActiveSlotId = "", onActiveSlotChange, inspectorPortalId = "creator-layer-inspector-slot" }) {',
+              "creator inspector portal prop",
+          )
+
+          text = replace_once(
+              text,
+              '  const [internalActiveSlotId, setInternalActiveSlotId] = useState("");\n',
+              '  const [internalActiveSlotId, setInternalActiveSlotId] = useState("");\n  const [inspectorTarget, setInspectorTarget] = useState(null);\n',
+              "inspector target state",
+          )
+
+          controlled_effect_anchor = '''  useEffect(() => {\n    if (!controlledActiveSlotId) return;\n    const slot = slots.find((item) => item.id === controlledActiveSlotId);\n    if (!slot) return;\n    const area = printAreas.find((item) => item.id === slot.print_area_id);\n    if (!area) return;\n    if (area.screen_id && area.screen_id !== currentScreenId) setActiveScreenId(area.screen_id);\n    setActivePrintAreaId(area.id);\n  }, [controlledActiveSlotId, currentScreenId, printAreas, slots]);'''
+          controlled_effect_replacement = controlled_effect_anchor + '''\n\n  useEffect(() => {\n    if (!creatorMode || !activeSlot?.id || controlledActiveSlotId) return;\n    onActiveSlotChange?.(activeSlot.id);\n  }, [activeSlot?.id, controlledActiveSlotId, creatorMode, onActiveSlotChange]);\n\n  useEffect(() => {\n    if (!creatorMode || typeof document === "undefined") {\n      if (inspectorTarget) setInspectorTarget(null);\n      return;\n    }\n    const target = document.getElementById(inspectorPortalId);\n    setInspectorTarget((current) => current === target ? current : target);\n  });'''
+          text = replace_once(text, controlled_effect_anchor, controlled_effect_replacement, "creator inspector target sync")
+
+          grid_old = '      <div className={creatorMode ? "grid grid-cols-1 2xl:grid-cols-[minmax(720px,1fr)_300px] gap-3 creator-artwork-main-grid" : "grid grid-cols-1 2xl:grid-cols-[220px_minmax(720px,1fr)_320px] gap-4"}>'
+          grid_new = '      <div className={creatorMode ? "grid grid-cols-1 gap-3 creator-artwork-main-grid" : "grid grid-cols-1 2xl:grid-cols-[220px_minmax(720px,1fr)_320px] gap-4"}>'
+          text = replace_once(text, grid_old, grid_new, "creator single-column canvas grid")
+
+          main_old = '        <main className="border border-white/10 bg-black min-h-[680px] flex items-center justify-center overflow-hidden rounded-xl p-4">'
+          main_new = '        <main className={creatorMode ? "creator-artwork-canvas-stage min-h-[680px] flex items-center justify-center overflow-visible" : "border border-white/10 bg-black min-h-[680px] flex items-center justify-center overflow-hidden rounded-xl p-4"}>'
+          text = replace_once(text, main_old, main_new, "frameless creator product canvas")
+
+          # Extract the existing Inspector body once and reuse it in admin or creator portal.
+          aside_open = '        <aside className="border border-white/10 bg-black/20 p-3 rounded-xl min-h-[680px] overflow-auto">'
+          aside_start = text.index(aside_open)
+          aside_close = '        </aside>'
+          aside_end = text.index(aside_close, aside_start)
+          inspector_inner = text[aside_start + len(aside_open):aside_end]
+
+          return_anchor = '  return (\n    <div className="space-y-4 studio-v21" data-testid="product-artwork-studio">'
+          inspector_const = '''  const creatorInspectorContent = (\n    <>''' + inspector_inner + '''\n    </>\n  );\n\n'''
+          text = replace_once(text, return_anchor, inspector_const + return_anchor, "shared inspector content")
+
+          current_aside = text[aside_start:aside_end + len(aside_close)]
+          admin_aside = '''        {!creatorMode && (\n          <aside className="border border-white/10 bg-black/20 p-3 rounded-xl min-h-[680px] overflow-auto">\n            {creatorInspectorContent}\n          </aside>\n        )}'''
+          text = text.replace(current_aside, admin_aside, 1)
+
+          tabs_anchor = '      {creatorMode && screens.length > 1 && (\n        <nav className="creator-artwork-view-tabs" aria-label="Product print views">'
+          portal_block = '''      {creatorMode && inspectorTarget && createPortal(\n        <div className="creator-layer-inspector-content">{creatorInspectorContent}</div>,\n        inspectorTarget\n      )}\n'''
+          text = replace_once(text, tabs_anchor, portal_block + tabs_anchor, "creator inspector portal")
+          path.write_text(text)
+
+          # ------------------------------------------------------------
+          # Creator Studio CSS: frameless centre canvas + drawer Inspector
+          # ------------------------------------------------------------
+          css_path = Path("frontend/src/components/product-builder/creatorProductStudio.css")
+          css = css_path.read_text()
+          marker = '/* Creator Studio inspector-in-layers + frameless canvas */'
+          if marker not in css:
+              css += '''\n\n/* Creator Studio inspector-in-layers + frameless canvas */\n.creator-artwork-main-grid { min-width: 0; }\n.creator-artwork-main-grid > main.creator-artwork-canvas-stage {\n  min-width: 0;\n  min-height: calc(100vh - 235px) !important;\n  padding: 0 !important;\n  border: 0 !important;\n  border-radius: 0 !important;\n  background: transparent !important;\n  overflow: visible !important;\n}\n.creator-artwork-canvas-stage > div.relative {\n  max-width: 100% !important;\n  max-height: calc(100vh - 235px) !important;\n}\n.creator-artwork-canvas-stage > div.relative > img {\n  max-width: 100% !important;\n  max-height: calc(100vh - 235px) !important;\n}\n\n.creator-studio-layer-inspector {\n  margin: -1px 0 2px;\n  border: 1px solid var(--ff-card-border);\n  border-top: 0;\n  background: var(--ff-surface-bg);\n  color: var(--ff-surface-text);\n}\n.creator-studio-layer-inspector-toggle {\n  width: 100%;\n  min-height: 34px;\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 8px;\n  padding: 7px 9px;\n  border: 0;\n  background: transparent;\n  color: var(--ff-surface-text);\n  font-size: 0.66rem;\n  font-weight: 800;\n  text-transform: uppercase;\n  letter-spacing: 0.08em;\n  cursor: pointer;\n}\n.creator-studio-layer-inspector-toggle svg {\n  color: var(--ff-muted-text);\n  transition: transform 160ms ease;\n}\n.creator-studio-layer-inspector.is-open .creator-studio-layer-inspector-toggle svg { transform: rotate(180deg); }\n.creator-studio-layer-inspector-body { display: none; padding: 0 9px 10px; }\n.creator-studio-layer-inspector.is-open .creator-studio-layer-inspector-body { display: block; }\n.creator-layer-inspector-content {\n  min-width: 0;\n  color: var(--ff-surface-text);\n}\n.creator-layer-inspector-content > .space-y-4 { gap: 10px; }\n.creator-layer-inspector-content .input-base,\n.creator-layer-inspector-content input,\n.creator-layer-inspector-content textarea,\n.creator-layer-inspector-content select {\n  background: var(--ff-input-bg);\n  color: var(--ff-input-text);\n  border-color: var(--ff-input-border);\n}\n.creator-layer-inspector-content .grid-cols-2 { grid-template-columns: 1fr !important; }\n.creator-layer-inspector-content .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }\n.creator-layer-inspector-content .font-display.text-2xl { font-size: 1.05rem !important; }\n.creator-layer-inspector-content .btn-secondary { min-height: 34px; font-size: 0.68rem; }\n\n@media (max-width: 1260px) {\n  .creator-artwork-main-grid > main.creator-artwork-canvas-stage { min-height: calc(100vh - 220px) !important; }\n  .creator-artwork-canvas-stage > div.relative,\n  .creator-artwork-canvas-stage > div.relative > img { max-height: calc(100vh - 220px) !important; }\n}\n'''
+          css_path.write_text(css)
+          PY
+
+      - name: Commit polish
+        run: |
+          git config user.name "FandomForge CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/components/product-builder/CreatorLayersPanel.jsx \
+                  frontend/src/components/product-builder/ProductArtworkStudio.jsx \
+                  frontend/src/components/product-builder/creatorProductStudio.css
+          git commit -m "Move creator inspector into layers drawer"
+          git push origin HEAD:feature/creator-builder-studio
