@@ -1,0 +1,39 @@
+name: Creator Studio Scope Autoopen Cleanup
+
+on:
+  push:
+    branches:
+      - feature/creator-builder-studio
+    paths:
+      - ".github/workflows/creator-studio-scope-autoopen.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/creator-builder-studio
+          fetch-depth: 0
+      - name: Patch scope drawer auto-open
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("frontend/src/components/product-builder/CreatorProductStudio.jsx")
+          text = path.read_text()
+          old = '''  useEffect(() => {\n    if (loading || scopePrompted || form.artwork_groups.length) return;\n    if (form.selected_template_variation_ids.length <= 1) return;\n    setScopeMatrixOpen(true);\n    setScopePrompted(true);\n  }, [loading, scopePrompted, form.artwork_groups.length, form.selected_template_variation_ids.length]);'''
+          new = '''  useEffect(() => {\n    if (loading || scopePrompted || form.artwork_groups.length) return;\n    if (form.selected_template_variation_ids.length <= 1) return;\n    setDetailsOpen(false);\n    setLayersOpen(false);\n    setScopeMatrixOpen(true);\n    setScopePrompted(true);\n  }, [loading, scopePrompted, form.artwork_groups.length, form.selected_template_variation_ids.length]);'''
+          if old not in text:
+            raise SystemExit("Scope auto-open block not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit cleanup
+        run: |
+          git config user.name "FandomForge CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/components/product-builder/CreatorProductStudio.jsx
+          git commit -m "Open artwork scopes as the active creator drawer"
+          git push origin HEAD:feature/creator-builder-studio
