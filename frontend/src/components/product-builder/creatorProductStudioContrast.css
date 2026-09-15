@@ -1,0 +1,109 @@
+/*
+ * Creator Studio contrast guard
+ * -----------------------------
+ * Keep dense right-panel controls readable regardless of the Platform Settings
+ * input palette. These selectors stay scoped to Creator Studio and use only
+ * semantic --ff-* tokens so SuperAdmin theme settings remain authoritative.
+ */
+
+.creator-product-studio .creator-studio-right-panel {
+  background: var(--ff-surface-bg);
+  color: var(--ff-surface-text);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-accordion-head,
+.creator-product-studio .creator-studio-right-panel .creator-studio-variant-group-head,
+.creator-product-studio .creator-studio-right-panel .creator-studio-price-row {
+  color: var(--ff-surface-text);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-variant-chip {
+  min-height: 34px;
+  border-color: var(--ff-card-border);
+  background: var(--ff-card-bg);
+  color: var(--ff-card-text);
+  font-weight: 700;
+  opacity: 1;
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-variant-chip > span:not(.creator-studio-colour-swatch) {
+  color: inherit;
+  opacity: 1;
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-variant-chip:hover {
+  border-color: var(--ff-primary);
+  background: color-mix(in srgb, var(--ff-primary) 7%, var(--ff-card-bg));
+  color: var(--ff-card-text);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-variant-chip.is-selected {
+  border-color: var(--ff-primary);
+  background: color-mix(in srgb, var(--ff-primary) 16%, var(--ff-card-bg));
+  color: var(--ff-card-text);
+  box-shadow: inset 0 0 0 1px var(--ff-primary);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-variant-chip.is-selected svg {
+  color: var(--ff-primary);
+  stroke-width: 3;
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-colour-swatch {
+  flex: 0 0 16px;
+  border-color: color-mix(in srgb, var(--ff-card-text) 38%, var(--ff-card-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ff-card-bg) 80%, transparent);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-variant-group-head button {
+  color: var(--ff-primary);
+  font-weight: 800;
+}
+
+/* Pricing controls use card colours rather than a potentially light input
+ * palette, which keeps them legible beside the dark creator workspace. */
+.creator-product-studio .creator-studio-right-panel .creator-studio-money-input {
+  border-color: var(--ff-card-border);
+  background: var(--ff-card-bg);
+  color: var(--ff-card-text);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-money-input > span {
+  color: var(--ff-muted-text);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-money-input input {
+  background: transparent !important;
+  color: var(--ff-card-text) !important;
+  caret-color: var(--ff-primary);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-money-input input::placeholder {
+  color: var(--ff-muted-text) !important;
+  opacity: 1;
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-price-mode {
+  border-color: var(--ff-card-border);
+  background: var(--ff-card-bg);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-price-mode button {
+  background: var(--ff-button-alternate-bg);
+  color: var(--ff-button-alternate-text);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-price-mode button.is-active {
+  background: var(--ff-button-primary-bg);
+  color: var(--ff-button-primary-text);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-cost-grid > div {
+  background: var(--ff-card-bg);
+  color: var(--ff-card-text);
+}
+
+.creator-product-studio .creator-studio-right-panel .creator-studio-combination-count strong,
+.creator-product-studio .creator-studio-right-panel .creator-studio-cost-grid strong {
+  color: var(--ff-card-text);
+}
