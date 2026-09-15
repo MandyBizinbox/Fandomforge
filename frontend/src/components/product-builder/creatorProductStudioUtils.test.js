@@ -1,4 +1,5 @@
 import {
+  buildCreatorProductDraftFromTemplate,
   collectStudioAttributeOptions,
   creatorStudioBackPath,
   deriveStudioVariationIds,
@@ -37,6 +38,29 @@ describe("creator product studio helpers", () => {
 
   test("prefers size as the pricing scope", () => {
     expect(inferStudioPricingAttribute(variations)).toBe("Size");
+  });
+
+  test("creates an independent store-product draft from the catalogue template", () => {
+    const template = {
+      id: "template-1",
+      name: "Classic Tee",
+      description: "Catalogue description",
+      brand: "Blank Brand",
+      category: "T-Shirts",
+    };
+    const draft = buildCreatorProductDraftFromTemplate(template);
+    draft.title = "My Club Tee";
+    draft.description = "My storefront copy";
+
+    expect(template.name).toBe("Classic Tee");
+    expect(template.description).toBe("Catalogue description");
+    expect(draft).toMatchObject({
+      template_id: "template-1",
+      title: "My Club Tee",
+      description: "My storefront copy",
+      brand: "Blank Brand",
+      category: "T-Shirts",
+    });
   });
 
   test("returns directly to the originating catalogue product", () => {
