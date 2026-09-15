@@ -52,10 +52,11 @@ def test_saving_draft_resets_prior_approval_without_submitting_it():
     assert count == 1
     assert product["review_submission_status"] == REVIEW_DRAFT
     assert product["review_submitted_at"] is None
-    assert product["artwork_review_status"] == "pending_review"
+    assert product["artwork_review_status"] == "not_required"
     assert product["published"] is False
     assert product["artwork_groups"][0]["artworks"][0]["status"] == "pending_review"
     assert product["artwork_groups"][0]["artworks"][0]["reviewed_by_user_id"] is None
+    assert review_is_locked(product) is False
     assert review_queue_includes_product(product) is False
 
 
