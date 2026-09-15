@@ -32,19 +32,32 @@ export default function ScopedProductArtworkStudio({
   onArtworkGroupsChange,
   selectedVariations,
   isAdmin = false,
+  creatorMode = false,
+  activeGroupId: controlledGroupId = "",
+  onActiveGroupChange,
+  activeSlotId = "",
+  onActiveSlotChange,
 }) {
   const groups = asArray(artworkGroups);
   const variations = asArray(selectedVariations);
-  const [activeGroupId, setActiveGroupId] = useState(groups[0]?.id || "");
+  const [internalGroupId, setInternalGroupId] = useState(groups[0]?.id || "");
+  const activeGroupId = controlledGroupId || internalGroupId;
+
+  const setActiveGroupId = (id) => {
+    setInternalGroupId(id);
+    onActiveGroupChange?.(id);
+  };
 
   useEffect(() => {
     if (!groups.length) {
-      setActiveGroupId("");
+      setInternalGroupId("");
+      onActiveGroupChange?.("");
       return;
     }
     if (!groups.some((group) => group.id === activeGroupId)) {
       setActiveGroupId(groups[0].id);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, activeGroupId]);
 
   const activeGroup = useMemo(
@@ -67,35 +80,37 @@ export default function ScopedProductArtworkStudio({
   };
 
   return (
-    <div className="space-y-4">
-      <section className="border border-[#FF3B30]/40 bg-black/40 rounded-xl p-4 space-y-3" data-testid="artwork-scope-context">
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
-          <div>
-            <div className="overline mb-1">Artwork scope controls the studio</div>
-            <h2 className="font-display text-2xl uppercase">Upload artwork for the selected scope</h2>
-            <p className="text-sm text-zinc-400 mt-1">The studio is locked to one artwork group at a time. This prevents a Colour scope from accidentally becoming one upload per Size × Colour combination.</p>
-          </div>
-          <div className="min-w-[260px]">
-            <label className="label">Active artwork scope</label>
-            <select className="input-base" value={activeGroup?.id || ""} onChange={(event) => setActiveGroupId(event.target.value)} disabled={!groups.length}>
-              {groups.map((group) => <option key={group.id} value={group.id}>{scopeLabel(group, variations)}</option>)}
-            </select>
-          </div>
-        </div>
-        {activeGroup && (
-          <div className="grid md:grid-cols-2 gap-3 text-xs">
-            <div className="border border-white/10 bg-black/30 rounded-lg p-3">
-              <div className="overline">Current scope</div>
-              <div className="font-display text-xl uppercase mt-1">{scopeLabel(activeGroup, variations)}</div>
+    <div className={creatorMode ? "creator-scoped-product-studio" : "space-y-4"}>
+      {!creatorMode && (
+        <section className="border border-[#FF3B30]/40 bg-black/40 rounded-xl p-4 space-y-3" data-testid="artwork-scope-context">
+          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
+            <div>
+              <div className="overline mb-1">Artwork scope controls the studio</div>
+              <h2 className="font-display text-2xl uppercase">Upload artwork for the selected scope</h2>
+              <p className="text-sm text-zinc-400 mt-1">The studio is locked to one artwork group at a time. This prevents a Colour scope from accidentally becoming one upload per Size × Colour combination.</p>
             </div>
-            <div className="border border-white/10 bg-black/30 rounded-lg p-3">
-              <div className="overline">Applies to</div>
-              <div className="text-zinc-300 mt-1">{scopeDescription(activeGroup, variations)}</div>
-              {scopedVariations.length > 0 && <div className="text-zinc-500 mt-2">{scopedVariations.length} selected variation(s) share this artwork scope.</div>}
+            <div className="min-w-[260px]">
+              <label className="label">Active artwork scope</label>
+              <select className="input-base" value={activeGroup?.id || ""} onChange={(event) => setActiveGroupId(event.target.value)} disabled={!groups.length}>
+                {groups.map((group) => <option key={group.id} value={group.id}>{scopeLabel(group, variations)}</option>)}
+              </select>
             </div>
           </div>
-        )}
-      </section>
+          {activeGroup && (
+            <div className="grid md:grid-cols-2 gap-3 text-xs">
+              <div className="border border-white/10 bg-black/30 rounded-lg p-3">
+                <div className="overline">Current scope</div>
+                <div className="font-display text-xl uppercase mt-1">{scopeLabel(activeGroup, variations)}</div>
+              </div>
+              <div className="border border-white/10 bg-black/30 rounded-lg p-3">
+                <div className="overline">Applies to</div>
+                <div className="text-zinc-300 mt-1">{scopeDescription(activeGroup, variations)}</div>
+                {scopedVariations.length > 0 && <div className="text-zinc-500 mt-2">{scopedVariations.length} selected variation(s) share this artwork scope.</div>}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {activeGroup ? (
         <ProductArtworkStudio
@@ -105,6 +120,9 @@ export default function ScopedProductArtworkStudio({
           onArtworkGroupsChange={updateScopedGroups}
           selectedVariations={scopedVariations}
           isAdmin={isAdmin}
+          creatorMode={creatorMode}
+          activeSlotId={activeSlotId}
+          onActiveSlotChange={onActiveSlotChange}
         />
       ) : (
         <div className="border border-dashed border-white/15 rounded-xl p-8 text-center text-zinc-500">Create an artwork scope first.</div>
