@@ -1,0 +1,174 @@
+name: Creator Studio Layout Polish
+
+on:
+  push:
+    branches:
+      - feature/creator-builder-studio
+    paths:
+      - ".github/workflows/creator-studio-layout-polish.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/creator-builder-studio
+          fetch-depth: 0
+
+      - name: Patch creator studio layout
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f"Expected block not found: {label}")
+              return text.replace(old, new, 1)
+
+          # ------------------------------------------------------------
+          # ProductArtworkStudio: creator-specific compact canvas layout
+          # ------------------------------------------------------------
+          path = Path("frontend/src/components/product-builder/ProductArtworkStudio.jsx")
+          text = path.read_text()
+
+          text = replace_once(
+              text,
+              'export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false }) {',
+              'export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false, creatorMode = false, activeSlotId: controlledActiveSlotId = "", onActiveSlotChange }) {',
+              "ProductArtworkStudio signature",
+          )
+          text = replace_once(
+              text,
+              '  const [activeSlotId, setActiveSlotId] = useState("");',
+              '''  const [internalActiveSlotId, setInternalActiveSlotId] = useState("");\n  const activeSlotId = controlledActiveSlotId || internalActiveSlotId;\n  const setActiveSlotId = useCallback((id) => {\n    setInternalActiveSlotId(id);\n    onActiveSlotChange?.(id);\n  }, [onActiveSlotChange]);''',
+              "controlled active slot",
+          )
+
+          anchor = '''  const activeArea = useMemo(() => {\n    if (activeSlot) return printAreas.find((area) => area.id === activeSlot.print_area_id) || null;\n    return areasForScreen.find((area) => area.id === activePrintAreaId) || areasForScreen[0] || null;\n  }, [activeSlot, printAreas, areasForScreen, activePrintAreaId]);'''
+          addition = anchor + '''\n\n  useEffect(() => {\n    if (!controlledActiveSlotId) return;\n    const slot = slots.find((item) => item.id === controlledActiveSlotId);\n    if (!slot) return;\n    const area = printAreas.find((item) => item.id === slot.print_area_id);\n    if (!area) return;\n    if (area.screen_id && area.screen_id !== currentScreenId) setActiveScreenId(area.screen_id);\n    setActivePrintAreaId(area.id);\n  }, [controlledActiveSlotId, currentScreenId, printAreas, slots]);'''
+          text = replace_once(text, anchor, addition, "controlled slot screen sync")
+
+          top_start = text.index('      <section className="grid xl:grid-cols-[minmax(260px,1fr)_minmax(360px,1.8fr)_140px_250px] gap-3">')
+          grid_marker = '      <div className="grid grid-cols-1 2xl:grid-cols-[220px_minmax(720px,1fr)_320px] gap-4">'
+          top_end = text.index(grid_marker, top_start)
+          legacy_top = text[top_start:top_end].rstrip()
+          compact_top = '''      {creatorMode ? (\n        <section className="creator-artwork-toolbar">\n          <div className="creator-artwork-toolbar-actions">\n            <button type="button" className="btn-secondary" disabled={!activeGroup || !areasForScreen.length || uploading} onClick={() => { pendingReplaceSlotIdRef.current = ""; pendingUploadAreaRef.current = activeArea || normalPrintAreas[0] || areasForScreen[0]; fileInputRef.current?.click(); }}><ImageIcon size={15} /> {uploading ? "Uploading" : "Add image"}</button>\n            <button type="button" className="btn-secondary" disabled={!activeGroup || !areasForScreen.length} onClick={addTextLayer}><Type size={15} /> Add text</button>\n          </div>\n          <label className="creator-artwork-method">\n            <span>Print method</span>\n            <select className="input-base" value={selectedProfile?.id || activeSlot?.print_option_id || ""} disabled={!activeSlot || profilesLoading} onChange={(event) => activeSlot && setLayerManufacturingProfile(activeSlot.id, event.target.value)}>\n              <option value="">{profilesLoading ? "Loading print methods…" : "Select print method"}</option>\n              {groupedProfiles.map((group) => (\n                <optgroup key={group.key} label={group.label}>\n                  {group.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profileLabel(profile)}</option>)}\n                </optgroup>\n              ))}\n            </select>\n          </label>\n        </section>\n      ) : (\n''' + legacy_top + '''\n      )}\n\n'''
+          text = text[:top_start] + compact_top + text[top_end:]
+
+          text = replace_once(
+              text,
+              grid_marker,
+              '      <div className={creatorMode ? "grid grid-cols-1 2xl:grid-cols-[minmax(720px,1fr)_300px] gap-3 creator-artwork-main-grid" : "grid grid-cols-1 2xl:grid-cols-[220px_minmax(720px,1fr)_320px] gap-4"}>',
+              "creator artwork main grid",
+          )
+
+          layer_start = text.index('        <aside className="border border-[#34C759]/40 bg-black/30 p-3 min-h-[680px] flex flex-col">')
+          layer_end_marker = '\n\n        <main className="border border-white/10 bg-black min-h-[680px] flex items-center justify-center overflow-hidden rounded-xl p-4">'
+          layer_end = text.index(layer_end_marker, layer_start)
+          layer_block = text[layer_start:layer_end]
+          text = text[:layer_start] + '        {!creatorMode && (\n' + layer_block + '\n        )}' + text[layer_end:]
+
+          costing_old = '''              <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">\n                <div className="overline mb-2">Costing</div>\n                <div className="grid grid-cols-2 gap-y-1">\n                  <span>Profile</span><span className="text-right text-zinc-200">{selectedProfile ? profileLabel(selectedProfile) : "None"}</span>\n                  <span>Calculation</span><span className="text-right text-zinc-200">{activeSlot.calculation_type || selectedProfile?.calculation_type || "—"}</span>\n                  <span>Minimum</span><span className="text-right text-zinc-200">{money(activeSlot.minimum_print_cost || selectedProfile?.minimum_print_cost || 0)}</span>\n                  <span>{selectedCostLine?.combined ? "Combined job cost" : "Layer cost"}</span>\n                  <span className="text-right text-[#34C759]">{money(selectedLayerCost)}</span>\n                </div>\n                {selectedCostLine?.combined && (\n                  <p className="text-[#B8F5C3] mt-2">\n                    This layer contributes {round(selectedLayerAreaCm2)} cm² to a{" "}\n                    {selectedCostLine.layer_count}-layer {methodLabel(selectedCostLine.method_key)}{" "}\n                    print job totalling {round(selectedJobAreaCm2)} cm².\n                  </p>\n                )}\n                {selectedCostLine?.costing?.minimum_print_cost_applied && (\n                  <p className="text-[#FFE08A] mt-2">\n                    The minimum print cost is applied once to the combined print job.\n                  </p>\n                )}\n              </div>'''
+          costing_new = '''              {!creatorMode && (\n''' + costing_old + '''\n              )}'''
+          text = replace_once(text, costing_old, costing_new, "hide creator inspector costing")
+
+          tail = '''        </aside>\n      </div>\n    </div>\n  );\n}'''
+          tabs = '''        </aside>\n      </div>\n      {creatorMode && screens.length > 1 && (\n        <nav className="creator-artwork-view-tabs" aria-label="Product print views">\n          {screens.map((screen) => {\n            const active = screen.id === currentScreenId;\n            const count = slots.filter((slot) => slot.screen_id === screen.id || printAreas.find((area) => area.id === slot.print_area_id)?.screen_id === screen.id).length;\n            return <button key={screen.id} type="button" className={active ? "is-active" : ""} onClick={() => selectView(screen.id)}>{screenLabel(screen)}{count ? ` · ${count}` : ""}</button>;\n          })}\n        </nav>\n      )}\n    </div>\n  );\n}'''
+          text = replace_once(text, tail, tabs, "creator print view tabs")
+          path.write_text(text)
+
+          # ------------------------------------------------------------
+          # CreatorProductStudio: left drawers, editable specs, pricing
+          # ------------------------------------------------------------
+          path = Path("frontend/src/components/product-builder/CreatorProductStudio.jsx")
+          text = path.read_text()
+          text = replace_once(text, '  Images,\n  Info,', '  Images,\n  Info,\n  Layers,', "Layers icon import")
+          text = replace_once(text, 'import ScopedArtworkMockupGenerator from "./ScopedArtworkMockupGenerator";', 'import ScopedArtworkMockupGenerator from "./ScopedArtworkMockupGenerator";\nimport CreatorArtworkScopesPanel from "./CreatorArtworkScopesPanel";\nimport CreatorLayersPanel from "./CreatorLayersPanel";', "creator side panel imports")
+
+          text = replace_once(
+              text,
+              '''  const [detailsOpen, setDetailsOpen] = useState(true);\n  const [scopeMatrixOpen, setScopeMatrixOpen] = useState(false);\n  const [scopePrompted, setScopePrompted] = useState(false);''',
+              '''  const [detailsOpen, setDetailsOpen] = useState(true);\n  const [scopeMatrixOpen, setScopeMatrixOpen] = useState(false);\n  const [layersOpen, setLayersOpen] = useState(false);\n  const [activeArtworkGroupId, setActiveArtworkGroupId] = useState("");\n  const [activeArtworkSlotId, setActiveArtworkSlotId] = useState("");\n  const [scopePrompted, setScopePrompted] = useState(false);''',
+              "creator drawer state",
+          )
+
+          text = replace_once(
+              text,
+              '''            ...productDraft,\n            specs: getTemplateSpecs(selected),\n            selected_template_variation_ids: initialIds,''',
+              '''            ...productDraft,\n            selected_template_variation_ids: initialIds,''',
+              "keep creator draft specs separated",
+          )
+
+          prompt_effect = '''  useEffect(() => {\n    if (loading || scopePrompted || form.artwork_groups.length) return;\n    if (form.selected_template_variation_ids.length <= 1) return;\n    setScopeMatrixOpen(true);\n    setScopePrompted(true);\n  }, [loading, scopePrompted, form.artwork_groups.length, form.selected_template_variation_ids.length]);'''
+          prompt_replacement = prompt_effect + '''\n\n  useEffect(() => {\n    if (!form.artwork_groups.length) {\n      setActiveArtworkGroupId("");\n      setActiveArtworkSlotId("");\n      return;\n    }\n    if (!form.artwork_groups.some((group) => group.id === activeArtworkGroupId)) {\n      setActiveArtworkGroupId(form.artwork_groups[0].id);\n    }\n  }, [activeArtworkGroupId, form.artwork_groups]);'''
+          text = replace_once(text, prompt_effect, prompt_replacement, "active artwork group sync")
+
+          text = replace_once(
+              text,
+              '<div className={`creator-studio-body ${detailsOpen ? "has-details" : "details-collapsed"}`}>',
+              '<div className={`creator-studio-body ${(detailsOpen || scopeMatrixOpen || layersOpen) ? "has-details" : "details-collapsed"}`}>',
+              "shared left drawer grid",
+          )
+
+          old_rail = '''          <button type="button" className={detailsOpen ? "is-active" : ""} onClick={() => setDetailsOpen((value) => !value)} title="Store product details"><Info size={19} /><span>Details</span></button>\n          <button type="button" className={scopeMatrixOpen ? "is-active" : ""} onClick={() => setScopeMatrixOpen(true)} title="Artwork variation matrix"><SlidersHorizontal size={19} /><span>Scopes</span></button>\n          <button type="button" className={workspace === "design" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("design"); }} title="Design"><Palette size={19} /><span>Design</span></button>\n          <button type="button" className={workspace === "mockups" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("mockups"); }} title="Mockups"><Images size={19} /><span>Mockups</span></button>'''
+          new_rail = '''          <button type="button" className={detailsOpen ? "is-active" : ""} onClick={() => { const next = !detailsOpen; setDetailsOpen(next); if (next) { setScopeMatrixOpen(false); setLayersOpen(false); } }} title="Store product details"><Info size={19} /><span>Details</span></button>\n          <button type="button" className={scopeMatrixOpen ? "is-active" : ""} onClick={() => { const next = !scopeMatrixOpen; setScopeMatrixOpen(next); if (next) { setDetailsOpen(false); setLayersOpen(false); } }} title="Artwork scopes"><SlidersHorizontal size={19} /><span>Scopes</span></button>\n          <button type="button" className={workspace === "design" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("design"); }} title="Design"><Palette size={19} /><span>Design</span></button>\n          <button type="button" className={layersOpen ? "is-active" : ""} onClick={() => { const next = !layersOpen; setLayersOpen(next); if (next) { setDetailsOpen(false); setScopeMatrixOpen(false); } }} title="Artwork layers"><Layers size={19} /><span>Layers</span></button>\n          <button type="button" className={workspace === "mockups" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("mockups"); }} title="Mockups"><Images size={19} /><span>Mockups</span></button>'''
+          text = replace_once(text, old_rail, new_rail, "creator left rail")
+
+          details_start = text.index('        {detailsOpen && (\n          <aside className="creator-studio-left-panel">')
+          main_marker = '\n\n        <main className="creator-studio-canvas">'
+          details_end = text.index(main_marker, details_start)
+          details_block = text[details_start:details_end]
+          details_block = details_block.replace(
+              '''              <StudioField label="Storefront description">\n                <textarea rows={5} value={form.description} onChange={(event) => update("description", event.target.value)} />\n              </StudioField>''',
+              '''              <StudioField label="Storefront description">\n                <textarea rows={5} value={form.description} onChange={(event) => update("description", event.target.value)} />\n              </StudioField>\n              <StudioField label="Product specs" hint="Copied from the Catalogue template as a separate editable field.">\n                <textarea rows={6} value={form.specs} onChange={(event) => update("specs", event.target.value)} placeholder="Material, dimensions, care or product specifications" />\n              </StudioField>''',
+          )
+          new_panels = details_block + '''\n\n        {scopeMatrixOpen && (\n          <aside className="creator-studio-left-panel">\n            <div className="creator-studio-panel-heading">\n              <div><span>Artwork</span><strong>Scopes</strong></div>\n              <button type="button" className="creator-studio-panel-close" onClick={() => setScopeMatrixOpen(false)}>×</button>\n            </div>\n            <CreatorArtworkScopesPanel\n              selectedVariations={selectedVariations}\n              hasTemplateVariations={hasVariations}\n              groups={form.artwork_groups}\n              onChange={setArtworkGroups}\n              activeGroupId={activeArtworkGroupId}\n              onActiveGroupChange={setActiveArtworkGroupId}\n            />\n          </aside>\n        )}\n\n        {layersOpen && (\n          <aside className="creator-studio-left-panel">\n            <div className="creator-studio-panel-heading">\n              <div><span>Artwork</span><strong>Layers</strong></div>\n              <button type="button" className="creator-studio-panel-close" onClick={() => setLayersOpen(false)}>×</button>\n            </div>\n            <CreatorLayersPanel\n              groups={form.artwork_groups}\n              activeGroupId={activeArtworkGroupId}\n              activeSlotId={activeArtworkSlotId}\n              onSelectGroup={(groupId) => setActiveArtworkGroupId(groupId)}\n              onSelectSlot={(groupId, slotId) => { setActiveArtworkGroupId(groupId); setActiveArtworkSlotId(slotId); }}\n            />\n          </aside>\n        )}'''
+          text = text[:details_start] + new_panels + text[details_end:]
+
+          text = replace_once(
+              text,
+              '''                  <button type="button" className="btn-secondary" onClick={() => setScopeMatrixOpen(true)}>Open artwork scopes</button>''',
+              '''                  <button type="button" className="btn-secondary" onClick={() => { setScopeMatrixOpen(true); setDetailsOpen(false); setLayersOpen(false); }}>Open artwork scopes</button>''',
+              "scope CTA drawer",
+          )
+
+          old_scoped = '''                <ScopedProductArtworkStudio\n                  template={selectedTemplate}\n                  printOptions={printOptions}\n                  artworkGroups={form.artwork_groups}\n                  onArtworkGroupsChange={setArtworkGroups}\n                  selectedVariations={selectedVariations}\n                  isAdmin={false}\n                />'''
+          new_scoped = '''                <ScopedProductArtworkStudio\n                  template={selectedTemplate}\n                  printOptions={printOptions}\n                  artworkGroups={form.artwork_groups}\n                  onArtworkGroupsChange={setArtworkGroups}\n                  selectedVariations={selectedVariations}\n                  isAdmin={false}\n                  creatorMode={true}\n                  activeGroupId={activeArtworkGroupId}\n                  onActiveGroupChange={setActiveArtworkGroupId}\n                  activeSlotId={activeArtworkSlotId}\n                  onActiveSlotChange={setActiveArtworkSlotId}\n                />'''
+          text = replace_once(text, old_scoped, new_scoped, "controlled creator artwork studio")
+
+          text = replace_once(text, '<div><span>Printing</span><strong>{money(pricing.print)}</strong></div>', '<div><span>Artwork printing</span><strong>{money(pricing.print)}</strong></div>', "pricing artwork cost label")
+
+          modal_start = text.find('      {scopeMatrixOpen && (\n        <div className="creator-studio-modal-backdrop"')
+          if modal_start != -1:
+              modal_end_marker = '\n      )}\n    </div>\n  );\n}'
+              modal_end = text.index(modal_end_marker, modal_start)
+              text = text[:modal_start] + '    </div>\n  );\n}'
+          path.write_text(text)
+
+          # ------------------------------------------------------------
+          # Creator Studio CSS: compact drawers, toolbar and print tabs
+          # ------------------------------------------------------------
+          path = Path("frontend/src/components/product-builder/creatorProductStudio.css")
+          css = path.read_text()
+          css += '''\n\n/* Creator Studio focused-canvas refinements */\n.creator-scoped-product-studio { min-height: 100%; }\n.creator-scoped-product-studio > .studio-v21 { min-height: 100%; }\n\n.creator-artwork-toolbar {\n  position: sticky;\n  top: 0;\n  z-index: 8;\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  margin-bottom: 10px;\n  padding: 8px 10px;\n  border: 1px solid var(--ff-card-border);\n  background: var(--ff-card-bg);\n  color: var(--ff-card-text);\n}\n.creator-artwork-toolbar-actions { display: flex; gap: 7px; flex-wrap: wrap; }\n.creator-artwork-toolbar-actions .btn-secondary { min-height: 34px; padding: 0 11px; font-size: 0.72rem; }\n.creator-artwork-method { display: flex; align-items: center; gap: 8px; min-width: min(360px, 44%); }\n.creator-artwork-method > span { flex: 0 0 auto; color: var(--ff-muted-text); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 800; }\n.creator-artwork-method select { min-height: 34px; padding-block: 5px; }\n.creator-artwork-main-grid > main { min-height: min(72vh, 760px) !important; border-color: var(--ff-card-border) !important; background: var(--ff-card-bg) !important; }\n.creator-artwork-main-grid > aside { min-height: min(72vh, 760px) !important; border-color: var(--ff-card-border) !important; background: var(--ff-surface-bg) !important; color: var(--ff-surface-text) !important; }\n.creator-artwork-view-tabs {\n  position: sticky;\n  bottom: 0;\n  z-index: 8;\n  display: flex;\n  justify-content: center;\n  gap: 7px;\n  padding: 10px 12px 4px;\n  background: linear-gradient(to top, var(--ff-page-bg) 70%, transparent);\n}\n.creator-artwork-view-tabs button {\n  min-height: 34px;\n  padding: 0 14px;\n  border: 1px solid var(--ff-card-border);\n  border-radius: 999px;\n  background: var(--ff-button-alternate-bg);\n  color: var(--ff-button-alternate-text);\n  font-size: 0.7rem;\n  font-weight: 800;\n  cursor: pointer;\n}\n.creator-artwork-view-tabs button.is-active { background: var(--ff-button-primary-bg); color: var(--ff-button-primary-text); border-color: var(--ff-button-primary-border); }\n\n.creator-studio-scopes-panel, .creator-studio-layers-panel { padding: 10px 12px 18px; }\n.creator-studio-scope-mode-row { display: grid; grid-template-columns: 1fr 1fr 0.75fr; gap: 5px; margin-bottom: 12px; }\n.creator-studio-scope-mode-row button, .creator-studio-scope-values button { border: 1px solid var(--ff-card-border); background: var(--ff-button-alternate-bg); color: var(--ff-button-alternate-text); cursor: pointer; }\n.creator-studio-scope-mode-row button { min-height: 34px; padding: 5px 7px; font-size: 0.64rem; font-weight: 800; }\n.creator-studio-scope-mode-row button.is-active, .creator-studio-scope-values button.is-active { border-color: var(--ff-primary); background: color-mix(in srgb, var(--ff-primary) 12%, var(--ff-button-alternate-bg)); }\n.creator-studio-scope-builder { padding: 10px; margin-bottom: 12px; border: 1px solid var(--ff-card-border); background: var(--ff-card-bg); color: var(--ff-card-text); }\n.creator-studio-scope-values { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }\n.creator-studio-scope-values button { min-height: 30px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 0.66rem; }\n.creator-studio-small-action { min-height: 32px; margin-top: 9px; font-size: 0.68rem; }\n.creator-studio-scope-list { display: grid; gap: 7px; }\n.creator-studio-scope-row { border: 1px solid var(--ff-card-border); background: var(--ff-card-bg); color: var(--ff-card-text); display: grid; grid-template-columns: minmax(0,1fr) 34px; }\n.creator-studio-scope-row.is-active { border-color: var(--ff-primary); }\n.creator-studio-scope-row-main { min-width: 0; padding: 9px 10px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }\n.creator-studio-scope-row-main strong { display: block; font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.creator-studio-scope-row-main span { display: block; margin-top: 3px; color: var(--ff-muted-text); font-size: 0.61rem; }\n.creator-studio-scope-delete { border: 0; border-left: 1px solid var(--ff-card-border); background: transparent; color: var(--ff-muted-text); cursor: pointer; }\n.creator-studio-scope-delete:hover { color: var(--ff-danger, #e05252); }\n.creator-studio-exact-list { grid-column: 1 / -1; display: grid; gap: 4px; padding: 8px 10px 10px; border-top: 1px solid var(--ff-card-border); }\n.creator-studio-exact-list label { display: flex; align-items: center; gap: 7px; font-size: 0.65rem; }\n\n.creator-studio-layer-group { border-bottom: 1px solid var(--ff-card-border); padding-bottom: 8px; margin-bottom: 8px; }\n.creator-studio-layer-group-head { width: 100%; display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 8px 7px; border: 0; background: transparent; color: var(--ff-surface-text); text-align: left; cursor: pointer; }\n.creator-studio-layer-group-head.is-active { color: var(--ff-primary); }\n.creator-studio-layer-group-head strong { font-size: 0.7rem; }\n.creator-studio-layer-group-head span { color: var(--ff-muted-text); font-size: 0.6rem; }\n.creator-studio-layer-list { display: grid; gap: 5px; }\n.creator-studio-layer-row { width: 100%; display: grid; grid-template-columns: 28px minmax(0,1fr); gap: 7px; align-items: center; padding: 7px; border: 1px solid var(--ff-card-border); background: var(--ff-card-bg); color: var(--ff-card-text); text-align: left; cursor: pointer; }\n.creator-studio-layer-row.is-active { border-color: var(--ff-primary); }\n.creator-studio-layer-icon { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--ff-card-border); }\n.creator-studio-layer-copy { min-width: 0; }\n.creator-studio-layer-copy strong, .creator-studio-layer-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.creator-studio-layer-copy strong { font-size: 0.68rem; }\n.creator-studio-layer-copy small { margin-top: 2px; color: var(--ff-muted-text); font-size: 0.58rem; }\n\n@media (max-width: 1020px) {\n  .creator-artwork-toolbar { align-items: stretch; flex-direction: column; }\n  .creator-artwork-method { min-width: 0; width: 100%; }\n}\n'''
+          path.write_text(css)
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "FandomForge CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/components/product-builder/ProductArtworkStudio.jsx \
+                  frontend/src/components/product-builder/CreatorProductStudio.jsx \
+                  frontend/src/components/product-builder/creatorProductStudio.css
+          if git diff --cached --quiet; then
+            echo "No patch required"
+            exit 0
+          fi
+          git commit -m "Refine creator studio canvas and side drawers"
+          git push origin HEAD:feature/creator-builder-studio
