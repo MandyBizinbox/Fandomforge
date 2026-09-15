@@ -63,7 +63,14 @@ def reset_product_artwork_review(
     submission_status: str,
     submitted_at: str | None = None,
 ) -> Tuple[Dict[str, Any], int]:
-    """Return a copy with uploaded artwork reset for a fresh review cycle."""
+    """Return a copy with uploaded artwork reset for a fresh review cycle.
+
+    Draft saves keep individual artwork slots in ``pending_review`` so stale
+    approvals can never survive an edit, but the product-level review state is
+    ``not_required`` until the creator explicitly submits the product. This
+    keeps creator-facing status truthful while the explicit submission field
+    remains the source of truth for the admin queue.
+    """
     data = deepcopy(product or {})
     groups = deepcopy(data.get("artwork_groups") or [])
     flat = deepcopy(data.get("artworks") or [])
@@ -93,7 +100,11 @@ def reset_product_artwork_review(
 
     data["artwork_groups"] = groups
     data["artworks"] = next_flat
-    data["artwork_review_status"] = "pending_review" if changed else "not_required"
+    data["artwork_review_status"] = (
+        "pending_review"
+        if submission_status == REVIEW_SUBMITTED and changed
+        else "not_required"
+    )
     data["artwork_review_notes"] = None
     data["review_submission_status"] = (
         REVIEW_SUBMITTED if submission_status == REVIEW_SUBMITTED else REVIEW_DRAFT
