@@ -94,6 +94,16 @@ export function inferStudioPricingAttribute(variations = []) {
   return scored.sort((a, b) => b.score - a.score)[0]?.key || keys[0];
 }
 
+export function buildCreatorProductDraftFromTemplate(template = {}) {
+  return {
+    template_id: template.id || "",
+    title: template.creator_default_title || template.name || template.title || "",
+    description: template.creator_default_description || template.description || template.short_description || "",
+    category: template.category || "",
+    brand: template.brand || "",
+  };
+}
+
 export function creatorStudioBackPath(templateId = "") {
   return templateId
     ? `/creator?section=catalogue&template=${encodeURIComponent(templateId)}`
