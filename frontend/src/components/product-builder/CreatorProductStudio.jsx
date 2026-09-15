@@ -202,6 +202,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [scopeMatrixOpen, setScopeMatrixOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
+  const [mockupsOpen, setMockupsOpen] = useState(false);
   const [activeArtworkGroupId, setActiveArtworkGroupId] = useState("");
   const [activeArtworkSlotId, setActiveArtworkSlotId] = useState("");
   const [scopePrompted, setScopePrompted] = useState(false);
@@ -412,6 +413,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
     if (form.selected_template_variation_ids.length <= 1) return;
     setDetailsOpen(false);
     setLayersOpen(false);
+    setMockupsOpen(false);
     setScopeMatrixOpen(true);
     setScopePrompted(true);
   }, [loading, scopePrompted, form.artwork_groups.length, form.selected_template_variation_ids.length]);
@@ -628,7 +630,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
       setProduct(saved);
       emitCreatorProductsReadyRefresh();
       toast.success(isNew ? "Product created" : "Product saved");
-      if (isNew && saved?.id) navigate(`/creator/products/${saved.id}`, { replace: true });
+      navigate("/creator/products", { replace: true });
       return true;
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not save product");
@@ -653,6 +655,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
       const response = await setCreatorProductPublished(product.id, true);
       setProduct(response?.data || { ...product, published: true });
       toast.success("Product published");
+      navigate("/creator/products", { replace: true });
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not publish product");
     } finally {
@@ -693,13 +696,13 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
         </div>
       </header>
 
-      <div className={`creator-studio-body ${(detailsOpen || scopeMatrixOpen || layersOpen) ? "has-details" : "details-collapsed"}`}>
+      <div className={`creator-studio-body ${(detailsOpen || scopeMatrixOpen || layersOpen || mockupsOpen) ? "has-details" : "details-collapsed"}`}>
         <aside className="creator-studio-left-rail" aria-label="Product tools">
-          <button type="button" className={detailsOpen ? "is-active" : ""} onClick={() => { const next = !detailsOpen; setDetailsOpen(next); if (next) { setScopeMatrixOpen(false); setLayersOpen(false); } }} title="Store product details"><Info size={19} /><span>Details</span></button>
-          <button type="button" className={scopeMatrixOpen ? "is-active" : ""} onClick={() => { const next = !scopeMatrixOpen; setScopeMatrixOpen(next); if (next) { setDetailsOpen(false); setLayersOpen(false); } }} title="Artwork scopes"><SlidersHorizontal size={19} /><span>Scopes</span></button>
-          <button type="button" className={workspace === "design" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("design"); }} title="Design"><Palette size={19} /><span>Design</span></button>
-          <button type="button" className={layersOpen ? "is-active" : ""} onClick={() => { const next = !layersOpen; setLayersOpen(next); if (next) { setDetailsOpen(false); setScopeMatrixOpen(false); } }} title="Artwork layers"><Layers size={19} /><span>Layers</span></button>
-          <button type="button" className={workspace === "mockups" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("mockups"); }} title="Mockups"><Images size={19} /><span>Mockups</span></button>
+          <button type="button" className={detailsOpen ? "is-active" : ""} onClick={() => { const next = !detailsOpen; setDetailsOpen(next); if (next) { setScopeMatrixOpen(false); setLayersOpen(false); setMockupsOpen(false); } }} title="Store product details"><Info size={19} /><span>Details</span></button>
+          <button type="button" className={scopeMatrixOpen ? "is-active" : ""} onClick={() => { const next = !scopeMatrixOpen; setScopeMatrixOpen(next); if (next) { setDetailsOpen(false); setLayersOpen(false); setMockupsOpen(false); } }} title="Artwork scopes"><SlidersHorizontal size={19} /><span>Scopes</span></button>
+          <button type="button" className={workspace === "design" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("design"); setMockupsOpen(false); }} title="Design"><Palette size={19} /><span>Design</span></button>
+          <button type="button" className={layersOpen ? "is-active" : ""} onClick={() => { const next = !layersOpen; setLayersOpen(next); if (next) { setDetailsOpen(false); setScopeMatrixOpen(false); setMockupsOpen(false); } }} title="Artwork layers"><Layers size={19} /><span>Layers</span></button>
+          <button type="button" className={mockupsOpen ? "is-active" : ""} onClick={() => { const next = !mockupsOpen; setMockupsOpen(next); setViewMode("edit"); setWorkspace("design"); if (next) { setDetailsOpen(false); setScopeMatrixOpen(false); setLayersOpen(false); } }} title="Mockups"><Images size={19} /><span>Mockups</span></button>
         </aside>
 
         {detailsOpen && (
@@ -771,6 +774,45 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
               onSelectGroup={(groupId) => setActiveArtworkGroupId(groupId)}
               onSelectSlot={(groupId, slotId) => { setActiveArtworkGroupId(groupId); setActiveArtworkSlotId(slotId); }}
             />
+          </aside>
+        )}
+
+        {mockupsOpen && (
+          <aside className="creator-studio-left-panel creator-studio-mockups-panel">
+            <div className="creator-studio-panel-heading">
+              <div><span>Storefront</span><strong>Mockups</strong></div>
+              <button type="button" className="creator-studio-panel-close" onClick={() => setMockupsOpen(false)}>×</button>
+            </div>
+            <div className="creator-studio-mockups-scroll">
+              <div className="creator-studio-mockups-intro">
+                <strong>Generate product mockups</strong>
+                <span>Build shopper-ready images from the artwork and variants you selected.</span>
+              </div>
+              <ScopedArtworkMockupGenerator
+                template={selectedTemplate}
+                artworkGroups={form.artwork_groups}
+                selectedVariations={selectedVariations}
+                onArtworkGroupsChange={setArtworkGroups}
+              />
+              <section className="creator-studio-gallery creator-studio-mockups-gallery">
+                <div className="creator-studio-section-title"><span>Storefront gallery</span><strong>{form.mockup_images.length} selected</strong></div>
+                <div className="creator-studio-gallery-grid">
+                  {galleryCandidates.map((candidate) => {
+                    const url = candidate.url;
+                    const selected = form.mockup_images.includes(url);
+                    const primary = form.primary_mockup_image_url === url;
+                    return (
+                      <button key={`${url}-${candidate.key || candidate.id || "image"}`} type="button" className={`creator-studio-gallery-card ${selected ? "is-selected" : ""}`} onClick={() => toggleGalleryImage(url)}>
+                        <img src={assetUrl(url)} alt={candidate.label || "Product mockup"} />
+                        <span>{candidate.label || "Mockup"}</span>
+                        {selected && <b><Check size={11} /> Selected</b>}
+                        {primary && <em>Primary</em>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
           </aside>
         )}
 
