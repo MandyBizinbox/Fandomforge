@@ -1,13 +1,77 @@
 import React from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { LogOut } from "lucide-react";
+import { Factory, Grid2X2, LogOut } from "lucide-react";
 import NotificationBell from "./notifications/NotificationBell";
+import PlatformBrand from "./branding/PlatformBrand";
+import CreatorFirstRunChecklist from "./creator/CreatorFirstRunChecklist";
+import CreatorCatalogue from "./creator/CreatorCatalogue";
+import CreatorHome from "./creator/CreatorHome";
 
 function formatBadgeCount(value) {
   const count = Number(value || 0);
   if (count > 99) return "99+";
   return String(count);
+}
+
+function withManufacturingRulesLink(links = [], testidPrefix = "dash", notificationPath = "") {
+  const isAdminDashboard = testidPrefix === "admin-dash" || String(notificationPath || "").startsWith("/admin/");
+  if (!isAdminDashboard || links.some((link) => link.key === "manufacturing-rules" || link.to === "/admin/manufacturing-rules")) {
+    return links;
+  }
+
+  const manufacturingLink = {
+    to: "/admin/manufacturing-rules",
+    label: "Manufacturing Rules",
+    key: "manufacturing-rules",
+    icon: <Factory size={14} />,
+  };
+
+  const output = [];
+  let inserted = false;
+  links.forEach((link) => {
+    output.push(link);
+    if (!inserted && link.key === "product-templates") {
+      output.push(manufacturingLink);
+      inserted = true;
+    }
+  });
+
+  return inserted ? output : [...links, manufacturingLink];
+}
+
+function creatorConsoleLinks(links = []) {
+  const byKey = new Map(
+    links
+      .filter((link) => link && link.type !== "section" && link.key)
+      .map((link) => [link.key, link])
+  );
+
+  const output = [];
+  const push = (key, overrides = {}) => {
+    const link = byKey.get(key);
+    if (!link) return;
+    output.push({ ...link, ...overrides });
+  };
+
+  push("overview", { label: "Dashboard" });
+  output.push({
+    to: "/creator?section=catalogue",
+    label: "Catalogue",
+    key: "catalogue",
+    icon: <Grid2X2 size={14} />,
+  });
+  push("products", { label: "My Products" });
+  push("orders");
+  push("settings");
+
+  const secondary = ["notifications", "earnings", "activity"].filter((key) => byKey.has(key));
+  if (secondary.length) {
+    output.push({ type: "section", label: "More" });
+    secondary.forEach((key) => push(key));
+  }
+
+  return output;
 }
 
 export default function DashboardLayout({
@@ -19,40 +83,72 @@ export default function DashboardLayout({
 }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isCreatorDashboard = testidPrefix === "creator-dash";
+  const searchParams = React.useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const isCreatorCatalogue = isCreatorDashboard && searchParams.get("section") === "catalogue";
+
+  const navLinks = React.useMemo(() => {
+    const baseLinks = withManufacturingRulesLink(links, testidPrefix, notificationPath);
+    return isCreatorDashboard ? creatorConsoleLinks(baseLinks) : baseLinks;
+  }, [links, testidPrefix, notificationPath, isCreatorDashboard]);
+
+  const normalizedPath = String(location.pathname || "").replace(/\/+$/, "") || "/";
+  const isCreatorHome = isCreatorDashboard && normalizedPath === "/creator" && !isCreatorCatalogue;
+  const showCreatorFirstRunChecklist = isCreatorHome;
 
   return (
-    <div className="min-h-screen admin-workspace flex">
-      <aside className="w-64 admin-sidebar border-r flex flex-col min-h-screen sticky top-0" data-testid={`${testidPrefix}-sidebar`}>
-        <div className="p-6 border-b border-[var(--ff-card-border)]">
-          <div className="font-display text-xl uppercase tracking-tight cursor-pointer" onClick={() => navigate("/")}>
-            MERCH<span className="brand-text">FORGE</span>
-          </div>
-          <div className="overline mt-2">{title}</div>
-        </div>
+    <div className={`min-h-screen admin-workspace ${isCreatorDashboard ? "creator-workspace" : ""} flex bg-[var(--ff-page-bg)] text-[var(--ff-page-text)]`}>
+      <aside
+        className="w-20 lg:w-64 admin-sidebar border-r border-[var(--ff-card-border)] bg-[var(--ff-header-bg)] text-[var(--ff-header-text)] flex flex-col min-h-screen sticky top-0"
+        data-testid={`${testidPrefix}-sidebar`}
+      >
+        <button
+          type="button"
+          className="min-h-[92px] p-3 lg:p-6 border-b border-[var(--ff-card-border)] text-left flex items-center justify-center lg:justify-start overflow-hidden"
+          onClick={() => navigate("/")}
+          aria-label="Open platform home"
+        >
+          <span className="hidden lg:block w-full">
+            <PlatformBrand className="max-h-12 max-w-[190px]" textClassName="font-display text-xl uppercase tracking-tight" showTagline />
+          </span>
+          <span className="lg:hidden">
+            <PlatformBrand compact className="max-h-9 max-w-10" textClassName="font-display text-lg uppercase" />
+          </span>
+        </button>
 
         <nav className="flex-1 py-4 overflow-y-auto">
-          {links.map((l, index) => {
-            if (l.type === "section") {
+          {navLinks.map((link, index) => {
+            if (link.type === "section") {
               return (
-                <div key={`${l.label}-${index}`} className="px-6 pt-5 pb-2 text-[10px] uppercase tracking-[0.22em] text-[var(--ff-muted-text)] font-bold">
-                  {l.label}
+                <div
+                  key={`${link.label}-${index}`}
+                  className="hidden lg:block px-6 pt-5 pb-2 text-[10px] uppercase tracking-[0.22em] text-[var(--ff-muted-text)] font-bold"
+                >
+                  {link.label}
                 </div>
               );
             }
 
             return (
               <NavLink
-                key={l.to}
-                to={l.to}
-                end={l.end}
-                className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''} ${Number(l.badgeCount || 0) > 0 ? 'sidebar-link-attention' : ''}`}
-                data-testid={`${testidPrefix}-nav-${l.key}`}
+                key={link.to}
+                to={link.to}
+                end={link.end}
+                title={link.label}
+                className={({ isActive }) => {
+                  let active = isActive;
+                  if (isCreatorDashboard && link.key === "overview") active = isActive && !isCreatorCatalogue;
+                  if (isCreatorDashboard && link.key === "catalogue") active = isCreatorCatalogue;
+                  return `sidebar-link ${active ? "active" : ""} ${Number(link.badgeCount || 0) > 0 ? "sidebar-link-attention" : ""}`;
+                }}
+                data-testid={`${testidPrefix}-nav-${link.key}`}
               >
-                {l.icon}
-                <span className="min-w-0 flex-1 truncate">{l.label}</span>
-                {Number(l.badgeCount || 0) > 0 && (
-                  <span className="sidebar-link-badge" aria-label={`${l.badgeCount} pending`}>
-                    {formatBadgeCount(l.badgeCount)}
+                <span className="shrink-0">{link.icon}</span>
+                <span className="hidden lg:block min-w-0 flex-1 truncate">{link.label}</span>
+                {Number(link.badgeCount || 0) > 0 && (
+                  <span className="sidebar-link-badge" aria-label={`${link.badgeCount} pending`}>
+                    {formatBadgeCount(link.badgeCount)}
                   </span>
                 )}
               </NavLink>
@@ -60,24 +156,25 @@ export default function DashboardLayout({
           })}
         </nav>
 
-        <div className="border-t border-[var(--ff-card-border)] p-4">
-          <div className="text-xs text-[var(--ff-muted-text)] mb-2 uppercase tracking-wider">{user?.name}</div>
-          <div className="text-[10px] text-[var(--ff-muted-text)] mb-3 break-all">{user?.email}</div>
+        <div className="border-t border-[var(--ff-card-border)] p-3 lg:p-4">
+          <div className="hidden lg:block text-xs text-[var(--ff-muted-text)] mb-2 uppercase tracking-wider">{user?.name}</div>
+          <div className="hidden lg:block text-[10px] text-[var(--ff-muted-text)] mb-3 break-all">{user?.email}</div>
           <button
             onClick={() => { logout(); navigate("/"); }}
-            className="w-full flex items-center justify-center gap-2 border border-[var(--ff-card-border)] px-3 py-2 text-xs uppercase tracking-widest font-bold hover:bg-white hover:text-black transition-colors"
+            className="w-full flex items-center justify-center gap-2 border border-[var(--ff-card-border)] px-3 py-2 text-xs uppercase tracking-widest font-bold hover:bg-[var(--ff-button-primary-bg)] hover:text-[var(--ff-button-primary-text)] transition-colors"
             data-testid={`${testidPrefix}-logout-btn`}
+            title="Sign out"
           >
-            <LogOut size={14} /> Sign out
+            <LogOut size={14} /> <span className="hidden lg:inline">Sign out</span>
           </button>
         </div>
       </aside>
 
       <main className="flex-1 min-w-0" data-testid={`${testidPrefix}-main`}>
-        <div className="admin-topbar sticky top-0 z-30 border-b backdrop-blur px-6 md:px-10 py-4 flex items-center justify-between gap-4">
+        <div className="admin-topbar sticky top-0 z-30 border-b border-[var(--ff-card-border)] bg-[var(--ff-header-bg)] text-[var(--ff-header-text)] backdrop-blur px-4 md:px-10 py-4 flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <div className="overline">{title}</div>
-            <div className="text-xs text-[var(--ff-muted-text)] truncate">{user?.name || user?.email}</div>
+            <div className="overline">{isCreatorCatalogue ? "Creator Catalogue" : title}</div>
+            <div className="text-xs opacity-70 truncate">{user?.name || user?.email}</div>
           </div>
           {notificationEndpoint && (
             <NotificationBell
@@ -87,8 +184,17 @@ export default function DashboardLayout({
             />
           )}
         </div>
-        <div className="p-6 md:p-10">
-          <Outlet />
+        <div className="p-4 md:p-8 lg:p-10">
+          {isCreatorCatalogue ? (
+            <CreatorCatalogue />
+          ) : isCreatorHome ? (
+            <>
+              {showCreatorFirstRunChecklist && <CreatorFirstRunChecklist />}
+              <CreatorHome />
+            </>
+          ) : (
+            <Outlet />
+          )}
         </div>
       </main>
     </div>

@@ -1,162 +1,116 @@
-import React, { useMemo, useState } from "react";
-import { CheckSquare, Square } from "lucide-react";
-import {
-  asArray,
-  getVariationCost,
-  getVariationMatrix,
-  getVariationSize,
-  getVariationSizeGroupSections,
-  money,
-} from "./productBuilderUtils";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, Image as ImageIcon } from "lucide-react";
+import { assetUrl } from "../../lib/api";
+import "./productBuilderV2.css";
+import "./productBuilderV2Runtime";
+import { asArray, getVariationAttributes, getVariationCost, getVariationLabel, money } from "./productBuilderUtils";
+
+const normalise = (value) => String(value ?? "").trim().toLowerCase();
+const variationId = (variation) => String(variation?.template_variation_id || variation?.id || variation?.sku || "");
+const idKey = (values) => asArray(values).map(String).filter(Boolean).sort().join("|");
+
+function collectAttributeOptions(variations = []) {
+  const map = new Map();
+  asArray(variations).forEach((variation) => {
+    Object.entries(getVariationAttributes(variation)).forEach(([key, value]) => {
+      if (value === undefined || value === null || String(value).trim() === "") return;
+      if (!map.has(key)) map.set(key, new Set());
+      map.get(key).add(String(value));
+    });
+  });
+  const priority = ["Colour", "Color", "Size", "Keyring Size", "Keyring Material", "Material"];
+  return [...map.entries()].map(([key, values]) => ({ key, label: key, values: [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })) })).sort((a, b) => {
+    const ai = priority.findIndex((item) => normalise(item) === normalise(a.key));
+    const bi = priority.findIndex((item) => normalise(item) === normalise(b.key));
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.key.localeCompare(b.key, undefined, { sensitivity: "base" });
+  });
+}
+
+function variationValue(variation, key) {
+  const attrs = getVariationAttributes(variation);
+  const actual = Object.keys(attrs).find((item) => normalise(item) === normalise(key));
+  return actual ? String(attrs[actual]) : "";
+}
+
+export function deriveSelectedIds(variations, options) {
+  const attributeKeys = Object.keys(options || {});
+  if (!attributeKeys.length || attributeKeys.some((key) => !asArray(options[key]).length)) return [];
+  return asArray(variations)
+    .filter((variation) => attributeKeys.every((key) => asArray(options[key]).map(normalise).includes(normalise(variationValue(variation, key)))))
+    .map(variationId)
+    .filter(Boolean);
+}
+
+export function seedSelections(variations, selectedIds) {
+  const selected = new Set(asArray(selectedIds).map(String));
+  const options = collectAttributeOptions(variations);
+  const selectedVariations = asArray(variations).filter((variation) => selected.has(variationId(variation)));
+  return Object.fromEntries(options.map((option) => [
+    option.key,
+    option.values.filter((value) => selectedVariations.some((variation) => normalise(variationValue(variation, option.key)) === normalise(value))),
+  ]));
+}
+
+function getFallbackImage(template = {}) {
+  return template.creator_catalogue_thumbnail_url || template.product_image_url || template.mockup_url || asArray(template.mockup_images)[0] || asArray(template.mockup_screens).find((screen) => screen.image_url)?.image_url || "";
+}
 
 export default function ProductVariationMatrix({ template, selectedIds, onChange, hasTemplateVariations = true }) {
-  const [filter, setFilter] = useState("");
+  const sourceVariations = useMemo(() => asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived"), [template]);
+  const attributes = useMemo(() => collectAttributeOptions(sourceVariations), [sourceVariations]);
+  const selectedIdsKey = idKey(selectedIds);
+  const sourceVariationsKey = useMemo(() => idKey(sourceVariations.map(variationId)), [sourceVariations]);
+  const selectionContextKey = `${String(template?.id || "")}|${sourceVariationsKey}`;
+  const [selectedValues, setSelectedValues] = useState(() => seedSelections(sourceVariations, selectedIds));
+  const lastEmittedIdsKey = useRef("");
+  const lastSelectionContextKey = useRef(selectionContextKey);
 
-  const variations = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    const source = asArray(template?.variations).filter((variation) => variation.enabled !== false && variation.status !== "archived");
-    if (!q) return source;
-    return source.filter((variation) => JSON.stringify(variation.attributes || variation.attribute_values || {}).toLowerCase().includes(q));
-  }, [template, filter]);
+  // Edit mode can hydrate selected IDs after the template is already present.
+  // Do not re-seed from IDs that this component just emitted: selected IDs only
+  // describe generated combinations, while selectedValues preserves the user's
+  // independent attribute choices (for example one colour + every size).
+  useEffect(() => {
+    const contextChanged = lastSelectionContextKey.current !== selectionContextKey;
+    lastSelectionContextKey.current = selectionContextKey;
+    if (!contextChanged && selectedIdsKey === lastEmittedIdsKey.current) {
+      lastEmittedIdsKey.current = "";
+      return;
+    }
+    lastEmittedIdsKey.current = "";
+    setSelectedValues(seedSelections(sourceVariations, selectedIds));
+  }, [selectionContextKey, selectedIdsKey, sourceVariations]);
 
-  const matrix = useMemo(() => getVariationMatrix(variations), [variations]);
-  const sizeSections = useMemo(() => getVariationSizeGroupSections(variations), [variations]);
-  const visibleSections = sizeSections.length > 1 ? sizeSections : [{ label: "All sizes", sizes: matrix.sizes, rows: matrix.rows }];
-  const selected = useMemo(() => new Set(asArray(selectedIds)), [selectedIds]);
+  useEffect(() => {
+    const ids = deriveSelectedIds(sourceVariations, selectedValues);
+    const nextIdsKey = idKey(ids);
+    if (nextIdsKey !== selectedIdsKey) {
+      lastEmittedIdsKey.current = nextIdsKey;
+      onChange(ids);
+    }
+  }, [selectedValues, sourceVariations, selectedIdsKey, onChange]);
 
-  const setSelected = (nextSet) => onChange([...nextSet]);
+  const selectedCount = asArray(selectedIds).length;
+  const toggleValue = (key, value) => setSelectedValues((current) => {
+    const next = { ...current, [key]: asArray(current[key]) };
+    const values = new Set(next[key]);
+    if (values.has(value)) values.delete(value); else values.add(value);
+    next[key] = [...values];
+    return next;
+  });
+  const clearAll = () => setSelectedValues(Object.fromEntries(attributes.map((option) => [option.key, []])));
 
-  const toggleOne = (variationId) => {
-    const next = new Set(selected);
-    if (next.has(variationId)) next.delete(variationId);
-    else next.add(variationId);
-    setSelected(next);
-  };
+  if (!template) return <div className="card text-sm text-zinc-500">Choose a template first.</div>;
+  if (!hasTemplateVariations || !sourceVariations.length) return <div className="card text-sm text-zinc-500">This template has no selectable variations. It will use the standard/default product setup.</div>;
 
-  const toggleRow = (row) => {
-    const ids = row.items.map((variation) => variation.id);
-    const allSelected = ids.every((id) => selected.has(id));
-    const next = new Set(selected);
-    ids.forEach((id) => {
-      if (allSelected) next.delete(id);
-      else next.add(id);
-    });
-    setSelected(next);
-  };
-
-  const toggleColumn = (size) => {
-    const ids = variations.filter((variation) => getVariationSize(variation) === size).map((variation) => variation.id);
-    const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
-    const next = new Set(selected);
-    ids.forEach((id) => {
-      if (allSelected) next.delete(id);
-      else next.add(id);
-    });
-    setSelected(next);
-  };
-
-  const selectAll = () => setSelected(new Set(variations.map((variation) => variation.id)));
-  const clearAll = () => setSelected(new Set());
-
-  return (
-    <div className="space-y-4 product-variation-matrix-shell" data-testid="product-variation-matrix">
-      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
-        <div>
-          <div className="overline mb-1">Variation Matrix</div>
-          <p className="text-sm text-zinc-500">
-            Select the template variations this sellable product will offer. Artwork groups are configured in the next step.
-          </p>
-        </div>
-        {hasTemplateVariations && (
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-secondary" onClick={selectAll}>Select all</button>
-            <button type="button" className="btn-secondary" onClick={clearAll}>Clear</button>
-          </div>
-        )}
-      </div>
-
-      {hasTemplateVariations && (
-        <input
-          className="input-base max-w-xl"
-          placeholder="Filter colours or sizes"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
-      )}
-
-      <div className="product-variation-scroll rounded-xl border border-white/10 overflow-auto bg-black/30">
-        {visibleSections.map((section) => (
-          <div key={section.label} className="min-w-full">
-            {visibleSections.length > 1 && (
-              <div className="sticky left-0 bg-[#161616] border-b border-white/10 px-3 py-2 text-xs uppercase tracking-widest text-zinc-300 font-bold">
-                {section.label}
-              </div>
-            )}
-            <table className="w-full text-sm product-variation-table">
-              <thead>
-                <tr className="bg-white/[0.04] border-b border-white/10">
-                  <th className="text-left p-3 sticky left-0 z-10 bg-[#111] min-w-[180px]">Colour</th>
-                  {section.sizes.map((size) => (
-                    <th key={size} className="p-3 min-w-[110px] text-center">
-                      <button type="button" className="text-xs uppercase tracking-widest text-zinc-300 hover:text-[#FF3B30]" onClick={() => toggleColumn(size)}>
-                        {size}
-                      </button>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {section.rows.map((row) => {
-                  const rowIds = row.items.map((variation) => variation.id);
-                  const selectedCount = rowIds.filter((id) => selected.has(id)).length;
-                  return (
-                    <tr key={`${section.label}-${row.colour}`} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="p-3 sticky left-0 z-10 bg-[#0f0f0f] align-top">
-                        <button type="button" className="flex items-start gap-3 text-left w-full" onClick={() => toggleRow(row)}>
-                          <span className="mt-1 text-[#FF3B30]">
-                            {selectedCount === rowIds.length && rowIds.length > 0 ? <CheckSquare size={16} /> : <Square size={16} />}
-                          </span>
-                          <span>
-                            <span className="font-bold text-white block">{row.colour}</span>
-                            <span className="text-xs text-zinc-500">{selectedCount}/{rowIds.length} selected</span>
-                          </span>
-                        </button>
-                      </td>
-                      {section.sizes.map((size) => {
-                        const variation = row.items.find((item) => getVariationSize(item) === size);
-                        if (!variation) {
-                          return <td key={size} className="p-3 text-center text-zinc-700">—</td>;
-                        }
-                        const active = selected.has(variation.id);
-                        return (
-                          <td key={variation.id} className="p-2 text-center align-top">
-                            <button
-                              type="button"
-                              onClick={() => toggleOne(variation.id)}
-                              className={`w-full rounded-lg border p-2 transition ${active ? "border-[#FF3B30] bg-[#FF3B30]/15" : "border-white/10 bg-black/30 hover:border-white/30"}`}
-                            >
-                              <span className={`block text-xs uppercase tracking-widest ${active ? "text-white" : "text-zinc-500"}`}>{active ? "On" : "Off"}</span>
-                              <span className="block text-[11px] text-zinc-500 mt-1">{money(getVariationCost(variation, template))}</span>
-                            </button>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ))}
-
-        {variations.length === 0 && (
-          <div className="p-8 text-center text-zinc-500">
-            {hasTemplateVariations
-              ? "No variations match this filter."
-              : "This product option has no selectable variations. It will be created as a standard/default product."}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <div className="space-y-5" data-testid="product-variation-matrix">
+    <section className="card space-y-5">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3"><div><div className="overline mb-1">Choose attributes</div><p className="text-sm text-zinc-500 max-w-3xl">Pick the colours, sizes and other attribute values you want to sell. FandomForge creates the actual combinations automatically — you do not need to tick Red XS, Red S, Red M one by one.</p></div><button type="button" className="btn-secondary" onClick={clearAll}>Clear all</button></div>
+      <div className="space-y-4">{attributes.map((attribute) => { const active = new Set(asArray(selectedValues[attribute.key])); return <div key={attribute.key} className="rounded-xl border border-white/10 bg-black/20 p-4"><div className="flex items-center justify-between gap-3 mb-3"><div className="font-display text-xl uppercase">{attribute.label}</div><div className="text-[10px] uppercase tracking-widest text-zinc-500">{active.size} selected</div></div><div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">{attribute.values.map((value) => { const checked = active.has(value); return <label key={value} className={`flex items-center gap-3 rounded-lg border px-3 py-3 cursor-pointer transition ${checked ? "border-emerald-400 bg-emerald-500/10" : "border-white/10 bg-black/20 hover:border-white/30"}`}><input type="checkbox" checked={checked} onChange={() => toggleValue(attribute.key, value)} /><span className="text-sm text-white">{value}</span>{checked && <Check size={14} className="ml-auto text-emerald-300" />}</label>; })}</div></div>; })}</div>
+      <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3"><div><div className="overline">Generated combinations</div><div className="font-display text-3xl mt-1">{selectedCount}</div></div><div className="text-sm text-zinc-400 max-w-xl">Every selected attribute combination is stored as a real product variation for production, pricing and artwork scope. The creator only has to choose attributes.</div></div>
+    </section>
+    <details className="card"><summary className="flex items-center gap-2 cursor-pointer text-xs uppercase tracking-widest text-zinc-400"><ChevronDown size={14} /> Preview generated variations</summary><div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">{sourceVariations.filter((variation) => asArray(selectedIds).map(String).includes(variationId(variation))).slice(0, 60).map((variation) => <div key={variationId(variation)} className="flex items-center gap-3 border border-white/10 rounded-lg p-3"><div className="w-12 h-12 shrink-0 rounded bg-black border border-white/10 flex items-center justify-center overflow-hidden">{(variation.image_url || getFallbackImage(template)) ? <img src={assetUrl(variation.image_url || getFallbackImage(template))} alt={getVariationLabel(variation)} className="w-full h-full object-contain" /> : <ImageIcon size={18} className="text-zinc-700" />}</div><div className="min-w-0"><div className="text-sm font-bold text-white truncate">{getVariationLabel(variation)}</div><div className="text-[10px] text-zinc-500">{variation.sku || variationId(variation)}</div><div className="text-[10px] text-zinc-500 mt-1">Blank {money(getVariationCost(variation, template))}</div></div></div>)}</div></details>
+  </div>;
 }

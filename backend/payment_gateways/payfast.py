@@ -202,14 +202,45 @@ class PayFastPaymentGateway(PaymentGatewayAdapter):
                 headers=headers,
                 timeout=30,
             )
-            data = response.json()
         except requests.RequestException as exc:
             raise PaymentGatewayError(f"PayFast reconciliation connection failed: {exc}") from exc
-        except ValueError as exc:
-            raise PaymentGatewayError("PayFast reconciliation returned an unreadable response.") from exc
 
-        if response.status_code >= 400 or str(data.get("status") or "").lower() == "failed":
-            message = data.get("message") or ((data.get("data") or {}).get("message") if isinstance(data.get("data"), dict) else None)
+        # PayFast transaction history is observed in production as raw CSV even
+        # though some API examples show a JSON object containing a CSV response.
+        # Inspect HTTP failure status first, then support both successful shapes.
+        if response.status_code >= 400:
+            try:
+                error_data = response.json()
+            except (ValueError, AttributeError):
+                error_data = {}
+            if isinstance(error_data, dict):
+                message = error_data.get("message") or (
+                    (error_data.get("data") or {}).get("message")
+                    if isinstance(error_data.get("data"), dict)
+                    else None
+                )
+            else:
+                message = None
+            body = str(getattr(response, "text", "") or "").strip()
+            raise PaymentGatewayError(message or body[:500] or "PayFast reconciliation request failed.")
+
+        try:
+            data = response.json()
+        except (ValueError, AttributeError):
+            raw_text = str(getattr(response, "text", "") or "")
+            if path == "/transactions/history" and raw_text.strip():
+                return {"response": raw_text}
+            raise PaymentGatewayError("PayFast reconciliation returned an unreadable response.")
+
+        if not isinstance(data, dict):
+            raise PaymentGatewayError("PayFast reconciliation returned an unexpected response format.")
+
+        if str(data.get("status") or "").lower() == "failed":
+            message = data.get("message") or (
+                (data.get("data") or {}).get("message")
+                if isinstance(data.get("data"), dict)
+                else None
+            )
             raise PaymentGatewayError(message or "PayFast reconciliation request failed.")
         return data
 

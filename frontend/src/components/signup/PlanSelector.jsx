@@ -4,13 +4,15 @@ function money(value) {
   return Number(value || 0).toFixed(2);
 }
 
-export default function PlanSelector({ plans = [], value, onChange, emptyLabel = "No paid plans available yet." }) {
+export default function PlanSelector({ plans = [], value, onChange, emptyLabel = "No paid creator plans are currently available." }) {
   if (!Array.isArray(plans) || plans.length === 0) {
     return (
-      <div className="card bg-white/[0.02]">
-        <p className="overline mb-2">Subscription</p>
-        <p className="text-zinc-400 text-sm">{emptyLabel}</p>
-        <p className="text-zinc-500 text-xs mt-2">Your account can still be created with manual billing/approval if the platform allows it.</p>
+      <div className="card bg-[var(--ff-card-bg)]">
+        <p className="overline mb-2">Creator access</p>
+        <p className="text-[var(--ff-muted-text)] text-sm">{emptyLabel}</p>
+        <p className="text-[var(--ff-muted-text)] text-xs mt-2">
+          Continue to create your store using the currently available launch access.
+        </p>
       </div>
     );
   }
@@ -19,33 +21,58 @@ export default function PlanSelector({ plans = [], value, onChange, emptyLabel =
     <div className="grid md:grid-cols-2 gap-4">
       {plans.map((plan) => {
         const active = value === plan.id;
+        const monthlyPrice = Number(plan.monthly_price || 0);
+
         return (
           <button
             type="button"
             key={plan.id}
             onClick={() => onChange(plan.id)}
-            className={`text-left border p-5 transition ${active ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-white/15 bg-white/[0.03] hover:border-white/40"}`}
+            aria-pressed={active}
+            className={`text-left border p-5 transition bg-[var(--ff-card-bg)] ${active ? "border-[var(--ff-primary)]" : "border-[var(--ff-card-border)] hover:border-[var(--ff-primary)]"}`}
           >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="font-display text-2xl uppercase">{plan.name}</p>
-                <p className="text-zinc-400 text-sm mt-1">{plan.description || "Subscription plan"}</p>
+                <p className="text-[var(--ff-muted-text)] text-sm mt-1">{plan.description || "Creator subscription plan"}</p>
               </div>
-              <div className="font-display text-2xl whitespace-nowrap">
-                {Number(plan.monthly_price || 0) === 0 ? "Free" : `R ${money(plan.monthly_price)}`}
+              <div className="font-display text-2xl whitespace-nowrap text-[var(--ff-primary)]">
+                {monthlyPrice === 0 ? "Free" : `R ${money(monthlyPrice)}`}
               </div>
             </div>
+
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="px-2 py-1 border border-white/10 text-[10px] uppercase tracking-widest text-zinc-400">{plan.billing_cycle}</span>
-              {plan.trial_days > 0 && <span className="px-2 py-1 border border-white/10 text-[10px] uppercase tracking-widest text-zinc-400">{plan.trial_days} day trial</span>}
-              {plan.limits?.max_products && <span className="px-2 py-1 border border-white/10 text-[10px] uppercase tracking-widest text-zinc-400">{plan.limits.max_products} products</span>}
-              {plan.limits?.max_jobs_per_month && <span className="px-2 py-1 border border-white/10 text-[10px] uppercase tracking-widest text-zinc-400">{plan.limits.max_jobs_per_month} jobs/mo</span>}
+              {plan.billing_cycle && (
+                <span className="px-2 py-1 border border-[var(--ff-card-border)] text-[10px] uppercase tracking-widest text-[var(--ff-muted-text)]">
+                  {plan.billing_cycle}
+                </span>
+              )}
+              {plan.trial_days > 0 && (
+                <span className="px-2 py-1 border border-[var(--ff-card-border)] text-[10px] uppercase tracking-widest text-[var(--ff-muted-text)]">
+                  {plan.trial_days} day trial
+                </span>
+              )}
+              {plan.limits?.max_products && (
+                <span className="px-2 py-1 border border-[var(--ff-card-border)] text-[10px] uppercase tracking-widest text-[var(--ff-muted-text)]">
+                  {plan.limits.max_products} products
+                </span>
+              )}
+              {plan.limits?.max_jobs_per_month && (
+                <span className="px-2 py-1 border border-[var(--ff-card-border)] text-[10px] uppercase tracking-widest text-[var(--ff-muted-text)]">
+                  {plan.limits.max_jobs_per_month} jobs per month
+                </span>
+              )}
             </div>
+
             {Array.isArray(plan.features) && plan.features.length > 0 && (
-              <ul className="mt-4 space-y-1 text-xs text-zinc-400">
+              <ul className="mt-4 space-y-1 text-xs text-[var(--ff-muted-text)]">
                 {plan.features.slice(0, 5).map((feature) => <li key={feature}>• {feature}</li>)}
               </ul>
             )}
+
+            <span className="block mt-5 text-xs uppercase tracking-widest font-bold text-[var(--ff-primary)]">
+              {active ? "Selected" : "Select plan"}
+            </span>
           </button>
         );
       })}

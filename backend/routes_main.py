@@ -11,11 +11,34 @@ import urllib.request
 import requests
 import hmac
 import hashlib
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from starlette.responses import RedirectResponse
+from starlette.responses import RedirectResponse, Response
+
+from platform_fee_pricing import (
+    creator_amount_for_sale,
+    normalize_rate,
+    production_fee_amount,
+    total_cost_to_produce,
+)
+from artwork_print_job_pricing import aggregate_artwork_print_jobs
+from product_normalization_service import (
+    normalize_builder_product_payload,
+    copy_production_snapshot,
+    product_save_http_exception,
+)
+from generated_text_artwork import (
+    materialize_text_slot,
+    materialize_product_artworks,
+    copy_text_metadata_to_snapshot,
+)
+from product_artwork_costing import (
+    calculate_artwork_area_cost,
+    apply_combined_artwork_costing,
+)
+from production_operation_pricing import apply_production_operation_pricing
 
 from auth import create_token, get_current_user, hash_password, optional_user, require_role
 from models import (
@@ -116,6 +139,23 @@ from platform_modules.registry import (
     package_keys,
 )
 from storage import ALLOWED_ARTWORK, ALLOWED_IMAGE, save_upload
+from product_template_csv import (
+    apply_import_plan_to_documents,
+    build_import_plan,
+    export_product_template_zip,
+    parse_product_template_import,
+    remove_unset_fields,
+)
+
+from template_lifecycle import template_delete_impact_payload
+from e2e_runtime import with_e2e_mock_gateway
+from creator_product_review import (
+    REVIEW_DRAFT,
+    REVIEW_SUBMITTED,
+    reset_product_artwork_review,
+    review_is_locked,
+    review_queue_includes_product,
+)
 
 
 # =============================================================================
@@ -287,10 +327,46 @@ def _clean_admin_user(doc: Optional[dict]) -> dict:
 # =============================================================================
 
 
+THEME_PALETTE_KEYS = [
+    "background_color", "page_text_color", "surface_background_color", "surface_text_color",
+    "card_background_color", "card_text_color", "card_border_color", "muted_text_color",
+    "input_background_color", "input_text_color", "input_border_color",
+    "header_background_color", "header_text_color",
+    "button_primary_background_color", "button_primary_text_color", "button_primary_border_color",
+    "button_alternate_background_color", "button_alternate_text_color", "button_alternate_border_color",
+    "button_secondary_border_color",
+]
+
+
 def _normalize_platform_doc(doc: Optional[dict]) -> dict:
-    base = PlatformSettings().model_dump()
-    if doc:
-        base.update(dict(doc))
+    defaults = PlatformSettings().model_dump()
+    base = dict(defaults)
+    current = dict(doc or {})
+    if current:
+        base.update(current)
+
+    configured_palettes = current.get("theme_palettes")
+    default_palettes = defaults.get("theme_palettes") or {}
+    if isinstance(configured_palettes, dict):
+        base["theme_palettes"] = {
+            "light": {**(default_palettes.get("light") or {}), **(configured_palettes.get("light") or {})},
+            "dark": {**(default_palettes.get("dark") or {}), **(configured_palettes.get("dark") or {})},
+        }
+    else:
+        legacy_dark = dict(default_palettes.get("dark") or {})
+        for key in THEME_PALETTE_KEYS:
+            value = current.get(key)
+            if value not in (None, ""):
+                legacy_dark[key] = value
+        base["theme_palettes"] = {
+            "light": dict(default_palettes.get("light") or {}),
+            "dark": legacy_dark,
+        }
+
+    if base.get("storefront_theme_mode") not in {"light", "dark", "system"}:
+        base["storefront_theme_mode"] = "light"
+    if base.get("admin_theme_mode") not in {"light", "dark", "system"}:
+        base["admin_theme_mode"] = "dark"
     base["modules"] = normalize_modules(base.get("modules"))
     if base.get("package_key") not in package_keys():
         base["package_key"] = "full_marketplace"
@@ -450,6 +526,11 @@ DEFAULT_POLICY_SETTINGS = {
     "shipping_policy": "Shipping policy will be published here.",
     "creator_terms": "Creator terms will be published here.",
     "printer_terms": "Printer terms will be published here.",
+    "intellectual_property_policy": "Approved Intellectual Property Policy content is required before broad creator onboarding.",
+    "prohibited_content_policy": "Approved Prohibited Content Policy content is required before broad creator onboarding.",
+    "copyright_complaint_procedure": "Approved Copyright Complaint Procedure content is required before broad creator onboarding.",
+    "payout_policy": "Approved Payout Policy content is required before creator earnings and payout promises are published.",
+    "store_suspension_termination_policy": "Approved Store Suspension and Termination Policy content is required before broad creator onboarding.",
 }
 
 PUBLIC_POLICY_KEYS = set(DEFAULT_POLICY_SETTINGS.keys())
@@ -493,6 +574,10 @@ def _public_platform_payload(settings: dict) -> dict:
         "favicon_url": settings.get("favicon_url") or "",
         "primary_color": settings.get("primary_color") or "#FF3B30",
         "accent_color": settings.get("accent_color") or "#FF7A1A",
+        "storefront_theme_mode": settings.get("storefront_theme_mode") or "light",
+        "admin_theme_mode": settings.get("admin_theme_mode") or "dark",
+        "allow_theme_toggle": bool(settings.get("allow_theme_toggle", False)),
+        "theme_palettes": settings.get("theme_palettes") or PlatformSettings().model_dump().get("theme_palettes"),
         "theme_mode": settings.get("theme_mode") or "dark",
         "background_color": settings.get("background_color") or "#0A0A0A",
         "page_text_color": settings.get("page_text_color") or "",
@@ -552,6 +637,10 @@ class InstanceSettingsUpdate(BaseModel):
     favicon_url: Optional[str] = None
     primary_color: Optional[str] = None
     accent_color: Optional[str] = None
+    storefront_theme_mode: Optional[Literal["light", "dark", "system"]] = None
+    admin_theme_mode: Optional[Literal["light", "dark", "system"]] = None
+    allow_theme_toggle: Optional[bool] = None
+    theme_palettes: Optional[Dict[str, Dict[str, str]]] = None
     theme_mode: Optional[str] = None
     background_color: Optional[str] = None
     page_text_color: Optional[str] = None
@@ -2110,7 +2199,7 @@ SECRET_SETTING_KEYS = {"secret_key", "private_key", "webhook_secret", "passphras
 
 
 def _default_payment_gateways() -> Dict[str, dict]:
-    return {
+    gateways = {
         "manual_eft": {
             "key": "manual_eft",
             "enabled": True,
@@ -2196,6 +2285,7 @@ def _default_payment_gateways() -> Dict[str, dict]:
             "secret_configured": False,
         },
     }
+    return with_e2e_mock_gateway(gateways)
 
 
 def _gateway_has_secret(config: dict) -> bool:
@@ -2539,12 +2629,21 @@ async def _profile_for_owner(db, owner_type: str, owner_id: str) -> Optional[dic
 
 
 CREATOR_VISIBILITIES = {"public", "unlisted", "private"}
-ADMIN_CONTROLLED_CREATOR_PUBLISHING_FIELDS = {
+CREATOR_SELF_SERVICE_FIELDS = {
+    "name",
+    "slug",
+    "category",
+    "bio",
+    "logo_url",
+    "banner_url",
+    "profile_image_url",
+    "contact_email",
+    "contact_phone",
+    "website_url",
+    "socials",
+    "group_delivery",
     "visibility",
     "show_on_platform_gallery",
-    "gallery_logo_url",
-    "gallery_banner_url",
-    "gallery_display_name",
     "allow_search_indexing",
 }
 
@@ -2684,9 +2783,11 @@ async def update_my_band(
     db = request.app.state.db
     creator = await get_creator_account_for_user(db, user, permission="manage_settings")
 
-    updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
-    for key in ADMIN_CONTROLLED_CREATOR_PUBLISHING_FIELDS:
-        updates.pop(key, None)
+    updates = {
+        key: value
+        for key, value in payload.model_dump(exclude_none=True).items()
+        if key in CREATOR_SELF_SERVICE_FIELDS
+    }
 
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
@@ -3154,7 +3255,11 @@ PUBLIC_TEMPLATE_INTERNAL_COST_KEYS = {
 
 
 def _creator_safe_product_template_doc(template: dict) -> dict:
-    row = dict(template or {})
+    from product_template_visibility import (
+        strip_template_visibility_controls,
+    )
+
+    row = strip_template_visibility_controls(template)
     costing = _resolve_blank_costing({}, row)
     creator_price = row.get("creator_blank_price") or costing["creator_blank_price"]
 
@@ -3267,7 +3372,7 @@ def _product_print_option_map(template: dict, global_options: list) -> dict:
 
 
 
-def _calculate_area_print_cost(slot: dict, area: dict, option: dict) -> dict:
+def _calculate_area_print_cost_core(slot: dict, area: dict, option: dict) -> dict:
     calculation_type = option.get("calculation_type") or slot.get("calculation_type") or "fixed"
 
     placement = slot.get("placement") or {}
@@ -3354,7 +3459,11 @@ def _calculate_area_print_cost(slot: dict, area: dict, option: dict) -> dict:
         "calculated_print_cost": round(final, 2),
     }
 
-def _enrich_and_validate_product_artwork_slots(template: dict, global_print_options: list, groups: list, flat_artworks: list) -> None:
+
+def _calculate_area_print_cost(slot: dict, area: dict, option: dict) -> dict:
+    return calculate_artwork_area_cost(_calculate_area_print_cost_core, slot, area, option)
+
+def _enrich_and_validate_product_artwork_slots_core(template: dict, global_print_options: list, groups: list, flat_artworks: list) -> None:
     area_map = _product_template_print_area_map(template)
     option_map = _product_print_option_map(template, global_print_options)
 
@@ -3437,6 +3546,14 @@ def _enrich_and_validate_product_artwork_slots(template: dict, global_print_opti
         slot["minimum_print_cost"] = float(option.get("minimum_print_cost") or slot.get("minimum_print_cost") or 0)
         slot["waste_percentage"] = float(option.get("waste_percentage") or slot.get("waste_percentage") or 0)
         slot["markup_percentage"] = float(option.get("markup_percentage") or slot.get("markup_percentage") or 0)
+        slot["sheet_width_mm"] = float(option.get("sheet_width_mm") or slot.get("sheet_width_mm") or 0)
+        slot["sheet_height_mm"] = float(option.get("sheet_height_mm") or slot.get("sheet_height_mm") or 0)
+        slot["sheet_cost"] = float(option.get("sheet_cost") or slot.get("sheet_cost") or 0)
+        slot["combine_same_method_layers"] = option.get("combine_same_method_layers", slot.get("combine_same_method_layers"))
+        slot["combine_layers"] = option.get("combine_layers", slot.get("combine_layers"))
+        slot["additive_layer_pricing"] = option.get("additive_layer_pricing", slot.get("additive_layer_pricing"))
+        slot["same_method_layer_policy"] = option.get("same_method_layer_policy") or slot.get("same_method_layer_policy")
+        slot["layer_pricing_mode"] = option.get("layer_pricing_mode") or slot.get("layer_pricing_mode")
 
         resolved_print_costing = _resolve_print_costing(option, slot, slot.get("calculated_print_cost") or 0)
         slot["platform_print_cost"] = resolved_print_costing["platform_print_cost"]
@@ -3457,7 +3574,23 @@ def _enrich_and_validate_product_artwork_slots(template: dict, global_print_opti
             enrich(slot)
 
 
-def _normalize_product_artwork_slot(row: dict, index: int = 0) -> dict:
+def _enrich_and_validate_product_artwork_slots(template: dict, global_print_options: list, groups: list, flat_artworks: list) -> None:
+    _enrich_and_validate_product_artwork_slots_core(template, global_print_options, groups, flat_artworks)
+    import sys
+    routes_module = sys.modules[__name__]
+    apply_combined_artwork_costing(routes_module, template, global_print_options, groups)
+    by_id = {
+        slot.get("id"): slot
+        for group in groups or []
+        for slot in group.get("artworks") or []
+        if slot.get("id")
+    }
+    for slot in flat_artworks or []:
+        if slot.get("id") in by_id:
+            slot.update(by_id[slot.get("id")])
+
+
+def _normalize_product_artwork_slot_core(row: dict, index: int = 0) -> dict:
     row = dict(row or {})
     if not row.get("id"):
         row["id"] = uid()
@@ -3480,6 +3613,11 @@ def _normalize_product_artwork_slot(row: dict, index: int = 0) -> dict:
     if not row["placement"].get("screen_id"):
         row["placement"]["screen_id"] = row.get("screen_id") or ""
     return row
+
+
+def _normalize_product_artwork_slot(row: dict, index: int = 0) -> dict:
+    slot = _normalize_product_artwork_slot_core(row, index)
+    return materialize_text_slot(slot)
 
 
 def _normalize_product_artwork_groups(groups: list, fallback_artworks: list, is_admin: bool = False) -> tuple[list, list]:
@@ -3686,7 +3824,7 @@ def _template_product_variations_with_overrides(submitted_variations: list, sele
     return out
 
 
-async def normalize_template_product_payload(db, data: dict, creator: dict, user: User, allow_admin_publish: bool = False) -> dict:
+async def _normalize_template_product_payload_core(db, data: dict, creator: dict, user: User, allow_admin_publish: bool = False) -> dict:
     """
     Normalizes sellable creator/admin products created from admin product templates.
     Keeps old product fields populated so Shop/ProductCard/Cart continue to work.
@@ -3749,15 +3887,19 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
     _enrich_and_validate_product_artwork_slots(template, global_print_options, artwork_groups, grouped_flat_artworks)
     _ensure_artwork_review_defaults(artwork_groups, grouped_flat_artworks, is_admin=is_admin_user)
 
-    calculated_slot_costings = [
-        _resolve_print_costing(None, row, row.get("calculated_print_cost") or row.get("print_cost_max") or 0)
-        for row in grouped_flat_artworks
-        if row.get("print_option_id") and row.get("original_url")
-    ]
+    calculated_print_jobs = aggregate_artwork_print_jobs(
+        artwork_groups
+    )
 
-    if calculated_slot_costings:
-        platform_print_cost = round(sum(row["platform_print_cost"] for row in calculated_slot_costings), 2)
-        creator_print_price = round(sum(row["creator_print_price"] for row in calculated_slot_costings), 2)
+    if calculated_print_jobs:
+        platform_print_cost = round(
+            sum(row["platform_print_cost"] for row in calculated_print_jobs),
+            2,
+        )
+        creator_print_price = round(
+            sum(row["creator_print_price"] for row in calculated_print_jobs),
+            2,
+        )
     else:
         fallback_print = float((print_option or {}).get("print_cost_max") or data.get("print_cost") or 0)
         print_costing = _resolve_print_costing(print_option, None, fallback_print)
@@ -3785,17 +3927,33 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
 
     normalized_artworks = grouped_flat_artworks
 
+    explicit_mockup_selection = "mockup_images" in data
+    supplied_mockups = list(data.get("mockup_images") or [])
+    mockups = list(dict.fromkeys(
+        image for image in supplied_mockups if image
+    ))
+
     mockup = (
         data.get("primary_mockup_image_url")
         or data.get("mockup_image_url")
-        or next((row.get("mockup_image_url") for row in normalized_artworks if row.get("mockup_image_url")), None)
+        or (mockups[0] if mockups else None)
+        or next(
+            (
+                row.get("mockup_image_url")
+                for row in normalized_artworks
+                if row.get("mockup_image_url")
+            ),
+            None,
+        )
         or _template_image_for_area(template, print_area)
     )
-    mockups = data.get("mockup_images") or []
-    for artwork_row in normalized_artworks:
-        image = artwork_row.get("mockup_image_url")
-        if image and image not in mockups:
-            mockups.append(image)
+
+    if not explicit_mockup_selection:
+        for artwork_row in normalized_artworks:
+            image = artwork_row.get("mockup_image_url")
+            if image and image not in mockups:
+                mockups.append(image)
+
     if mockup and mockup not in mockups:
         mockups = [mockup, *mockups]
 
@@ -3848,8 +4006,10 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
             "print_markup_rate": 0.10,
             "blank_payout_unit": costing["blank_payout_unit"],
             "print_payout_unit": costing["print_payout_unit"],
+            "production_subtotal_unit": costing["production_subtotal_unit"],
             "production_unit_cost": costing["production_unit_cost"],
             "minimum_selling_price": costing["minimum_selling_price"],
+            "platform_fee_basis": "blank_plus_printing",
             "platform_commission_rate_percent": round(commission_rate * 100, 4),
             "platform_commission_source": commission_source,
         },
@@ -3911,14 +4071,32 @@ async def normalize_template_product_payload(db, data: dict, creator: dict, user
     return data
 
 
+async def normalize_template_product_payload(db, data: dict, creator: dict, user: User, allow_admin_publish: bool = False) -> dict:
+    product_data = await normalize_builder_product_payload(
+        db=db, data=data, creator=creator, user=user,
+        allow_admin_publish=allow_admin_publish,
+        core_normalizer=_normalize_template_product_payload_core,
+    )
+    return await apply_production_operation_pricing(
+        db,
+        product_data,
+        resolve_marked_price=_resolve_marked_price,
+        platform_costing_breakdown=_platform_costing_breakdown,
+    )
+
+
 @product_templates_router.get("")
 async def public_product_templates(
     request: Request,
     category: Optional[str] = None,
     product_type_id: Optional[str] = None,
 ):
+    from product_template_visibility import creator_template_query
+
     db = request.app.state.db
-    q: Dict = {"status": "active"}
+    q: Dict = creator_template_query({
+        "status": "active",
+    })
 
     if category:
         q["category"] = category
@@ -3934,9 +4112,14 @@ async def public_product_template(
     template_id: str,
     request: Request,
 ):
+    from product_template_visibility import creator_template_query
+
     db = request.app.state.db
     doc = await db.product_templates.find_one(
-        {"id": template_id, "status": "active"},
+        creator_template_query({
+            "id": template_id,
+            "status": "active",
+        }),
         {"_id": 0},
     )
 
@@ -3963,6 +4146,32 @@ async def create_product(
     db = request.app.state.db
     creator = await get_creator_account_for_user(db, user, permission="manage_products")
 
+    from product_template_visibility import (
+        can_access_hidden_templates,
+        creator_template_query,
+    )
+
+    if (
+        payload.template_id
+        and not can_access_hidden_templates(user)
+    ):
+        available_template = await db.product_templates.find_one(
+            creator_template_query({
+                "id": payload.template_id,
+                "status": "active",
+            }),
+            {
+                "_id": 0,
+                "id": 1,
+            },
+        )
+
+        if not available_template:
+            raise HTTPException(
+                status_code=400,
+                detail="Product template is not available to creators",
+            )
+
     data = await normalize_template_product_payload(
         db=db,
         data=payload.model_dump(),
@@ -3970,6 +4179,12 @@ async def create_product(
         user=user,
         allow_admin_publish=False,
     )
+
+    if data.get("review_submission_status") == REVIEW_DRAFT:
+        data, _ = reset_product_artwork_review(
+            data,
+            submission_status=REVIEW_DRAFT,
+        )
 
     default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})
     slug = slugify(data["title"]) + "-" + uid()[:4]
@@ -4086,6 +4301,59 @@ async def get_product(
     return Product(**_decorate_product_effective_pricing(doc, template=template))
 
 
+@products_router.post("/{product_id}/submit-review", response_model=Product)
+async def submit_product_for_review(
+    product_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    creator = await get_band_for_product_access(db, user, product, permission="manage_products")
+    if not creator:
+        raise HTTPException(status_code=403, detail="Not your product")
+
+    if review_is_locked(product):
+        raise HTTPException(status_code=409, detail="This product is already in review")
+
+    if not (product.get("title") or "").strip():
+        raise HTTPException(status_code=400, detail="Add a product title before sending for review")
+    if not float(product.get("selling_price") or 0):
+        raise HTTPException(status_code=400, detail="Set a selling price before sending for review")
+    if not (product.get("mockup_images") or []):
+        raise HTTPException(status_code=400, detail="Generate at least one mockup before sending for review")
+
+    now = utcnow().isoformat()
+    submitted, artwork_count = reset_product_artwork_review(
+        product,
+        submission_status=REVIEW_SUBMITTED,
+        submitted_at=now,
+    )
+    if artwork_count == 0:
+        raise HTTPException(status_code=400, detail="Add artwork before sending for review")
+
+    update_doc = {
+        "artwork_groups": submitted.get("artwork_groups") or [],
+        "artworks": submitted.get("artworks") or [],
+        "artwork": submitted.get("artwork"),
+        "artwork_review_status": submitted.get("artwork_review_status"),
+        "artwork_review_notes": None,
+        "review_submission_status": REVIEW_SUBMITTED,
+        "review_submitted_at": now,
+        "published": False,
+        "updated_at": now,
+    }
+    await db.products.update_one({"id": product_id}, {"$set": iso_dates(update_doc)})
+    doc = await db.products.find_one({"id": product_id}, {"_id": 0})
+    template = None
+    if doc.get("template_id"):
+        template = await db.product_templates.find_one({"id": doc.get("template_id")}, {"_id": 0})
+    return Product(**_decorate_product_effective_pricing(doc, template=template))
+
+
 @products_router.patch("/{product_id}", response_model=Product)
 async def update_product(
     product_id: str,
@@ -4108,6 +4376,12 @@ async def update_product(
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
 
+    if user.role not in ("super_admin", "admin") and review_is_locked(product):
+        raise HTTPException(
+            status_code=409,
+            detail="This product is in review and cannot be edited until review is complete",
+        )
+
     merged = {**product, **updates}
     normalized = await normalize_template_product_payload(
         db=db,
@@ -4116,6 +4390,12 @@ async def update_product(
         user=user,
         allow_admin_publish=user.role in ("super_admin", "admin"),
     )
+
+    if user.role not in ("super_admin", "admin") and updates.get("review_submission_status") == REVIEW_DRAFT:
+        normalized, _ = reset_product_artwork_review(
+            normalized,
+            submission_status=REVIEW_DRAFT,
+        )
 
     update_doc = {k: v for k, v in normalized.items() if k not in ("id", "band_id", "slug", "created_at", "created_by_user_id", "created_by_role")}
     update_doc["updated_at"] = utcnow().isoformat()
@@ -4279,8 +4559,19 @@ async def upload_artwork(
                     "notes": first_artwork.get("notes"),
                 }
                 mockups = product.get("mockup_images") or []
-                if first_artwork.get("mockup_image_url") and first_artwork.get("mockup_image_url") not in mockups:
-                    product_update["mockup_images"] = [first_artwork.get("mockup_image_url"), *mockups]
+                if (
+                    not mockups
+                    and first_artwork.get("mockup_image_url")
+                ):
+                    product_update["mockup_images"] = [
+                        first_artwork.get("mockup_image_url")
+                    ]
+                    product_update["mockup_image_url"] = first_artwork.get(
+                        "mockup_image_url"
+                    )
+                    product_update["primary_mockup_image_url"] = first_artwork.get(
+                        "mockup_image_url"
+                    )
 
             if not is_admin_user and product_update["artwork_review_status"] != "approved":
                 product_update["published"] = False
@@ -4581,11 +4872,13 @@ def _resolve_print_costing(print_option: Optional[dict] = None, artwork_slot: Op
     }
 
 
-def _minimum_selling_price_for_cost(production_cost: float, commission_rate: float) -> float:
-    rate = float(commission_rate or 0)
-    if rate >= 1:
-        return _money_round(production_cost)
-    return _money_round(float(production_cost or 0) / (1 - rate))
+def _minimum_selling_price_for_cost(
+    production_cost: float,
+    commission_rate: float,
+) -> float:
+    return _money_round(
+        total_cost_to_produce(production_cost, commission_rate)
+    )
 
 
 def _platform_costing_breakdown(
@@ -4598,70 +4891,97 @@ def _platform_costing_breakdown(
     creator_print_price: Optional[float] = None,
 ) -> dict:
     """
-    Backwards-compatible costing breakdown.
+    Platform fee model:
 
-    Legacy inputs:
-    - blank_supplier_cost
-    - platform_print_cost
+    production subtotal = creator-facing blank + creator-facing printing
+    platform fee = production subtotal × configured rate
+    creator cost to produce = production subtotal + platform fee
 
-    New optional inputs:
-    - creator_blank_price
-    - creator_print_price
-
-    If creator prices are not supplied, the old 10% markup behaviour is used.
+    Retail selling price does not change the platform fee.
     """
+
     qty = max(int(quantity or 1), 1)
 
     platform_blank_cost = _money_round(blank_supplier_cost)
     platform_print_cost = _money_round(platform_print_cost)
 
-    blank_payout_unit = _resolve_marked_price(platform_blank_cost, creator_blank_price, default_rate=0.10)
-    print_payout_unit = _resolve_marked_price(platform_print_cost, creator_print_price, default_rate=0.10)
+    blank_payout_unit = _resolve_marked_price(
+        platform_blank_cost,
+        creator_blank_price,
+        default_rate=0.10,
+    )
+    print_payout_unit = _resolve_marked_price(
+        platform_print_cost,
+        creator_print_price,
+        default_rate=0.10,
+    )
 
-    production_unit_cost = _money_round(blank_payout_unit + print_payout_unit)
-    platform_unit_cost = _money_round(platform_blank_cost + platform_print_cost)
+    production_subtotal_unit = _money_round(
+        blank_payout_unit + print_payout_unit
+    )
+    rate = float(normalize_rate(commission_rate))
+    commission_unit = _money_round(
+        production_fee_amount(production_subtotal_unit, rate)
+    )
+    creator_product_cost = _money_round(
+        total_cost_to_produce(production_subtotal_unit, rate)
+    )
 
-    blank_profit_unit = _money_round(blank_payout_unit - platform_blank_cost)
-    print_profit_unit = _money_round(print_payout_unit - platform_print_cost)
+    platform_unit_cost = _money_round(
+        platform_blank_cost + platform_print_cost
+    )
+    blank_profit_unit = _money_round(
+        blank_payout_unit - platform_blank_cost
+    )
+    print_profit_unit = _money_round(
+        print_payout_unit - platform_print_cost
+    )
+    estimated_platform_profit_unit = _money_round(
+        blank_profit_unit + print_profit_unit + commission_unit
+    )
 
-    minimum_selling_price = _minimum_selling_price_for_cost(production_unit_cost, commission_rate)
     retail = float(selling_price or 0)
-    commission_unit = _money_round(retail * float(commission_rate or 0))
-    creator_profit_unit = _money_round(retail - production_unit_cost - commission_unit)
-
-    estimated_platform_profit_unit = _money_round(blank_profit_unit + print_profit_unit + commission_unit)
+    creator_profit_unit = _money_round(
+        creator_amount_for_sale(
+            retail,
+            production_subtotal_unit,
+            rate,
+        )
+    )
 
     return {
-        # Legacy-compatible names
         "blank_supplier_cost": platform_blank_cost,
         "platform_print_cost": platform_print_cost,
         "blank_payout_unit": blank_payout_unit,
         "print_payout_unit": print_payout_unit,
 
-        # New clearer names
         "platform_blank_cost": platform_blank_cost,
         "creator_blank_price": blank_payout_unit,
         "creator_print_price": print_payout_unit,
         "platform_blank_profit_unit": blank_profit_unit,
         "platform_print_profit_unit": print_profit_unit,
         "platform_unit_cost": platform_unit_cost,
-        "creator_product_cost": production_unit_cost,
+        "production_subtotal_unit": production_subtotal_unit,
+        "creator_product_cost": creator_product_cost,
         "estimated_platform_profit_unit": estimated_platform_profit_unit,
 
-        "production_unit_cost": production_unit_cost,
-        "minimum_selling_price": minimum_selling_price,
-        "commission_rate": float(commission_rate or 0),
+        "production_unit_cost": creator_product_cost,
+        "minimum_selling_price": creator_product_cost,
+        "commission_rate": rate,
         "commission_unit": commission_unit,
         "creator_profit_unit": creator_profit_unit,
 
-        "production_cost": _money_round(production_unit_cost * qty),
-        "printer_payout": _money_round(production_unit_cost * qty),
+        "production_cost": _money_round(creator_product_cost * qty),
+        "printer_payout": _money_round(production_subtotal_unit * qty),
         "platform_commission": _money_round(commission_unit * qty),
         "creator_profit": _money_round(creator_profit_unit * qty),
 
         "platform_blank_profit": _money_round(blank_profit_unit * qty),
         "platform_print_profit": _money_round(print_profit_unit * qty),
-        "estimated_platform_profit": _money_round(estimated_platform_profit_unit * qty),
+        "estimated_platform_profit": _money_round(
+            estimated_platform_profit_unit * qty
+        ),
+        "platform_fee_basis": "blank_plus_printing",
     }
 
 
@@ -4766,11 +5086,17 @@ def _effective_product_pricing(
         "calculated_print_cost": calculated_print_cost,
         "calculated_selling_price": calculated_selling_price,
         "calculated_minimum_selling_price": _minimum_selling_price_for_cost(calculated_base_cost + calculated_print_cost, rate),
-        "calculated_creator_amount": _money_round(calculated_selling_price - (calculated_base_cost + calculated_print_cost) - (calculated_selling_price * rate)),
+        "calculated_creator_amount": _money_round(
+            creator_amount_for_sale(
+                calculated_selling_price,
+                calculated_base_cost + calculated_print_cost,
+                rate,
+            )
+        ),
         "effective_base_product_cost": effective_base_cost,
         "effective_print_cost": effective_print_cost,
         "effective_selling_price": effective_selling_price,
-        "effective_platform_commission_amount": _money_round(effective_selling_price * rate),
+        "effective_platform_commission_amount": costing["commission_unit"],
         "effective_creator_amount": creator_amount,
         "effective_minimum_selling_price": costing["minimum_selling_price"],
         "manual_override_active": manual_active,
@@ -5306,7 +5632,7 @@ def _snapshot_print_area_from_artwork_or_product(product: dict, template: dict, 
     }
 
 
-def _build_production_snapshot(product: dict, template: Optional[dict], product_variation: Optional[dict], quantity: int) -> dict:
+def _build_production_snapshot_core(product: dict, template: Optional[dict], product_variation: Optional[dict], quantity: int) -> dict:
     template = template or {}
     product_variation = product_variation or {}
 
@@ -5558,6 +5884,13 @@ def _build_production_snapshot(product: dict, template: Optional[dict], product_
         "estimated_platform_profit": costing["estimated_platform_profit"],
         "creator_product_cost": costing["creator_product_cost"],
     }
+
+
+def _build_production_snapshot(product: dict, template, product_variation, quantity: int) -> dict:
+    prepared_product = materialize_product_artworks(product or {})
+    snapshot = _build_production_snapshot_core(prepared_product, template, product_variation, quantity)
+    snapshot = copy_production_snapshot(prepared_product, snapshot)
+    return copy_text_metadata_to_snapshot(snapshot, prepared_product)
 
 
 
@@ -6829,11 +7162,15 @@ async def admin_update_instance_settings(payload: InstanceSettingsUpdate, reques
     updates = payload.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
-    for key in ["homepage", "signup", "policies"]:
+    for key in ["homepage", "signup", "policies", "theme_palettes"]:
         if key in updates:
             if key == "homepage": updates[key] = _deep_merge((current or {}).get(key) or DEFAULT_HOMEPAGE_SETTINGS, updates[key] or {})
             if key == "signup": updates[key] = _deep_merge((current or {}).get(key) or DEFAULT_SIGNUP_SETTINGS, updates[key] or {})
             if key == "policies": updates[key] = _deep_merge((current or {}).get(key) or DEFAULT_POLICY_SETTINGS, updates[key] or {})
+            if key == "theme_palettes":
+                defaults = PlatformSettings().model_dump().get("theme_palettes") or {}
+                existing = (current or {}).get("theme_palettes") or defaults
+                updates[key] = _deep_merge(existing, updates[key] or {})
     if "homepage_sections" in updates:
         sections = updates.get("homepage_sections") or []
         if not isinstance(sections, list):
@@ -7057,6 +7394,7 @@ async def _build_artwork_review_rows(db, status: Optional[str] = None, product_i
         product_query["id"] = product_id
 
     products = await db.products.find(product_query, {"_id": 0}).sort("updated_at", -1).to_list(1000)
+    products = [product for product in products if review_queue_includes_product(product)]
     band_ids = list({p.get("band_id") for p in products if p.get("band_id")})
     template_ids = list({p.get("template_id") for p in products if p.get("template_id")})
 
@@ -7532,6 +7870,94 @@ async def admin_delete_product_type(
     await db.product_types.delete_one({"id": product_type_id})
     return {"status": "deleted", "linked_templates": linked_templates}
 
+PRODUCT_TEMPLATE_LIST_PROJECTION: Dict[str, int] = {
+    "_id": 0,
+    "id": 1,
+    "name": 1,
+    "brand": 1,
+    "blank_sku": 1,
+    "status": 1,
+    "category": 1,
+    "product_type_id": 1,
+    "product_type": 1,
+    "product_type_slug": 1,
+    "product_type_name": 1,
+    "creator_catalogue_thumbnail_url": 1,
+    "product_image_url": 1,
+    "mockup_url": 1,
+    "mockup_images": 1,
+    "creator_blank_price": 1,
+    "base_blank_cost": 1,
+    "base_price": 1,
+    "platform_blank_cost": 1,
+    "creator_visible": 1,
+    "admin_visible": 1,
+    "template_gallery": 1,
+    "print_options": 1,
+    "print_option_ids": 1,
+    "print_areas": 1,
+    "variation_production_rules": 1,
+    "production_rules": 1,
+    "mockup_screens.id": 1,
+    "mockup_screens.status": 1,
+    "mockup_screens.archived": 1,
+    "mockup_screens.deleted": 1,
+    "mockup_screens.image_url": 1,
+    "mockup_screens.view_key": 1,
+    "mockup_screens.view": 1,
+    "mockup_screens.screen_view": 1,
+    "mockup_screens.name": 1,
+    "variations.id": 1,
+    "variations.attributes": 1,
+    "variations.enabled": 1,
+    "variations.status": 1,
+    "variations.archived": 1,
+    "variations.deleted": 1,
+    "variations.image_url": 1,
+    "variations.product_image_url": 1,
+    "variations.mockup_image_url": 1,
+    "variations.mockup_screen_overrides": 1,
+    "variations.view_overrides": 1,
+    "variations.creator_blank_price": 1,
+    "variations.base_blank_cost": 1,
+    "variations.platform_blank_cost": 1,
+    "variations.cost": 1,
+    "variations.print_area_overrides": 1,
+    "variations.print_area_override": 1,
+    "variations.print_width_mm": 1,
+    "variations.width_mm": 1,
+    "variations.print_area_width_mm": 1,
+    "variations.print_height_mm": 1,
+    "variations.height_mm": 1,
+    "variations.print_area_height_mm": 1,
+}
+
+
+@admin_router.get("/product-templates/summary")
+async def admin_product_template_summaries(
+    request: Request,
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    _require_manager_permission(user, "manage_product_templates")
+    db = request.app.state.db
+    q: Dict = {}
+
+    if status:
+        q["status"] = status
+
+    if category:
+        q["category"] = category
+
+    return await (
+        db.product_templates
+        .find(q, PRODUCT_TEMPLATE_LIST_PROJECTION)
+        .sort("name", 1)
+        .to_list(1000)
+    )
+
+
 @admin_router.get("/product-templates", response_model=List[ProductTemplate])
 async def admin_product_templates(
     request: Request,
@@ -7571,6 +7997,442 @@ async def admin_create_product_template(
     template = ProductTemplate(**data, created_at=now, updated_at=now)
     await db.product_templates.insert_one(iso_dates(template.model_dump()))
     return template
+
+
+
+PRODUCT_TEMPLATE_CSV_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+async def _read_product_template_csv_upload(
+    file: UploadFile,
+) -> bytes:
+    filename = str(file.filename or "").strip()
+
+    if not filename:
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded file has no filename.",
+        )
+
+    content = await file.read(
+        PRODUCT_TEMPLATE_CSV_MAX_UPLOAD_BYTES + 1
+    )
+
+    if len(content) > PRODUCT_TEMPLATE_CSV_MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="CSV import files may not exceed 10 MB.",
+        )
+
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded file is empty.",
+        )
+
+    return content
+
+
+def _product_template_csv_query(
+    status: Optional[str],
+    category: Optional[str],
+    template_ids: Optional[str],
+) -> Dict[str, Any]:
+    query: Dict[str, Any] = {}
+
+    if status:
+        query["status"] = status
+
+    if category:
+        query["category"] = category
+
+    if template_ids:
+        ids = sorted({
+            value.strip()
+            for value in template_ids.split(",")
+            if value.strip()
+        })
+
+        if ids:
+            query["id"] = {"$in": ids}
+
+    return query
+
+
+@admin_router.get("/product-templates/csv/export")
+async def admin_export_product_templates_csv(
+    request: Request,
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    template_ids: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    _require_manager_permission(
+        user,
+        "manage_product_templates",
+    )
+
+    db = request.app.state.db
+
+    query = _product_template_csv_query(
+        status=status,
+        category=category,
+        template_ids=template_ids,
+    )
+
+    documents = (
+        await db.product_templates
+        .find(query, {"_id": 0})
+        .sort("name", 1)
+        .to_list(1000)
+    )
+
+    payload = export_product_template_zip(documents)
+
+    timestamp = utcnow().strftime("%Y%m%d-%H%M%S")
+    filename = (
+        "fandomforge-product-templates-"
+        f"{timestamp}.zip"
+    )
+
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@admin_router.post("/product-templates/csv/preview")
+async def admin_preview_product_templates_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    _require_manager_permission(
+        user,
+        "manage_product_templates",
+    )
+
+    content = await _read_product_template_csv_upload(file)
+
+    try:
+        package = parse_product_template_import(
+            file.filename or "",
+            content,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    db = request.app.state.db
+
+    documents = await db.product_templates.find(
+        {},
+        {"_id": 0},
+    ).to_list(1000)
+
+    plan = build_import_plan(
+        documents,
+        package,
+    )
+
+    return {
+        "filename": file.filename,
+        **plan,
+    }
+
+
+@admin_router.post("/product-templates/csv/apply")
+async def admin_apply_product_templates_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    _require_manager_permission(
+        user,
+        "manage_product_templates",
+    )
+
+    content = await _read_product_template_csv_upload(file)
+
+    try:
+        package = parse_product_template_import(
+            file.filename or "",
+            content,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    db = request.app.state.db
+
+    current_documents = await db.product_templates.find(
+        {},
+        {"_id": 0},
+    ).to_list(1000)
+
+    current_by_id = {
+        str(document.get("id") or ""): document
+        for document in current_documents
+        if str(document.get("id") or "")
+    }
+
+    plan = build_import_plan(
+        current_documents,
+        package,
+    )
+
+    if plan["errors"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message":
+                    "CSV import contains validation errors.",
+                "preview": plan,
+            },
+        )
+
+    if not plan["can_apply"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message":
+                    "CSV import contains no applicable changes.",
+                "preview": plan,
+            },
+        )
+
+    touched_ids = plan["touched_template_ids"]
+
+    # Re-read touched documents immediately before mutation and compare
+    # their exact updated_at values to the preview source.
+    latest_documents = await db.product_templates.find(
+        {
+            "id": {
+                "$in": touched_ids,
+            },
+        },
+        {"_id": 0},
+    ).to_list(1000)
+
+    latest_by_id = {
+        str(document.get("id") or ""): document
+        for document in latest_documents
+        if str(document.get("id") or "")
+    }
+
+    concurrency_errors = []
+
+    for template_id in touched_ids:
+        original = current_by_id.get(template_id)
+        latest = latest_by_id.get(template_id)
+
+        if original is None or latest is None:
+            concurrency_errors.append({
+                "template_id": template_id,
+                "message":
+                    "Template disappeared before import apply.",
+            })
+            continue
+
+        if original.get("updated_at") != latest.get("updated_at"):
+            concurrency_errors.append({
+                "template_id": template_id,
+                "message":
+                    "Template changed during import preview.",
+            })
+
+    if concurrency_errors:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message":
+                    "Templates changed before the import could apply.",
+                "errors": concurrency_errors,
+            },
+        )
+
+    applied_at = utcnow().isoformat()
+
+    try:
+        prepared = apply_import_plan_to_documents(
+            latest_documents,
+            plan,
+            applied_at,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        ) from error
+
+    prepared_documents = prepared["documents"]
+    top_level_unsets = prepared["top_level_unsets"]
+
+    validated_documents = {}
+
+    for template_id, document in prepared_documents.items():
+        normalized = normalize_template_payload(document)
+        normalized["updated_at"] = applied_at
+
+        try:
+            ProductTemplate(**normalized)
+        except Exception as error:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message":
+                        "CSV changes produced an invalid template.",
+                    "template_id": template_id,
+                    "error": str(error),
+                },
+            ) from error
+
+        validated_documents[template_id] = remove_unset_fields(
+            normalized,
+            top_level_unsets.get(template_id, []),
+        )
+
+    timestamp = utcnow().strftime("%Y%m%d-%H%M%S")
+    backup_path = (
+        "/tmp/"
+        "fandomforge-product-template-csv-backup-"
+        f"{timestamp}.json"
+    )
+
+    backup_payload = {
+        "generated_at": utcnow().isoformat(),
+        "reason": "product_template_csv_import",
+        "filename": file.filename,
+        "summary": plan["summary"],
+        "template_ids": touched_ids,
+        "documents": [
+            latest_by_id[template_id]
+            for template_id in touched_ids
+        ],
+    }
+
+    with open(
+        backup_path,
+        "w",
+        encoding="utf-8",
+    ) as backup_file:
+        json.dump(
+            backup_payload,
+            backup_file,
+            indent=2,
+            default=str,
+        )
+
+    updated_count = 0
+
+    for template_id in touched_ids:
+        original = latest_by_id[template_id]
+        normalized = validated_documents[template_id]
+
+        concurrency_filter: Dict[str, Any] = {
+            "id": template_id,
+        }
+
+        if "updated_at" in original:
+            concurrency_filter["updated_at"] = (
+                original.get("updated_at")
+            )
+        else:
+            concurrency_filter["updated_at"] = {
+                "$exists": False,
+            }
+
+        update_document: Dict[str, Any] = {
+            "$set": normalized,
+        }
+
+        unset_fields = top_level_unsets.get(
+            template_id,
+            [],
+        )
+
+        if unset_fields:
+            update_document["$unset"] = {
+                field: ""
+                for field in unset_fields
+            }
+
+        result = await db.product_templates.update_one(
+            concurrency_filter,
+            update_document,
+        )
+
+        if result.matched_count != 1:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message":
+                        "A template changed during import apply. "
+                        "The backup path is included for recovery.",
+                    "template_id": template_id,
+                    "backup_path": backup_path,
+                    "templates_updated_before_conflict":
+                        updated_count,
+                },
+            )
+
+        updated_count += 1
+
+    report_path = (
+        "/tmp/"
+        "fandomforge-product-template-csv-import-"
+        f"{timestamp}.json"
+    )
+
+    import_report = {
+        "applied_at": applied_at,
+        "filename": file.filename,
+        "backup_path": backup_path,
+        "summary": plan["summary"],
+        "template_ids": touched_ids,
+        "templates_updated": updated_count,
+    }
+
+    with open(
+        report_path,
+        "w",
+        encoding="utf-8",
+    ) as report_file:
+        json.dump(
+            import_report,
+            report_file,
+            indent=2,
+            default=str,
+        )
+
+    updated_documents = await db.product_templates.find(
+        {
+            "id": {
+                "$in": touched_ids,
+            },
+        },
+        {"_id": 0},
+    ).sort("name", 1).to_list(1000)
+
+    return {
+        "status": "applied",
+        "filename": file.filename,
+        "summary": plan["summary"],
+        "templates_updated": updated_count,
+        "backup_path": backup_path,
+        "report_path": report_path,
+        "templates": updated_documents,
+    }
+
 
 
 @admin_router.get("/product-templates/{template_id}", response_model=ProductTemplate)
@@ -7637,6 +8499,35 @@ async def admin_replace_product_template(
         payload=ProductTemplateUpdate(**payload.model_dump()),
         request=request,
         user=user,
+    )
+
+
+@admin_router.get("/product-templates/{template_id}/delete-impact")
+async def admin_product_template_delete_impact(
+    template_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    _require_manager_permission(user, "manage_product_templates")
+    db = request.app.state.db
+
+    template = await db.product_templates.find_one(
+        {"id": template_id},
+        {"_id": 0, "id": 1, "name": 1, "status": 1},
+    )
+    if not template:
+        raise HTTPException(status_code=404, detail="Product template not found")
+
+    total_products = await db.products.count_documents({"template_id": template_id})
+    published_products = await db.products.count_documents({
+        "template_id": template_id,
+        "published": True,
+    })
+
+    return template_delete_impact_payload(
+        template,
+        linked_products=total_products,
+        sellable_products=published_products,
     )
 
 
@@ -8986,8 +9877,7 @@ async def admin_products(
     return [Product(**_decorate_product_effective_pricing(d, expose_manual_overrides=True)) for d in docs]
 
 
-@admin_router.post("/products", response_model=Product)
-async def admin_create_product(
+async def _admin_create_product_core(
     payload: AdminProductCreate,
     request: Request,
     user: User = Depends(get_current_user),
@@ -9010,6 +9900,11 @@ async def admin_create_product(
         user=user,
         allow_admin_publish=True,
     )
+
+    # Ownership is supplied explicitly to Product below. The template normalizer
+    # may preserve legacy ownership fields, so remove any reintroduced band_id
+    # before constructing Product to avoid passing band_id twice via **data.
+    data.pop("band_id", None)
 
     if not assigned_printer_id:
         default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})
@@ -9039,6 +9934,20 @@ async def admin_create_product(
 
     await db.products.insert_one(iso_dates(product.model_dump()))
     return product
+
+
+@admin_router.post("/products", response_model=Product)
+async def admin_create_product(
+    payload: AdminProductCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    try:
+        return await _admin_create_product_core(payload=payload, request=request, user=user)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise product_save_http_exception(payload, exc) from exc
 
 
 
@@ -9207,7 +10116,7 @@ async def admin_update_product_pricing_control(
     return await _product_pricing_control_response(db, updated)
 
 
-@admin_router.patch("/products/{product_id}", response_model=Product)
+@admin_router.api_route("/products/{product_id}", methods=["PATCH", "PUT"], response_model=Product)
 async def admin_update_product(
     product_id: str,
     payload: ProductUpdate,
@@ -10047,9 +10956,14 @@ async def _admin_create_quick_product_impl(
     stock_quantity = max(int(payload.stock_quantity or 0), 0) or 999
 
     commission_rate = _creator_platform_commission_rate(creator, await _default_platform_commission_rate(db))
-    commission_amount = round(price * commission_rate, 2)
+    commission_amount = _money_round(
+        production_fee_amount(creator_cost, commission_rate)
+    )
+    creator_product_cost = _money_round(
+        total_cost_to_produce(creator_cost, commission_rate)
+    )
     platform_blank_profit = round(creator_cost - platform_cost, 2)
-    creator_profit = round(price - creator_cost - commission_amount, 2)
+    creator_profit = _money_round(price - creator_product_cost)
     platform_profit = round(platform_blank_profit + commission_amount, 2)
 
     sizes = _quick_product_sizes(payload.sizes)
@@ -10164,13 +11078,13 @@ async def _admin_create_quick_product_impl(
 
         "estimated_blank_cost": creator_cost,
         "estimated_print_cost": 0,
-        "estimated_total_cost": creator_cost,
+        "estimated_total_cost": creator_product_cost,
 
         "platform_blank_cost": platform_cost,
         "creator_blank_price": creator_cost,
         "platform_print_cost": 0,
         "creator_print_price": 0,
-        "creator_product_cost": creator_cost,
+        "creator_product_cost": creator_product_cost,
         "customer_selling_price": price,
         "platform_blank_profit": platform_blank_profit,
         "platform_print_profit": 0,
@@ -10184,14 +11098,16 @@ async def _admin_create_quick_product_impl(
             "creator_blank_price": creator_cost,
             "platform_print_cost": 0,
             "creator_print_price": 0,
-            "creator_product_cost": creator_cost,
+            "production_subtotal_unit": creator_cost,
+            "creator_product_cost": creator_product_cost,
             "platform_blank_profit": platform_blank_profit,
             "platform_print_profit": 0,
             "estimated_platform_profit": platform_profit,
             "commission_unit": commission_amount,
             "creator_profit_unit": creator_profit,
-            "production_unit_cost": creator_cost,
-            "minimum_selling_price": _minimum_selling_price_for_cost(creator_cost, commission_rate),
+            "production_unit_cost": creator_product_cost,
+            "minimum_selling_price": creator_product_cost,
+            "platform_fee_basis": "blank_plus_printing",
             "platform_commission_rate_percent": round(commission_rate * 100, 4),
             "platform_commission_source": _creator_platform_commission_source(creator, await _default_platform_commission_rate(db)),
             "costing_model": "simple_manual_v1",

@@ -1,0 +1,99 @@
+/* Fixed-height workspace pass for Creator/Admin Builder V2.
+   The Studio should behave like an app canvas: page-level scrolling is avoided on
+   desktop, while Layers and Inspector scroll inside their own panels. */
+
+@media (min-width: 1280px) {
+  [data-testid="product-artwork-studio"].studio-v21 {
+    height: min(820px, calc(100vh - 150px));
+    min-height: 590px;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.65rem !important;
+    overflow: hidden !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > section:first-of-type {
+    flex: 0 0 auto !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > section:first-of-type .p-3 {
+    padding: 0.65rem !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > section:first-of-type .mb-2 {
+    margin-bottom: 0.45rem !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > section:first-of-type .input-base {
+    min-height: 38px !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > div.grid {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    gap: 0.85rem !important;
+    overflow: hidden !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > div.grid > aside,
+  [data-testid="product-artwork-studio"].studio-v21 > div.grid > main {
+    min-height: 0 !important;
+    height: 100% !important;
+    max-height: 100% !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > div.grid > aside {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > div.grid > main {
+    overflow: hidden !important;
+    padding: 0.75rem !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > div.grid > main > .relative {
+    max-height: 100% !important;
+    max-width: 100% !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > div.grid > main > .relative > img {
+    max-height: calc(100vh - 340px) !important;
+    max-width: 100% !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 .min-h-\[680px\] {
+    min-height: 0 !important;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.75rem !important;
+  }
+}
+
+@media (min-width: 1536px) {
+  [data-testid="product-artwork-studio"].studio-v21 > div.grid {
+    grid-template-columns: 220px minmax(620px, 1fr) 320px !important;
+  }
+}
+
+@media (min-width: 1280px) and (max-height: 760px) {
+  [data-testid="product-artwork-studio"].studio-v21 {
+    height: calc(100vh - 115px);
+    min-height: 520px;
+  }
+
+  [data-testid="product-artwork-studio"].studio-v21 > div.grid > main > .relative > img {
+    max-height: calc(100vh - 300px) !important;
+  }
+}
+
+@media (max-width: 1279px) {
+  [data-testid="product-artwork-studio"].studio-v21 {
+    height: auto;
+    overflow: visible;
+  }
+}

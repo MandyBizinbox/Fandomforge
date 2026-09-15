@@ -1,9 +1,12 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { Package } from "lucide-react";
 import { assetUrl } from "../lib/api";
+import { usePlatformConfig } from "../lib/platform";
 import { getEffectiveSellingPrice, getProductPrimaryImage } from "./product/productDisplayUtils";
 
 export default function ProductCard({ product }) {
+  const { platform } = usePlatformConfig();
   const img = getProductPrimaryImage(product);
   const creatorName = product.creator_name || product.band_name || product.creatorName;
   const hasGroupedArtwork = (product.artwork_groups || []).length > 0;
@@ -23,8 +26,9 @@ export default function ProductCard({ product }) {
             className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-[var(--ff-muted-text)] font-display text-4xl">
-            MF
+          <div className="w-full h-full flex flex-col gap-3 items-center justify-center text-[var(--ff-muted-text)]">
+            <Package size={42} />
+            <span className="font-display text-xl uppercase text-center px-4">{platform.platform_name || "Product"}</span>
           </div>
         )}
       </div>
@@ -43,21 +47,15 @@ export default function ProductCard({ product }) {
       </h3>
 
       <div className="flex items-center justify-between gap-3">
-        <span className="font-bold">
-          R {Number(displayPrice || 0).toFixed(2)}
-        </span>
+        <span className="font-bold">R {Number(displayPrice || 0).toFixed(2)}</span>
 
         <div className="flex items-center gap-2">
           {hasGroupedArtwork && (
-            <span className="text-[10px] uppercase tracking-widest text-[var(--ff-muted-text)] font-bold">
-              Multi-view
-            </span>
+            <span className="text-[10px] uppercase tracking-widest text-[var(--ff-muted-text)] font-bold">Multi-view</span>
           )}
 
           {product.customization_enabled && (
-            <span className="text-[10px] uppercase tracking-widest text-[var(--ff-primary)] font-bold">
-              Customize
-            </span>
+            <span className="text-[10px] uppercase tracking-widest text-[var(--ff-primary)] font-bold">Customize</span>
           )}
         </div>
       </div>

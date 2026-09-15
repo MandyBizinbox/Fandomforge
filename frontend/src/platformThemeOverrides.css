@@ -1,0 +1,130 @@
+@import "./styles/platform-foundation.css";
+
+/*
+ * Legacy platform-theme compatibility
+ * -----------------------------------
+ * Shared primitives now live in styles/platform-foundation.css and consume
+ * Platform Settings tokens directly. This file is intentionally limited to
+ * old hard-coded utility classes and legacy studio states that still need a
+ * compatibility bridge while those components are migrated.
+ *
+ * Delete selectors from this file as their owning components are refactored.
+ */
+
+/* Older JSX embedded former instance brand colours directly in Tailwind
+ * arbitrary-value utilities. Keep those components theme-aware until they are
+ * migrated to semantic --ff-* tokens. */
+[class~="text-[#FF3B30]"],
+[class~="text-[#ff3b30]"] {
+  color: var(--ff-primary) !important;
+}
+
+[class~="text-[#FF7A1A]"],
+[class~="text-[#ff7a1a]"],
+[class~="text-[#ff8c01]"] {
+  color: var(--ff-accent) !important;
+}
+
+[class~="bg-[#FF3B30]"],
+[class~="bg-[#ff3b30]"] {
+  background-color: var(--ff-primary) !important;
+}
+
+[class~="bg-[#FF3B30]/5"],
+[class~="bg-[#ff3b30]/5"] {
+  background-color: color-mix(in srgb, var(--ff-primary) 5%, transparent) !important;
+}
+
+[class~="bg-[#FF3B30]/10"],
+[class~="bg-[#ff3b30]/10"] {
+  background-color: color-mix(in srgb, var(--ff-primary) 10%, transparent) !important;
+}
+
+[class~="bg-[#FF3B30]/15"],
+[class~="bg-[#ff3b30]/15"] {
+  background-color: color-mix(in srgb, var(--ff-primary) 15%, transparent) !important;
+}
+
+[class~="bg-[#FF3B30]/20"],
+[class~="bg-[#ff3b30]/20"] {
+  background-color: color-mix(in srgb, var(--ff-primary) 20%, transparent) !important;
+}
+
+[class~="bg-[#FF7A1A]"],
+[class~="bg-[#ff7a1a]"],
+[class~="bg-[#ff8c01]"] {
+  background-color: var(--ff-accent) !important;
+}
+
+[class~="border-[#FF3B30]"],
+[class~="border-[#ff3b30]"] {
+  border-color: var(--ff-primary) !important;
+}
+
+[class~="border-[#FF3B30]/30"],
+[class~="border-[#ff3b30]/30"] {
+  border-color: color-mix(in srgb, var(--ff-primary) 30%, transparent) !important;
+}
+
+[class~="border-[#FF3B30]/50"],
+[class~="border-[#ff3b30]/50"] {
+  border-color: color-mix(in srgb, var(--ff-primary) 50%, transparent) !important;
+}
+
+[class~="border-[#FF3B30]/60"],
+[class~="border-[#ff3b30]/60"] {
+  border-color: color-mix(in srgb, var(--ff-primary) 60%, transparent) !important;
+}
+
+[class~="border-[#FF7A1A]"],
+[class~="border-[#ff7a1a]"],
+[class~="border-[#ff8c01]"] {
+  border-color: var(--ff-accent) !important;
+}
+
+[class~="hover:border-[#FF3B30]"]:hover,
+[class~="hover:border-[#ff3b30]"]:hover {
+  border-color: var(--ff-primary) !important;
+}
+
+[class~="hover:text-[#FF3B30]"]:hover,
+[class~="hover:text-[#ff3b30]"]:hover {
+  color: var(--ff-primary) !important;
+}
+
+[class~="hover:bg-[#FF3B30]/5"]:hover,
+[class~="hover:bg-[#ff3b30]/5"]:hover {
+  background-color: color-mix(in srgb, var(--ff-primary) 5%, transparent) !important;
+}
+
+[class~="hover:bg-[#FF3B30]/15"]:hover,
+[class~="hover:bg-[#ff3b30]/15"]:hover {
+  background-color: color-mix(in srgb, var(--ff-primary) 15%, transparent) !important;
+}
+
+/* Template Studio is still being decomposed. Its legacy classes are kept here
+ * temporarily so Platform Settings remains authoritative during that migration. */
+.studio-panel {
+  background: var(--ff-card-bg) !important;
+  color: var(--ff-card-text) !important;
+  border-color: var(--ff-card-border) !important;
+}
+
+.studio-tab {
+  border-color: var(--ff-card-border) !important;
+  background: var(--ff-card-bg) !important;
+  color: var(--ff-muted-text) !important;
+}
+
+.studio-tab:hover,
+.studio-tab.active {
+  border-color: var(--ff-primary) !important;
+  background: color-mix(in srgb, var(--ff-primary) 12%, var(--ff-card-bg)) !important;
+  color: var(--ff-card-text) !important;
+}
+
+.studio-subpanel {
+  background: var(--ff-surface-bg) !important;
+  color: var(--ff-surface-text) !important;
+  border-color: var(--ff-card-border) !important;
+}

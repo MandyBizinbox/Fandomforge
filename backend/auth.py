@@ -11,9 +11,10 @@ from models import User, UserCreate, UserLogin, TokenResponse, uid, utcnow
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "fandomforge-dev-secret-change-me")
 JWT_ALG = "HS256"
-JWT_EXPIRES_MIN = 60 * 24 * 7  # 7 days
+JWT_EXPIRES_MIN = 60 * 24 * 7
 
 bearer = HTTPBearer(auto_error=False)
+OWNER_BYPASS_ROLES = {"owner", "super_admin"}
 
 
 def hash_password(pw: str) -> str:
@@ -58,12 +59,14 @@ async def get_current_user(
     if not user_doc:
         raise HTTPException(status_code=401, detail="User not found")
     user_doc.pop("password_hash", None)
-    return User(**user_doc)
+    user = User(**user_doc)
+    request.state.user = user
+    return user
 
 
 def require_role(*roles: str):
     async def checker(user: User = Depends(get_current_user)) -> User:
-        if user.role not in roles and user.role != "super_admin":
+        if user.role not in roles and user.role not in OWNER_BYPASS_ROLES:
             raise HTTPException(status_code=403, detail=f"Requires role: {roles}")
         return user
     return checker
@@ -125,13 +128,7 @@ async def google_session_exchange(
     request: Request,
     x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
 ):
-    """Exchange Emergent Google OAuth session_id for our JWT token.
-
-    Frontend flow:
-      1. Redirect user to https://auth.emergentagent.com/?redirect=<callback>
-      2. Callback receives session_id in URL fragment
-      3. Callback POSTs here with X-Session-ID header
-    """
+    """Exchange Emergent Google OAuth session_id for our JWT token."""
     if not x_session_id:
         raise HTTPException(status_code=400, detail="Missing X-Session-ID")
     try:
@@ -158,7 +155,7 @@ async def google_session_exchange(
         user = User(email=email, name=name, role="buyer", avatar_url=picture)
         new_doc = user.model_dump()
         new_doc["created_at"] = new_doc["created_at"].isoformat()
-        new_doc["password_hash"] = ""  # oauth only
+        new_doc["password_hash"] = ""
         new_doc["google_linked"] = True
         await db.users.insert_one(new_doc)
     else:

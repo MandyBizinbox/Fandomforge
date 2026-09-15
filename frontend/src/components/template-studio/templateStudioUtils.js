@@ -1,3 +1,7 @@
+import {
+  PRINT_AREA_GEOMETRY_TYPES,
+  normalisePrintAreaGeometry,
+} from "../../lib/printAreaGeometry";
 
 const STANDARD_VIEW_OPTIONS = [
   { value: "front", label: "Front" },
@@ -7,6 +11,12 @@ const STANDARD_VIEW_OPTIONS = [
   { value: "right_sleeve", label: "Right Sleeve" },
   { value: "pocket", label: "Pocket" },
   { value: "neck_label", label: "Neck Label" },
+  { value: "full_wrap", label: "Full Wrap" },
+  { value: "mug_wrap", label: "Mug Wrap" },
+  { value: "handle_side", label: "Handle Side" },
+  { value: "top", label: "Top" },
+  { value: "bottom", label: "Bottom" },
+  { value: "custom", label: "Custom" },
   { value: "other", label: "Other / Custom" },
 ];
 
@@ -21,6 +31,8 @@ export const PRINT_AREA_OPTIONS = [
   { value: "left_sleeve", label: "Left Sleeve", defaultView: "left_sleeve", defaultSize: "sleeve_15x5_landscape" },
   { value: "right_sleeve", label: "Right Sleeve", defaultView: "right_sleeve", defaultSize: "sleeve_15x5_landscape" },
   { value: "side", label: "Side Print", defaultView: "side", defaultSize: "a4_portrait" },
+  { value: "full_wrap", label: "Full Wrap", defaultView: "full_wrap", defaultSize: "custom" },
+  { value: "mug_wrap", label: "Mug Wrap", defaultView: "mug_wrap", defaultSize: "custom" },
   { value: "custom", label: "Custom", defaultView: "front", defaultSize: "custom" },
 ];
 
@@ -38,6 +50,8 @@ export const STANDARD_PRINT_SIZE_PRESETS = [
   { value: "sleeve_long_10x30_cm", label: "Sleeve Long — 10×30cm", width_mm: 100, height_mm: 300 },
   { value: "sleeve_large_20x30_cm", label: "Sleeve Large — 20×30cm", width_mm: 200, height_mm: 300 },
 ];
+
+export const PRINT_AREA_GEOMETRY_OPTIONS = PRINT_AREA_GEOMETRY_TYPES;
 
 export function getViewOption(value) {
   return VIEW_OPTIONS.find((option) => option.value === value) || VIEW_OPTIONS[0];
@@ -83,7 +97,6 @@ export function printSizeLabel(widthMm, heightMm, dpi = 300) {
   return `${width}×${height}mm · ${printPixels(width, dpi)}×${printPixels(height, dpi)}px @ ${dpi} DPI`;
 }
 
-
 export const VIEW_OPTIONS = STANDARD_VIEW_OPTIONS;
 
 export const blankTemplate = {
@@ -112,6 +125,8 @@ export const blankTemplate = {
   creator_blank_price: 0,
   platform_blank_profit: 0,
   platform_blank_margin_percent: 0,
+  creator_visible: true,
+  admin_visible: true,
   mockup_url: "",
   product_image_url: "",
   mockup_images: [],
@@ -120,10 +135,18 @@ export const blankTemplate = {
   available_colors: [],
   attribute_ids: [],
   selected_attribute_values: {},
+  variation_inheritance: {
+    mode: "shared",
+    image_attribute: "",
+    production_attribute: "",
+  },
+  attribute_image_profiles: {},
+  attribute_production_profiles: {},
   variations: [],
   print_option_ids: [],
   print_options: [],
   print_areas: [],
+  artwork_modes: [],
   status: "draft",
 };
 
@@ -209,22 +232,29 @@ export function buildVariationCombinations(
         .join("|");
 
       const existing = existingByKey.get(key);
+      const variation = existing
+        ? {
+            ...existing,
+            attributes: attrs,
+            enabled: true,
+            status: "active",
+          }
+        : {
+            id: newId("var"),
+            sku: "",
+            attributes: attrs,
+            cost: Number(baseCost || 0),
+            base_blank_cost: Number(baseCost || 0),
+            supplier_sku: "",
+            image_url: "",
+            mockup_screen_overrides: {},
+            print_area_overrides: {},
+            enabled: true,
+            sort_order: 0,
+            status: "active",
+          };
 
-      return [
-        existing || {
-          id: newId("var"),
-          sku: "",
-          attributes: attrs,
-          cost: Number(baseCost || 0),
-          base_blank_cost: Number(baseCost || 0),
-          supplier_sku: "",
-          image_url: "",
-          mockup_screen_overrides: {},
-          enabled: true,
-          sort_order: 0,
-          status: "active",
-        },
-      ];
+      return [variation];
     }
 
     const attribute = activeAttributes[index];
@@ -235,48 +265,41 @@ export function buildVariationCombinations(
     );
   };
 
-  return walk(0, {}).flat().map((variation, index) => ({ ...variation, sort_order: index }));
-}
-
-
-export function groupVariationsByAttribute(variations, attributeName) {
-  const groups = new Map();
-  safeArray(variations).forEach((variation) => {
-    const key = variation?.attributes?.[attributeName] || "Ungrouped";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(variation);
-  });
-  return Array.from(groups.entries()).map(([name, items]) => ({ name, items }));
+  return walk(0, {}).flat().map((variation, index) => ({
+    ...variation,
+    mockup_screen_overrides: variation.mockup_screen_overrides || {},
+    print_area_overrides: variation.print_area_overrides || {},
+    enabled: true,
+    status: "active",
+    sort_order: index,
+  }));
 }
 
 export function clampPercent(value, min = 0, max = 100) {
-  return Math.max(min, Math.min(max, Number(value || 0)));
+  const number = Number(value);
+  const lower = Number.isFinite(Number(min)) ? Number(min) : 0;
+  const upper = Number.isFinite(Number(max)) ? Number(max) : 100;
+
+  if (!Number.isFinite(number)) return lower;
+
+  return Math.min(upper, Math.max(lower, number));
 }
 
 export function normalizeArea(area = {}) {
-  const viewKey = area.view_key || area.screen_view || area.view || "front";
-  const areaKey = area.area_key || "custom";
-  const presetKey = normalisePrintSizeKey(area.standard_print_size_key || area.print_size || "custom");
-  const preset = getPrintSizePreset(presetKey);
-  const dpi = Number(area.dpi || 300);
+  const geometry = normalisePrintAreaGeometry(area);
+  const width = clampPercent(geometry.width ?? geometry.width_pct ?? 30, 0, 100);
+  const height = clampPercent(geometry.height ?? geometry.height_pct ?? 30, 0, 100);
+  const x = clampPercent(geometry.x ?? geometry.x_pct ?? 30, 0, Math.max(0, 100 - width));
+  const y = clampPercent(geometry.y ?? geometry.y_pct ?? 25, 0, Math.max(0, 100 - height));
 
-  const x = clampPercent(Number(area.x_pct ?? area.x ?? 30), 0, 100);
-  const y = clampPercent(Number(area.y_pct ?? area.y ?? 25), 0, 100);
-  const width = clampPercent(Number(area.width_pct ?? area.width ?? 30), 1, 100);
-  const height = clampPercent(Number(area.height_pct ?? area.height ?? 30), 1, 100);
+  const viewKey = geometry.view_key || geometry.screen_view || geometry.view || "";
+  const areaKey = geometry.area_key || geometry.print_area_key || viewKey || "custom";
+  const printSizeKey = geometry.standard_print_size_key || geometry.print_size || "custom";
 
   return {
-    ...area,
-    id: area.id || newId("area"),
-    name: area.name || getPrintAreaOption(areaKey).label || "Print Area",
-    screen_id: area.screen_id || "",
-    screen_view: viewKey,
-    view_key: viewKey,
-    area_key: areaKey,
-    print_size: presetKey,
-    standard_print_size_key: presetKey,
-
-    // Keep both frontend legacy fields and backend percentage fields in sync.
+    ...geometry,
+    id: geometry.id || newId("area"),
+    name: geometry.name || geometry.label || "Print Area",
     x,
     y,
     width,
@@ -285,13 +308,17 @@ export function normalizeArea(area = {}) {
     y_pct: y,
     width_pct: width,
     height_pct: height,
-
-    width_mm: Number(area.width_mm || preset.width_mm || 0),
-    height_mm: Number(area.height_mm || preset.height_mm || 0),
-    dpi,
-    fit_mode: area.fit_mode || "contain",
-    required: Boolean(area.required),
-    allowed_print_option_ids: safeArray(area.allowed_print_option_ids),
-    notes: area.notes || "",
+    screen_id: geometry.screen_id || geometry.mockup_screen_id || "",
+    screen_view: geometry.screen_view || viewKey,
+    view_key: viewKey,
+    area_key: areaKey,
+    print_size: printSizeKey,
+    standard_print_size_key: printSizeKey,
+    width_mm: geometry.width_mm ?? geometry.print_width_mm ?? null,
+    height_mm: geometry.height_mm ?? geometry.print_height_mm ?? null,
+    dpi: Number(geometry.dpi || 300),
+    fit_mode: geometry.fit_mode || "contain",
+    required: Boolean(geometry.required),
+    allowed_print_option_ids: safeArray(geometry.allowed_print_option_ids ?? geometry.print_option_ids ?? []),
   };
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { Link, Route, Routes, useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/DashboardLayout";
+import CreatorPayoutSettings from "../components/creator/CreatorPayoutSettings";
 import ProductBuilder from "../components/product-builder/ProductBuilder";
 import { http, assetUrl } from "../lib/api";
 import {
@@ -19,9 +20,7 @@ import {
   Settings as SettingsIcon,
   Plus,
   Upload,
-  Trash2,
   Save,
-  Eye,
   Copy,
   Clock3,
   Bell,
@@ -31,7 +30,6 @@ import OrderDetail from "../components/OrderDetail";
 import ManualOrderBuilder from "../components/orders/ManualOrderBuilder";
 import ActivityTimeline from "../components/activity/ActivityTimeline";
 import NotificationList from "../components/notifications/NotificationList";
-import AttributeVariationEditor from "../components/AttributeVariationEditor";
 import { toast } from "sonner";
 
 const allBandLinks = [
@@ -77,7 +75,7 @@ function formatFileSize(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function CreatorImageField({ label, value, onUpload, hint, requirements, inputId, previewClassName = "aspect-video" }) {
+function CreatorImageField({ label, value, onUpload, hint, requirements, inputId, previewClassName = "aspect-video", previewImageClassName = "object-contain p-3" }) {
   const [selectedFile, setSelectedFile] = useState(null);
 
   const handleChange = (event) => {
@@ -98,7 +96,7 @@ function CreatorImageField({ label, value, onUpload, hint, requirements, inputId
 
       <div className={`${previewClassName} border border-dashed border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] flex items-center justify-center overflow-hidden mb-4`}>
         {value ? (
-          <img src={assetUrl(value)} alt={label} className="w-full h-full object-contain p-3" />
+          <img src={assetUrl(value)} alt={label} className={`w-full h-full ${previewImageClassName}`} />
         ) : (
           <div className="text-center text-xs text-[var(--ff-muted-text)] uppercase tracking-widest px-4">No {label.toLowerCase()} uploaded yet</div>
         )}
@@ -130,22 +128,6 @@ function CreatorImageField({ label, value, onUpload, hint, requirements, inputId
       </div>
     </div>
   );
-}
-
-function creatorVisibilityLabel(value) {
-  const visibility = String(value || "unlisted").toLowerCase();
-  return visibility.charAt(0).toUpperCase() + visibility.slice(1);
-}
-
-function creatorVisibilityDescription(value) {
-  const visibility = String(value || "unlisted").toLowerCase();
-  if (visibility === "public") {
-    return "Your store may be eligible for public visibility according to platform settings.";
-  }
-  if (visibility === "private") {
-    return "Private store access is restricted. Some private-store features may depend on future access-control settings.";
-  }
-  return "Your store is accessible by direct link. It is not shown in a public creator directory or product marketplace.";
 }
 
 
@@ -227,15 +209,15 @@ function Overview() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-0 border border-[var(--ff-card-border)]">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {[
           { k: "Products", v: stats?.product_count ?? 0 },
           { k: "Orders", v: stats?.order_count ?? 0 },
           { k: "Sales", v: money(stats?.total_sales) },
           { k: "Earnings", v: money(stats?.total_earnings) },
           { k: "Commission", v: money(stats?.total_commission) },
-        ].map((s, i) => (
-          <div key={s.k} className={`p-6 ${i < 4 ? "border-r border-[var(--ff-card-border)]" : ""}`}>
+        ].map((s) => (
+          <div key={s.k} className="ff-admin-stat-card min-w-0">
             <div className="overline mb-2">{s.k}</div>
             <div className="font-display text-3xl">{s.v}</div>
           </div>
@@ -458,677 +440,6 @@ function ProductsList() {
   );
 }
 
-function ProductForm() {
-  const navigate = useNavigate();
-  const { id: routeId } = useParams();
-  const isNew = !routeId || routeId === "new";
-
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    category: "",
-    template_id: "",
-    selling_price: 35,
-    print_cost: 12,
-    mockup_images: [],
-    customization_enabled: false,
-    published: false,
-  });
-
-  const [variations, setVariations] = useState([]);
-  const [attributeIds, setAttributeIds] = useState([]);
-  const [specAttributes, setSpecAttributes] = useState({});
-  const [categories, setCategories] = useState([]);
-  const [attributes, setAttributes] = useState([]);
-  const [productTypes, setProductTypes] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [selectedProductTypeId, setSelectedProductTypeId] = useState("");
-  const [product, setProduct] = useState(null);
-  const [artwork, setArtwork] = useState(null);
-  const [artworks, setArtworks] = useState([]);
-  const [mockupFile, setMockupFile] = useState(null);
-  const [saving, setSaving] = useState(false);
-
-  const selectedProductType = useMemo(
-    () => productTypes.find((type) => type.id === selectedProductTypeId),
-    [productTypes, selectedProductTypeId]
-  );
-
-  const filteredTemplates = useMemo(() => {
-    if (!selectedProductType) return [];
-    return templates.filter((template) => (
-      template.product_type_id
-        ? template.product_type_id === selectedProductType.id
-        : template.category === selectedProductType.category
-    ));
-  }, [templates, selectedProductType]);
-
-  const selectedTemplate = useMemo(
-    () => templates.find((template) => template.id === form.template_id),
-    [templates, form.template_id]
-  );
-
-  const needsTemplateReview = Boolean(form.template_id);
-
-  const profit = useMemo(() => {
-    const sale = Number(form.selling_price || 0);
-    const cost = Number(form.print_cost || 0);
-    const commission = sale * 0.15;
-    return {
-      sale,
-      cost,
-      commission,
-      creator: sale - cost - commission,
-    };
-  }, [form.selling_price, form.print_cost]);
-
-  useEffect(() => {
-    http.get("/categories").then((r) => setCategories(r.data || [])).catch(() => {});
-    http.get("/attributes").then((r) => setAttributes(r.data || [])).catch(() => {});
-    http.get("/public/product-types?status=active").then((r) => setProductTypes(r.data || [])).catch(() => {});
-    http.get("/product-templates").then((r) => setTemplates(r.data || [])).catch(() => {});
-
-    if (!isNew) {
-      http.get(`/products/${routeId}`)
-        .then((r) => {
-          setProduct(r.data);
-          setForm({
-            title: r.data.title || "",
-            description: r.data.description || "",
-            category: r.data.category || "",
-            template_id: r.data.template_id || "",
-            selling_price: r.data.selling_price || 0,
-            print_cost: r.data.print_cost || 0,
-            mockup_images: r.data.mockup_images || [],
-            customization_enabled: Boolean(r.data.customization_enabled),
-            published: Boolean(r.data.published),
-          });
-          setVariations(r.data.variations || []);
-          setAttributeIds(r.data.attribute_ids || []);
-          setSpecAttributes(r.data.spec_attributes || {});
-        })
-        .catch(() => toast.error("Could not load product"));
-
-      http.get(`/artworks/product/${routeId}`)
-        .then((r) => setArtworks(r.data || []))
-        .catch(() => {});
-    }
-  }, [routeId, isNew]);
-
-  useEffect(() => {
-    if (!form.template_id || selectedProductTypeId || templates.length === 0 || productTypes.length === 0) return;
-    const template = templates.find((row) => row.id === form.template_id);
-    if (!template) return;
-    const type = productTypes.find((row) => row.id === template.product_type_id)
-      || productTypes.find((row) => row.category === template.category);
-    if (type) setSelectedProductTypeId(type.id);
-  }, [form.template_id, productTypes, selectedProductTypeId, templates]);
-
-  const updateForm = (key, value) => {
-    setForm((current) => ({ ...current, [key]: value }));
-  };
-
-  const chooseProductType = (typeId) => {
-    const type = productTypes.find((row) => row.id === typeId);
-    setSelectedProductTypeId(typeId);
-    setForm((current) => ({
-      ...current,
-      category: type?.category || "",
-      template_id: "",
-      published: false,
-    }));
-  };
-
-  const chooseTemplate = (templateId) => {
-    const template = templates.find((row) => row.id === templateId);
-    setForm((current) => ({
-      ...current,
-      template_id: templateId,
-      category: template?.category || selectedProductType?.category || current.category,
-      print_cost: Number(template?.creator_print_price || template?.base_price || current.print_cost || 0),
-      mockup_images: template?.mockup_images?.length ? template.mockup_images : current.mockup_images,
-      published: false,
-    }));
-    if (template?.attribute_ids?.length) setAttributeIds(template.attribute_ids);
-  };
-
-  const updateGroupDelivery = (key, value) => {
-    setForm((current) => ({
-      ...current,
-      group_delivery: {
-        ...(current.group_delivery || {}),
-        [key]: value,
-      },
-    }));
-  };
-
-  const addMockupUrl = () => {
-    setForm((current) => ({
-      ...current,
-      mockup_images: [...current.mockup_images, ""],
-    }));
-  };
-
-  const updateMockupUrl = (index, value) => {
-    setForm((current) => ({
-      ...current,
-      mockup_images: current.mockup_images.map((url, i) => (i === index ? value : url)),
-    }));
-  };
-
-  const removeMockupUrl = (index) => {
-    setForm((current) => ({
-      ...current,
-      mockup_images: current.mockup_images.filter((_, i) => i !== index),
-    }));
-  };
-
-  const uploadMockup = async () => {
-    if (!mockupFile) return;
-
-    if (mockupFile.size > MAX_CREATOR_UPLOAD_BYTES) {
-      toast.error(`File too large. Maximum upload size is ${MAX_CREATOR_UPLOAD_MB}MB.`);
-      return;
-    }
-
-    const fd = new FormData();
-    fd.append("file", mockupFile);
-    fd.append("subdir", "product-mockups");
-
-    try {
-      const r = await http.post("/files/image", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-
-      setForm((current) => ({
-        ...current,
-        mockup_images: [...current.mockup_images, r.data.url],
-      }));
-
-      setMockupFile(null);
-      toast.success("Mockup uploaded");
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Mockup upload failed");
-    }
-  };
-
-  const uploadArtworkForProduct = async (productId) => {
-    if (!artwork || !productId) return false;
-
-    const fd = new FormData();
-    fd.append("product_id", productId);
-    fd.append("placement", "front");
-    fd.append("notes", "Creator uploaded artwork");
-    fd.append("dpi", 300);
-    fd.append("file", artwork);
-
-    await http.post("/artworks/upload", fd, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return true;
-  };
-
-  const save = async (e) => {
-    e.preventDefault();
-
-    if (isNew && !selectedProductTypeId) {
-      toast.error("Choose a product type first");
-      return;
-    }
-
-    if (isNew && !form.template_id) {
-      toast.error("Choose a template before creating the product");
-      return;
-    }
-
-    setSaving(true);
-
-    const payload = {
-      title: form.title.trim(),
-      description: form.description || "",
-      category: form.category || selectedProductType?.category || selectedTemplate?.category || "",
-      template_id: form.template_id || null,
-      selling_price: Number(form.selling_price || 0),
-      print_cost: Number(form.print_cost || 0),
-      mockup_images: form.mockup_images.map((url) => url.trim()).filter(Boolean),
-      customization_enabled: Boolean(form.customization_enabled),
-      published: needsTemplateReview ? false : Boolean(form.published),
-      variations,
-      attribute_ids: attributeIds,
-      spec_attributes: specAttributes,
-    };
-
-    try {
-      if (isNew) {
-        const r = await http.post("/products", payload);
-        if (artwork) {
-          await uploadArtworkForProduct(r.data.id);
-          toast.success("Product created — artwork awaiting approval");
-        } else {
-          toast.success("Product created — artwork review pending");
-        }
-        navigate(`/creator/products/${r.data.id}`, { replace: true });
-      } else {
-        const r = await http.patch(`/products/${routeId}`, payload);
-        if (artwork) {
-          await uploadArtworkForProduct(routeId);
-          const artworkResponse = await http.get(`/artworks/product/${routeId}`);
-          setArtworks(artworkResponse.data || []);
-          setArtwork(null);
-          const productResponse = await http.get(`/products/${routeId}`);
-          setProduct(productResponse.data);
-        } else {
-          setProduct(r.data);
-        }
-        toast.success(artwork ? "Product saved — artwork awaiting approval" : "Product saved");
-      }
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const uploadArtwork = async (e) => {
-    e.preventDefault();
-
-    const productId = product?.id || routeId;
-    if (!artwork || !productId || isNew) return;
-
-    try {
-      await uploadArtworkForProduct(productId);
-      toast.success("Artwork uploaded — awaiting approval");
-      const r = await http.get(`/artworks/product/${productId}`);
-      setArtworks(r.data || []);
-      setArtwork(null);
-      const productResponse = await http.get(`/products/${productId}`);
-      setProduct(productResponse.data);
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Artwork upload failed");
-    }
-  };
-
-  return (
-    <div data-testid="creator-product-form">
-      <div className="flex items-start justify-between gap-4 mb-8">
-        <div>
-          <div className="overline mb-2">{isNew ? "Create" : "Edit"}</div>
-          <h1 className="font-display text-5xl uppercase">
-            {isNew ? "New Product" : form.title || "Edit Product"}
-          </h1>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => navigate("/creator/products")}
-          className="btn-secondary"
-        >
-          Back
-        </button>
-      </div>
-
-      <form onSubmit={save} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="space-y-4">
-          {isNew && (
-            <div className="card">
-              <div className="overline mb-3">1. Product type</div>
-              <div className="grid sm:grid-cols-2 gap-3">
-                {productTypes.map((type) => (
-                  <button
-                    key={type.id}
-                    type="button"
-                    onClick={() => chooseProductType(type.id)}
-                    className={`border p-4 text-left hover:bg-[var(--ff-surface-bg)] ${selectedProductTypeId === type.id ? "border-[var(--ff-primary)] bg-[var(--ff-surface-bg)]" : "border-[var(--ff-card-border)]"}`}
-                  >
-                    <div className="font-bold uppercase text-sm">{type.name}</div>
-                    <div className="text-xs text-[var(--ff-muted-text)] mt-1">{type.category}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {isNew && (
-            <div className="card">
-              <div className="overline mb-3">2. Template</div>
-              {!selectedProductType ? (
-                <div className="text-sm text-[var(--ff-muted-text)]">Choose a product type to see matching templates.</div>
-              ) : filteredTemplates.length > 0 ? (
-                <div className="space-y-3">
-                  {filteredTemplates.map((template) => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      onClick={() => chooseTemplate(template.id)}
-                      className={`w-full border p-4 text-left hover:bg-[var(--ff-surface-bg)] ${form.template_id === template.id ? "border-[var(--ff-primary)] bg-[var(--ff-surface-bg)]" : "border-[var(--ff-card-border)]"}`}
-                    >
-                      <div className="font-bold uppercase text-sm">{template.name}</div>
-                      <div className="text-xs text-[var(--ff-muted-text)] mt-1">{template.category}</div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-sm text-[var(--ff-muted-text)]">No active templates are available for this product type.</div>
-              )}
-            </div>
-          )}
-
-          <div className="card">
-            <div className="overline mb-3">{isNew ? "3. Product details" : "Product details"}</div>
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="product-title" className="label">Product title</label>
-                <input
-                  id="product-title"
-                  name="title"
-                  className="input-base"
-                  required
-                  value={form.title}
-                  onChange={(e) => updateForm("title", e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="product-description" className="label">Description</label>
-                <textarea
-                  id="product-description"
-                  name="description"
-                  className="input-base"
-                  rows={5}
-                  value={form.description}
-                  onChange={(e) => updateForm("description", e.target.value)}
-                />
-              </div>
-
-              {!form.template_id && (
-                <div>
-                  <label htmlFor="product-category" className="label">Category</label>
-                  <select
-                    id="product-category"
-                    name="category"
-                    className="input-base"
-                    value={form.category}
-                    onChange={(e) => updateForm("category", e.target.value)}
-                    required
-                  >
-                    <option value="">Pick a category</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.slug}>
-                        {category.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {selectedTemplate && (
-                <div className="text-xs text-[var(--ff-muted-text)] border border-[var(--ff-card-border)] p-3">
-                  Template: <span className="font-bold text-[var(--ff-card-text)]">{selectedTemplate.name}</span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="selling-price" className="label">Selling price</label>
-                  <input
-                    id="selling-price"
-                    name="selling_price"
-                    className="input-base"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={form.selling_price}
-                    onChange={(e) => updateForm("selling_price", e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="print-cost" className="label">Print cost</label>
-                  <input
-                    id="print-cost"
-                    name="print_cost"
-                    className="input-base"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={form.print_cost}
-                    onChange={(e) => updateForm("print_cost", e.target.value)}
-                  />
-                </div>
-              </div>
-
-                <label className="dropzone block cursor-pointer">
-                  <div className="overline mb-2">Print artwork</div>
-                  <div className="text-xs text-[var(--ff-muted-text)]">
-                    Upload production artwork. Maximum upload size: {MAX_CREATOR_UPLOAD_MB}MB.
-                  </div>
-                  <div className="text-xs text-[var(--ff-muted-text)] mt-1">
-                    Accepted: PNG, JPG, SVG or PDF. Recommended: transparent PNG/SVG/PDF where possible.
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/svg+xml,application/pdf"
-                    className="hidden"
-                    onChange={(e) => setArtwork(e.target.files?.[0] || null)}
-                  />
-                  {artwork && (
-                    <div className="mt-3 text-sm text-[var(--ff-card-text)]">
-                      {artwork.name}
-                      <span className="block text-xs text-[var(--ff-muted-text)]">{formatFileSize(artwork.size)}</span>
-                    </div>
-                  )}
-                </label>
-
-              <label className="flex items-center gap-3 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.customization_enabled}
-                  onChange={(e) => updateForm("customization_enabled", e.target.checked)}
-                />
-                Allow buyer customization
-              </label>
-
-              {!needsTemplateReview && (
-                <label className="flex items-center gap-3 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.published}
-                    onChange={(e) => updateForm("published", e.target.checked)}
-                  />
-                  Publish product
-                </label>
-              )}
-            </div>
-          </div>
-
-            <div className="card">
-              <div className="mb-4">
-                <div className="overline mb-1">Mockups</div>
-                <p className="text-xs text-[var(--ff-muted-text)]">
-                  Upload product mockup images. Raw file URLs are stored internally and are not shown to creators.
-                </p>
-                <p className="text-xs text-[var(--ff-muted-text)] mt-1">
-                  Recommended: clear product image, 1200×1200px or larger. Maximum upload size: {MAX_CREATOR_UPLOAD_MB}MB. Accepted: PNG, JPG or WebP.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                {form.mockup_images.map((url, index) => (
-                  <div key={index} className="flex items-center gap-3 border border-[var(--ff-card-border)] p-3">
-                    <div className="w-20 h-20 bg-[var(--ff-surface-bg)] border border-[var(--ff-card-border)] flex items-center justify-center overflow-hidden shrink-0">
-                      <img src={assetUrl(url)} alt={`Mockup ${index + 1}`} className="w-full h-full object-contain" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-bold text-[var(--ff-card-text)]">Mockup {index + 1}</div>
-                      <div className="text-xs text-[var(--ff-muted-text)]">Image uploaded</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeMockupUrl(index)}
-                      className="btn-secondary px-3"
-                      title="Remove mockup"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
-
-                {form.mockup_images.length === 0 && (
-                  <div className="text-xs text-[var(--ff-muted-text)] border border-dashed border-[var(--ff-card-border)] p-4">
-                    No mockups uploaded yet.
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-4 space-y-3">
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="input-base"
-                  onChange={(e) => setMockupFile(e.target.files?.[0] || null)}
-                />
-
-                {mockupFile && (
-                  <div className="text-xs text-[var(--ff-muted-text)]">
-                    Selected: <span className="text-[var(--ff-card-text)]">{mockupFile.name}</span> · {formatFileSize(mockupFile.size)}
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={uploadMockup}
-                  className="btn-secondary w-full sm:w-auto"
-                  disabled={!mockupFile}
-                >
-                  <Upload size={14} /> Upload Mockup
-                </button>
-              </div>
-            </div>
-
-          <AttributeVariationEditor
-            allAttributes={attributes}
-            attributeIds={attributeIds}
-            onAttributeIdsChange={setAttributeIds}
-            variations={variations}
-            onVariationsChange={setVariations}
-            specAttributes={specAttributes}
-            onSpecChange={setSpecAttributes}
-          />
-
-          <button type="submit" className="btn-primary w-full" disabled={saving}>
-            <Save size={14} /> {saving ? "Saving..." : isNew ? "Create Product" : "Save Product"}
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="card">
-            <div className="overline mb-3">Product preview</div>
-
-            <div className="aspect-square bg-[var(--ff-surface-bg)] border border-[var(--ff-card-border)] mb-4 overflow-hidden">
-              {form.mockup_images[0] ? (
-                <img
-                  src={assetUrl(form.mockup_images[0])}
-                  alt={form.title}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-[var(--ff-muted-text)] font-display text-5xl">
-                  MF
-                </div>
-              )}
-            </div>
-
-            <h3 className="font-display text-2xl uppercase">{form.title || "Product title"}</h3>
-            <p className="text-[var(--ff-muted-text)] text-sm mt-2 line-clamp-3">
-              {form.description || "Product description will appear here."}
-            </p>
-
-            {needsTemplateReview && (
-              <div className="mt-4 text-xs text-[var(--ff-muted-text)] border border-[var(--ff-card-border)] p-3">
-                Creator template products stay unpublished until artwork is approved.
-              </div>
-            )}
-
-            {!isNew && product && (
-              <Link
-                to={`/product/${product.id}`}
-                className="btn-secondary w-full mt-4"
-              >
-                <Eye size={14} /> View Product
-              </Link>
-            )}
-          </div>
-
-          <div className="card">
-            <div className="overline mb-3">Profit estimate</div>
-            <table className="w-full text-sm">
-              <tbody>
-                <tr>
-                  <td className="text-[var(--ff-muted-text)]">Sale price</td>
-                  <td className="text-right">{money(profit.sale)}</td>
-                </tr>
-                <tr>
-                  <td className="text-[var(--ff-muted-text)]">Printer cost</td>
-                  <td className="text-right">{money(profit.cost)}</td>
-                </tr>
-                <tr>
-                  <td className="text-[var(--ff-muted-text)]">Commission 15%</td>
-                  <td className="text-right">{money(profit.commission)}</td>
-                </tr>
-                <tr className="border-t border-[var(--ff-card-border)]">
-                  <td className="font-bold pt-2">Creator earns</td>
-                  <td className="text-right font-bold text-[#34C759] pt-2">
-                    {money(profit.creator)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {!isNew && (
-            <div className="card">
-              <div className="overline mb-3">Artwork files</div>
-
-              <div className="space-y-2 mb-4">
-                {artworks.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between gap-3 text-sm border-b border-[var(--ff-card-border)] pb-2"
-                  >
-                    <a
-                      href={assetUrl(item.file_url)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="truncate hover:text-[var(--ff-primary)]"
-                    >
-                      {item.file_name}
-                    </a>
-                    <StatusBadge status={item.status} />
-                  </div>
-                ))}
-
-                {artworks.length === 0 && (
-                  <div className="text-xs text-[var(--ff-muted-text)]">No artwork uploaded yet.</div>
-                )}
-              </div>
-
-              {artwork && (
-                <button
-                  type="button"
-                  onClick={uploadArtwork}
-                  className="btn-primary w-full mt-3"
-                >
-                  <Upload size={14} /> Upload Artwork
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </form>
-    </div>
-  );
-}
-
 function OrdersList() {
   const [orders, setOrders] = useState([]);
 
@@ -1238,15 +549,48 @@ function Earnings() {
   );
 }
 
+function SettingsToggle({ label, description, checked, disabled = false, onChange }) {
+  return (
+    <label className={`flex items-start justify-between gap-5 border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-4 ${disabled ? "opacity-50" : "cursor-pointer"}`}>
+      <span>
+        <span className="block text-sm font-bold">{label}</span>
+        <span className="block text-xs text-[var(--ff-muted-text)] mt-1">{description}</span>
+      </span>
+      <span className="flex items-center gap-3 shrink-0">
+        <span className="text-xs font-bold uppercase tracking-widest">{checked ? "Yes" : "No"}</span>
+        <input
+          type="checkbox"
+          className="h-5 w-5 accent-[var(--ff-primary)]"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+      </span>
+    </label>
+  );
+}
+
 function SettingsPage() {
   const [creator, setCreator] = useState(null);
+  const [activeTab, setActiveTab] = useState("details");
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: "",
     bio: "",
-    logo_url: "",
+    profile_image_url: "",
     banner_url: "",
+    contact_email: "",
+    contact_phone: "",
+    website_url: "",
+    whatsapp: "",
     instagram: "",
+    facebook: "",
+    tiktok: "",
+    youtube: "",
     twitter: "",
+    visibility: "unlisted",
+    show_on_platform_gallery: false,
+    allow_search_indexing: false,
     group_delivery: {
       enabled: false,
       delivery_interval_days: 14,
@@ -1268,10 +612,20 @@ function SettingsPage() {
       setForm({
         name: r.data.name || "",
         bio: r.data.bio || "",
-        logo_url: r.data.logo_url || "",
+        profile_image_url: r.data.profile_image_url || r.data.logo_url || "",
         banner_url: r.data.banner_url || "",
+        contact_email: r.data.contact_email || "",
+        contact_phone: r.data.contact_phone || "",
+        website_url: r.data.website_url || "",
+        whatsapp: r.data.socials?.whatsapp || "",
         instagram: r.data.socials?.instagram || "",
+        facebook: r.data.socials?.facebook || "",
+        tiktok: r.data.socials?.tiktok || "",
+        youtube: r.data.socials?.youtube || "",
         twitter: r.data.socials?.twitter || "",
+        visibility: r.data.visibility || "unlisted",
+        show_on_platform_gallery: Boolean(r.data.show_on_platform_gallery),
+        allow_search_indexing: Boolean(r.data.allow_search_indexing),
         group_delivery: {
           enabled: Boolean(r.data.group_delivery?.enabled),
           delivery_interval_days: Number(r.data.group_delivery?.delivery_interval_days || 14),
@@ -1286,7 +640,9 @@ function SettingsPage() {
           internal_notes: r.data.group_delivery?.internal_notes || "",
         },
       });
-    }).catch(() => {});
+    }).catch(() => {
+      toast.error("Could not load storefront settings");
+    });
   }, []);
 
   const updateForm = (key, value) => {
@@ -1303,37 +659,49 @@ function SettingsPage() {
     }));
   };
 
+  const updatePublicVisibility = (makePublic) => {
+    setForm((current) => ({
+      ...current,
+      visibility: makePublic ? "public" : "unlisted",
+      show_on_platform_gallery: makePublic ? current.show_on_platform_gallery : false,
+      allow_search_indexing: makePublic ? current.allow_search_indexing : false,
+    }));
+  };
+
   const uploadStoreImage = async (file, targetField) => {
     if (!file) return;
+    if (file.size > MAX_CREATOR_UPLOAD_BYTES) {
+      toast.error(`File too large. Maximum upload size is ${MAX_CREATOR_UPLOAD_MB}MB.`);
+      return;
+    }
 
     const fd = new FormData();
     fd.append("file", file);
     fd.append("subdir", "creator-storefronts");
 
     try {
-      const r = await http.post("/files/image", fd, {
+      const response = await http.post("/files/image", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-
-      updateForm(targetField, r.data.url);
-      toast.success("Image uploaded");
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Image upload failed");
+      updateForm(targetField, response.data.url);
+      toast.success(targetField === "banner_url" ? "Store banner uploaded" : "Profile picture uploaded");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Image upload failed");
     }
   };
 
-  const save = async (e) => {
-    e.preventDefault();
-
-    const socials = {};
-    if (form.instagram) socials.instagram = form.instagram;
-    if (form.twitter) socials.twitter = form.twitter;
-
+  const save = async (event) => {
+    event.preventDefault();
     const intervalDays = Number(form.group_delivery?.delivery_interval_days || 14);
     if (form.group_delivery?.enabled && intervalDays < 14) {
-      toast.error("Group Delivery interval must be at least 14 days");
+      toast.error("Bulk Batched Shipping interval must be at least 14 days");
       return;
     }
+
+    const socials = {};
+    ["whatsapp", "instagram", "facebook", "tiktok", "youtube", "twitter"].forEach((key) => {
+      if (form[key]) socials[key] = form[key];
+    });
 
     const groupDelivery = {
       enabled: Boolean(form.group_delivery?.enabled),
@@ -1349,20 +717,29 @@ function SettingsPage() {
       internal_notes: form.group_delivery?.internal_notes || "",
     };
 
+    setSaving(true);
     try {
-      const r = await http.patch("/creators/me", {
+      const response = await http.patch("/creators/me", {
         name: form.name,
         bio: form.bio,
-        logo_url: form.logo_url || null,
+        logo_url: form.profile_image_url || null,
+        profile_image_url: form.profile_image_url || null,
         banner_url: form.banner_url || null,
+        contact_email: form.contact_email || "",
+        contact_phone: form.contact_phone || "",
+        website_url: form.website_url || "",
         socials,
         group_delivery: groupDelivery,
+        visibility: form.visibility,
+        show_on_platform_gallery: Boolean(form.show_on_platform_gallery),
+        allow_search_indexing: Boolean(form.allow_search_indexing),
       });
-
-      setCreator(r.data);
-      toast.success("Storefront saved");
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Save failed");
+      setCreator(response.data);
+      toast.success("Store settings saved");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Save failed");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1370,10 +747,10 @@ function SettingsPage() {
     try {
       await http.post("/payments/subscribe");
       toast.success("Subscription activated");
-      const r = await http.get("/creators/me");
-      setCreator(r.data);
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Subscription failed");
+      const response = await http.get("/creators/me");
+      setCreator(response.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Subscription failed");
     }
   };
 
@@ -1385,7 +762,6 @@ function SettingsPage() {
 
   const copyDirectStoreLink = async () => {
     if (!directStoreLink) return;
-
     try {
       await navigator.clipboard.writeText(directStoreLink);
       toast.success("Store link copied");
@@ -1394,257 +770,280 @@ function SettingsPage() {
     }
   };
 
+  const isPublic = form.visibility === "public";
+  const tabs = [
+    { key: "details", label: "Store Details" },
+    { key: "shipping", label: "Shipping Options" },
+    { key: "visibility", label: "Visibility Options" },
+    { key: "payouts", label: "Payout Details" },
+  ];
+
   return (
     <div data-testid="creator-settings-page">
       <div className="overline mb-2">Settings</div>
-      <h1 className="font-display text-5xl uppercase mb-8">Storefront</h1>
+      <h1 className="font-display text-5xl uppercase mb-6">Storefront</h1>
 
-      <div className="card max-w-2xl mb-8" data-testid="creator-publishing-panel">
-        <div className="overline mb-2">Publishing & Visibility</div>
-        <h2 className="font-display text-3xl uppercase mb-4">Current store status</h2>
-
-        <div className="grid sm:grid-cols-3 gap-3 mb-5">
-          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
-            <div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mb-1">Store visibility</div>
-            <div className="font-bold">{creatorVisibilityLabel(creator.visibility)}</div>
-          </div>
-          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
-            <div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mb-1">Homepage gallery</div>
-            <div className="font-bold">{creator.show_on_platform_gallery ? "Enabled" : "Disabled"}</div>
-          </div>
-          <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
-            <div className="text-xs text-[var(--ff-muted-text)] uppercase tracking-widest mb-1">Search indexing</div>
-            <div className="font-bold">{creator.allow_search_indexing ? "Enabled" : "Disabled"}</div>
-          </div>
-        </div>
-
-        <p className="text-sm text-[var(--ff-muted-text)] mb-4">{creatorVisibilityDescription(creator.visibility)}</p>
-
-        <div>
-          <label className="label">Direct store link</label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input className="input-base font-mono text-sm" readOnly value={directStoreLink} />
-            <button type="button" className="btn-secondary shrink-0" onClick={copyDirectStoreLink}>
-              <Copy size={14} /> Copy
-            </button>
-          </div>
-        </div>
-
-        <p className="text-xs text-[var(--ff-muted-text)] mt-4">
-          Need to change publishing settings? Contact FandomForge support.
-        </p>
+      <div className="flex flex-wrap border-b border-[var(--ff-card-border)] mb-6" role="tablist" aria-label="Store settings">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-3 text-xs font-bold uppercase tracking-widest border-b-2 -mb-px ${
+              activeTab === tab.key
+                ? "border-[var(--ff-primary)] text-[var(--ff-card-text)]"
+                : "border-transparent text-[var(--ff-muted-text)] hover:text-[var(--ff-card-text)]"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      <form onSubmit={save} className="max-w-2xl space-y-4">
-        <div>
-          <label htmlFor="creator-name" className="label">Creator name</label>
-          <input
-            id="creator-name"
-            name="name"
-            className="input-base"
-            value={form.name}
-            onChange={(e) => updateForm("name", e.target.value)}
-          />
+      {activeTab === "payouts" ? (
+        <div className="max-w-4xl">
+          <CreatorPayoutSettings />
         </div>
+      ) : (
+        <form onSubmit={save} className="max-w-4xl space-y-6">
+          {activeTab === "details" && (
+            <>
+              <section className="card space-y-4">
+                <div>
+                  <p className="overline mb-2">Public storefront</p>
+                  <h2 className="font-display text-3xl uppercase">Store details</h2>
+                </div>
 
-        <div>
-          <label htmlFor="creator-bio" className="label">Bio</label>
-          <textarea
-            id="creator-bio"
-            name="bio"
-            className="input-base"
-            rows={4}
-            value={form.bio}
-            onChange={(e) => updateForm("bio", e.target.value)}
-          />
-        </div>
+                <div>
+                  <label className="label">Store public link</label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input className="input-base font-mono text-sm" readOnly value={directStoreLink} />
+                    <button type="button" className="btn-secondary shrink-0" onClick={copyDirectStoreLink}>
+                      <Copy size={14} /> Copy
+                    </button>
+                  </div>
+                </div>
 
-        <div className="card space-y-4 border border-[var(--ff-card-border)]">
-          <div>
-            <p className="overline mb-2">Group Delivery</p>
-            <h2 className="font-display text-3xl uppercase">Free batched collection</h2>
-            <p className="text-sm text-[var(--ff-muted-text)] mt-1">
-              Customers do not pay delivery. Orders are batched to your collection point and assigned to the next valid batch date.
-            </p>
-          </div>
+                <div>
+                  <label htmlFor="creator-name" className="label">Store name</label>
+                  <input
+                    id="creator-name"
+                    className="input-base"
+                    required
+                    value={form.name}
+                    onChange={(event) => updateForm("name", event.target.value)}
+                  />
+                </div>
 
-          <label className="flex items-start gap-3 border border-[var(--ff-card-border)] p-3 bg-[var(--ff-surface-bg)] cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={Boolean(form.group_delivery?.enabled)}
-              onChange={(e) => updateGroupDelivery("enabled", e.target.checked)}
-            />
-            <span>
-              <span className="block text-sm font-bold">Enable Free Group Delivery</span>
-              <span className="block text-xs text-[var(--ff-muted-text)] mt-1">Only shown when the cart contains products from this creator/store.</span>
-            </span>
-          </label>
+                <div>
+                  <label htmlFor="creator-bio" className="label">Store About Us / Bio</label>
+                  <textarea
+                    id="creator-bio"
+                    className="input-base"
+                    rows={5}
+                    value={form.bio}
+                    onChange={(event) => updateForm("bio", event.target.value)}
+                  />
+                </div>
+              </section>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <label className="label">Delivery interval days</label>
-              <input
-                className="input-base"
-                type="number"
-                min="14"
-                value={form.group_delivery?.delivery_interval_days || 14}
-                onChange={(e) => updateGroupDelivery("delivery_interval_days", Number(e.target.value || 14))}
+              <section className="card space-y-4">
+                <div>
+                  <p className="overline mb-2">Public contact information</p>
+                  <h2 className="font-display text-3xl uppercase">Store contact details</h2>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Website</label>
+                    <input className="input-base" type="url" value={form.website_url} onChange={(event) => updateForm("website_url", event.target.value)} placeholder="https://example.com" />
+                  </div>
+                  <div>
+                    <label className="label">Contact email</label>
+                    <input className="input-base" type="email" value={form.contact_email} onChange={(event) => updateForm("contact_email", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">Contact number</label>
+                    <input className="input-base" value={form.contact_phone} onChange={(event) => updateForm("contact_phone", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">WhatsApp number</label>
+                    <input className="input-base" value={form.whatsapp} onChange={(event) => updateForm("whatsapp", event.target.value)} placeholder="+27…" />
+                  </div>
+                  <div>
+                    <label className="label">Instagram</label>
+                    <input className="input-base" value={form.instagram} onChange={(event) => updateForm("instagram", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">Facebook</label>
+                    <input className="input-base" value={form.facebook} onChange={(event) => updateForm("facebook", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">TikTok</label>
+                    <input className="input-base" value={form.tiktok} onChange={(event) => updateForm("tiktok", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">YouTube</label>
+                    <input className="input-base" value={form.youtube} onChange={(event) => updateForm("youtube", event.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">X / Twitter</label>
+                    <input className="input-base" value={form.twitter} onChange={(event) => updateForm("twitter", event.target.value)} />
+                  </div>
+                </div>
+              </section>
+
+              <div className="grid lg:grid-cols-2 gap-6">
+                <CreatorImageField
+                  label="Store Profile Picture"
+                  value={form.profile_image_url}
+                  inputId="creator-profile-picture"
+                  hint="Shown on your public storefront and creator cards."
+                  requirements="Recommended: square image, 800×800px or larger."
+                  previewClassName="aspect-square"
+                  onUpload={(file) => uploadStoreImage(file, "profile_image_url")}
+                />
+                <CreatorImageField
+                  label="Store Banner"
+                  value={form.banner_url}
+                  inputId="creator-banner"
+                  hint="Shown as the wide header image on your public storefront."
+                  requirements="Recommended: 1600×600px or larger."
+                  previewClassName="aspect-[16/6]"
+                  previewImageClassName="object-cover"
+                  onUpload={(file) => uploadStoreImage(file, "banner_url")}
+                />
+              </div>
+            </>
+          )}
+
+          {activeTab === "shipping" && (
+            <section className="card space-y-4">
+              <div>
+                <p className="overline mb-2">Bulk Batched Shipping</p>
+                <h2 className="font-display text-3xl uppercase">Free batched collection</h2>
+                <p className="text-sm text-[var(--ff-muted-text)] mt-1">
+                  Customers do not pay delivery. Orders are batched to your collection point and assigned to the next valid batch date.
+                </p>
+              </div>
+
+              <SettingsToggle
+                label="Enable Bulk Batched Shipping"
+                description="This option is only shown when the cart contains products from this store."
+                checked={Boolean(form.group_delivery?.enabled)}
+                onChange={(checked) => updateGroupDelivery("enabled", checked)}
               />
-              <p className="text-xs text-[var(--ff-muted-text)] mt-1">Minimum 14 days.</p>
-            </div>
 
-            <div>
-              <label className="label">First batch date</label>
-              <input
-                className="input-base"
-                type="date"
-                value={form.group_delivery?.first_batch_date || ""}
-                onChange={(e) => updateGroupDelivery("first_batch_date", e.target.value)}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Delivery interval days</label>
+                  <input className="input-base" type="number" min="14" value={form.group_delivery?.delivery_interval_days || 14} onChange={(event) => updateGroupDelivery("delivery_interval_days", Number(event.target.value || 14))} />
+                  <p className="text-xs text-[var(--ff-muted-text)] mt-1">Minimum 14 days.</p>
+                </div>
+                <div>
+                  <label className="label">First batch date</label>
+                  <input className="input-base" type="date" value={form.group_delivery?.first_batch_date || ""} onChange={(event) => updateGroupDelivery("first_batch_date", event.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Collection point name</label>
+                  <input className="input-base" value={form.group_delivery?.collection_point_name || ""} onChange={(event) => updateGroupDelivery("collection_point_name", event.target.value)} placeholder="Group Hall" />
+                </div>
+                <div>
+                  <label className="label">Address line 1</label>
+                  <input className="input-base" value={form.group_delivery?.collection_address_line_1 || ""} onChange={(event) => updateGroupDelivery("collection_address_line_1", event.target.value)} placeholder="1 Main Road" />
+                </div>
+                <div>
+                  <label className="label">Suburb</label>
+                  <input className="input-base" value={form.group_delivery?.collection_suburb || ""} onChange={(event) => updateGroupDelivery("collection_suburb", event.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Town</label>
+                  <input className="input-base" value={form.group_delivery?.collection_town || ""} onChange={(event) => updateGroupDelivery("collection_town", event.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Province</label>
+                  <input className="input-base" value={form.group_delivery?.collection_province || ""} onChange={(event) => updateGroupDelivery("collection_province", event.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Postal code</label>
+                  <input className="input-base" value={form.group_delivery?.collection_postal_code || ""} onChange={(event) => updateGroupDelivery("collection_postal_code", event.target.value)} />
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Customer instructions</label>
+                <textarea className="input-base" rows={3} value={form.group_delivery?.customer_instructions || ""} onChange={(event) => updateGroupDelivery("customer_instructions", event.target.value)} />
+              </div>
+              <div>
+                <label className="label">Internal notes</label>
+                <textarea className="input-base" rows={3} value={form.group_delivery?.internal_notes || ""} onChange={(event) => updateGroupDelivery("internal_notes", event.target.value)} placeholder="Internal only. Not shown to buyers." />
+              </div>
+            </section>
+          )}
+
+          {activeTab === "visibility" && (
+            <section className="card space-y-4">
+              <div>
+                <p className="overline mb-2">Publishing & visibility</p>
+                <h2 className="font-display text-3xl uppercase">Store visibility</h2>
+                <p className="text-sm text-[var(--ff-muted-text)] mt-1">
+                  Control how customers can discover your store. Your direct store link remains available when the store is unlisted.
+                </p>
+              </div>
+
+              <SettingsToggle
+                label="Make Public"
+                description="Allow the store to participate in public discovery. Turn this off to keep it accessible by direct link only."
+                checked={isPublic}
+                onChange={updatePublicVisibility}
               />
-            </div>
-
-            <div>
-              <label className="label">Collection point name</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_point_name || ""}
-                onChange={(e) => updateGroupDelivery("collection_point_name", e.target.value)}
-                placeholder="Group Hall"
+              <SettingsToggle
+                label="Display on Home Page"
+                description="Allow FandomForge to feature this store and its eligible published products on the homepage."
+                checked={Boolean(form.show_on_platform_gallery)}
+                disabled={!isPublic}
+                onChange={(checked) => updateForm("show_on_platform_gallery", checked)}
               />
-            </div>
-
-            <div>
-              <label className="label">Address line 1</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_address_line_1 || ""}
-                onChange={(e) => updateGroupDelivery("collection_address_line_1", e.target.value)}
-                placeholder="1 Main Road"
+              <SettingsToggle
+                label="Search Indexing"
+                description="Allow search engines to index the public storefront."
+                checked={Boolean(form.allow_search_indexing)}
+                disabled={!isPublic}
+                onChange={(checked) => updateForm("allow_search_indexing", checked)}
               />
-            </div>
 
-            <div>
-              <label className="label">Suburb</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_suburb || ""}
-                onChange={(e) => updateGroupDelivery("collection_suburb", e.target.value)}
-                placeholder="Durbanville"
-              />
-            </div>
+              <div className="grid sm:grid-cols-3 gap-3 pt-2">
+                <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
+                  <div className="overline mb-1">Store</div>
+                  <div className="font-bold">{isPublic ? "Public" : "Unlisted"}</div>
+                </div>
+                <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
+                  <div className="overline mb-1">Home Page</div>
+                  <div className="font-bold">{form.show_on_platform_gallery ? "Enabled" : "Disabled"}</div>
+                </div>
+                <div className="border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] p-3">
+                  <div className="overline mb-1">Search</div>
+                  <div className="font-bold">{form.allow_search_indexing ? "Enabled" : "Disabled"}</div>
+                </div>
+              </div>
+            </section>
+          )}
 
-            <div>
-              <label className="label">Town</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_town || ""}
-                onChange={(e) => updateGroupDelivery("collection_town", e.target.value)}
-                placeholder="Cape Town"
-              />
-            </div>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            <Save size={14} /> {saving ? "Saving…" : "Save Settings"}
+          </button>
+        </form>
+      )}
 
-            <div>
-              <label className="label">Province</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_province || ""}
-                onChange={(e) => updateGroupDelivery("collection_province", e.target.value)}
-                placeholder="Western Cape"
-              />
-            </div>
-
-            <div>
-              <label className="label">Postal code</label>
-              <input
-                className="input-base"
-                value={form.group_delivery?.collection_postal_code || ""}
-                onChange={(e) => updateGroupDelivery("collection_postal_code", e.target.value)}
-                placeholder="7550"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="label">Customer instructions</label>
-            <textarea
-              className="input-base"
-              rows={3}
-              value={form.group_delivery?.customer_instructions || ""}
-              onChange={(e) => updateGroupDelivery("customer_instructions", e.target.value)}
-              placeholder="Orders are delivered in batches to the group hall. You will be notified when your order is ready for collection."
-            />
-          </div>
-
-          <div>
-            <label className="label">Internal notes</label>
-            <textarea
-              className="input-base"
-              rows={3}
-              value={form.group_delivery?.internal_notes || ""}
-              onChange={(e) => updateGroupDelivery("internal_notes", e.target.value)}
-              placeholder="Internal only. Not shown to buyers."
-            />
-          </div>
-        </div>
-
-          <CreatorImageField
-            label="Logo"
-            value={form.logo_url}
-            inputId="creator-logo"
-            hint="Shown on your public storefront and creator cards."
-            requirements="Recommended: square or transparent logo, at least 800×800px."
-            previewClassName="aspect-square"
-            onUpload={(file) => uploadStoreImage(file, "logo_url")}
-          />
-
-          <CreatorImageField
-            label="Banner"
-            value={form.banner_url}
-            inputId="creator-banner"
-            hint="Shown as the wide header image on your public storefront."
-            requirements="Recommended: wide banner, around 1600×600px or larger."
-            previewClassName="aspect-[16/6]"
-            onUpload={(file) => uploadStoreImage(file, "banner_url")}
-          />
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="creator-instagram" className="label">Instagram</label>
-            <input
-              id="creator-instagram"
-              name="instagram"
-              className="input-base"
-              value={form.instagram}
-              onChange={(e) => updateForm("instagram", e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="creator-twitter" className="label">Twitter / X</label>
-            <input
-              id="creator-twitter"
-              name="twitter"
-              className="input-base"
-              value={form.twitter}
-              onChange={(e) => updateForm("twitter", e.target.value)}
-            />
-          </div>
-        </div>
-
-        <button type="submit" className="btn-primary">
-          <Save size={14} /> Save Storefront
-        </button>
-      </form>
-
-      <div className="mt-10 card max-w-2xl">
+      <div className="mt-10 card max-w-4xl">
         <div className="overline mb-2">Subscription</div>
-
         <div className="flex items-center justify-between gap-4">
           <div>
             <div className="text-sm text-[var(--ff-muted-text)]">Current status</div>
             <StatusBadge status={creator.subscription_status} />
           </div>
-
           <button type="button" onClick={subscribe} className="btn-secondary">
             Activate / Renew
           </button>

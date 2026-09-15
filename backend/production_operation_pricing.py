@@ -3,12 +3,78 @@
 The core product-builder flow lives in routes_main.normalize_template_product_payload.
 This module wraps that function so V1 can add method/print-area production
 operations without rewriting the whole product route file during launch week.
+
+Print Options remain backward-compatible, but Manufacturing Rules / Print Methods
+can now carry the same costing model. Each method controls its source through
+cost_calculation_model.raw_cost_source:
+- print_option: current legacy behaviour.
+- print_option_fallback_to_method: use Print Option first, fill blanks from method.
+- production_method: method costing model becomes the pricing source.
+
+When legacy Print Options are imported, production methods can also carry
+legacy_print_option_costing_profiles. Those profiles preserve exact per-option
+costing while allowing the method to become the source of truth.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any, Callable, Dict, List, Optional
 
+import outsourced_production_rates as outsourced_rates
 from seed_production_operations import ACTIVE_V1_METHOD_KEYS, normalize_method_key
+from unified_manufacturing_costing import resolve_costing_profile
+
+
+PRICING_FIELDS = (
+    "calculation_type",
+    "platform_print_cost",
+    "print_cost_max",
+    "sheet_width_mm",
+    "sheet_height_mm",
+    "sheet_cost",
+    "cost_per_cm2",
+    "minimum_print_cost",
+    "waste_percentage",
+    "markup_percentage",
+    "creator_print_price",
+    "platform_print_markup_type",
+    "platform_print_markup_value",
+    "pricing_notes",
+    "minimum_area_cm2",
+    "application_cost",
+    "outsourced_rate_profile_key",
+    "outsourced_rate_profile_label",
+    "outsourced_rate_version",
+    "manufacturing_profile_id",
+    "production_profile_id",
+    "legacy_print_option_ids",
+    "is_default",
+    "costing_engine_version",
+)
+
+DIRECT_APPLICATION_OPERATION_TYPES = {"heat_press", "application"}
+
+def _money_half_up(value: Any) -> float:
+    try:
+        decimal_value = Decimal(str(value if value not in (None, "") else 0))
+    except Exception:
+        decimal_value = Decimal("0")
+    return float(decimal_value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+def _embedded_application_methods(product_data: Dict[str, Any]) -> set[str]:
+    methods: set[str] = set()
+    for slot in product_data.get("artworks") or []:
+        if not isinstance(slot, dict) or _float(slot.get("application_cost")) <= 0:
+            continue
+        method = normalize_method_key(
+            slot.get("method_key")
+            or slot.get("manufacturing_method_id")
+            or slot.get("production_method_key")
+            or slot.get("print_method")
+        )
+        if method:
+            methods.add(method)
+    return methods
 
 
 def _money(value: Any) -> float:
@@ -23,6 +89,14 @@ def _float(value: Any) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _has_value(value: Any) -> bool:
+    return value not in (None, "", [], {})
+
+
+def _token(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def _slot_has_production(slot: Dict[str, Any]) -> bool:
@@ -60,52 +134,146 @@ def _slot_area_cm2(slot: Dict[str, Any]) -> float:
     return (width_mm * height_mm) / 100 if width_mm > 0 and height_mm > 0 else 0.0
 
 
+def _method_key_from_option_slot(option: Dict[str, Any], slot: Dict[str, Any]) -> str:
+    return normalize_method_key(
+        slot.get("method_key")
+        or slot.get("manufacturing_method_id")
+        or slot.get("print_method")
+        or option.get("method_key")
+        or option.get("manufacturing_method_id")
+        or option.get("print_method")
+        or option.get("method")
+    )
+
+
+def _method_profile_for_slot(method_rule: Optional[Dict[str, Any]], option: Dict[str, Any], slot: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    identifier = (
+        slot.get("manufacturing_profile_id")
+        or slot.get("production_profile_id")
+        or slot.get("print_option_id")
+        or option.get("manufacturing_profile_id")
+        or option.get("production_profile_id")
+        or option.get("id")
+    )
+    return resolve_costing_profile(method_rule, identifier, option=option, slot=slot)
+
+
+def _pricing_fields_from_method(method_rule: Optional[Dict[str, Any]], option: Optional[Dict[str, Any]] = None, slot: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    rule = dict(method_rule or {})
+    model = dict(rule.get("cost_calculation_model") or {})
+    profile = _method_profile_for_slot(rule, option or {}, slot or {})
+
+    out: Dict[str, Any] = {}
+    for field in PRICING_FIELDS:
+        if field in model:
+            out[field] = model.get(field)
+
+    if profile:
+        for field in PRICING_FIELDS:
+            if field in profile and _has_value(profile.get(field)):
+                out[field] = profile.get(field)
+        out["legacy_print_option_profile_id"] = profile.get("print_option_id")
+        out["legacy_print_option_profile_name"] = profile.get("rule_name") or profile.get("print_size")
+
+    out["raw_cost_source"] = model.get("raw_cost_source") or "print_option"
+    out["cost_model_name"] = model.get("model") or model.get("name") or rule.get("display_name") or rule.get("method_key")
+    return out
+
+
+def _merge_method_costing(option: Dict[str, Any], slot: Dict[str, Any], method_rule: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return the active pricing row for a slot.
+
+    This is the bridge between legacy Print Options and the new Print Method cost
+    model. Default mode preserves legacy pricing. If legacy profiles were seeded,
+    production_method mode can still calculate per original print option.
+    """
+    option = dict(option or {})
+    method_fields = _pricing_fields_from_method(method_rule, option, slot)
+    source = method_fields.get("raw_cost_source") or "print_option"
+
+    if source in {"production_method", "method", "manufacturing_method"}:
+        merged = dict(option)
+        for field, value in method_fields.items():
+            if field != "raw_cost_source" and _has_value(value):
+                merged[field] = value
+        merged["production_pricing_source"] = "production_method"
+        merged["production_method_key"] = _method_key_from_option_slot(option, slot)
+        merged["legacy_print_option_profile_id"] = method_fields.get("legacy_print_option_profile_id")
+        merged["legacy_print_option_profile_name"] = method_fields.get("legacy_print_option_profile_name")
+        return merged
+
+    if source in {"print_option_fallback_to_method", "fallback_to_method", "hybrid"}:
+        merged = dict(option)
+        for field, value in method_fields.items():
+            if field == "raw_cost_source" or not _has_value(value):
+                continue
+            if not _has_value(merged.get(field)) or merged.get(field) == 0:
+                merged[field] = value
+        merged["production_pricing_source"] = "print_option_fallback_to_method"
+        merged["production_method_key"] = _method_key_from_option_slot(option, slot)
+        merged["legacy_print_option_profile_id"] = method_fields.get("legacy_print_option_profile_id")
+        merged["legacy_print_option_profile_name"] = method_fields.get("legacy_print_option_profile_name")
+        return merged
+
+    option["production_pricing_source"] = "print_option"
+    option["production_method_key"] = _method_key_from_option_slot(option, slot)
+    return option
+
+
 def _calculate_raw_print_cost(option: Dict[str, Any], slot: Dict[str, Any]) -> Dict[str, Any]:
-    calculation_type = option.get("calculation_type") or slot.get("calculation_type") or "fixed"
+    calculation_type = str(option.get("calculation_type") or slot.get("calculation_type") or "fixed").lower()
     area_cm2 = _slot_area_cm2(slot)
-    platform_cost = 0.0
 
-    if calculation_type == "area_fixed_rate" and area_cm2 > 0:
-        platform_cost = area_cm2 * _float(option.get("cost_per_cm2") or slot.get("cost_per_cm2"))
-    elif calculation_type in ("area_from_sheet", "full_sheet"):
-        sheet_width_mm = _float(option.get("sheet_width_mm") or slot.get("sheet_width_mm"))
-        sheet_height_mm = _float(option.get("sheet_height_mm") or slot.get("sheet_height_mm"))
-        sheet_cost = _float(option.get("sheet_cost") or slot.get("sheet_cost"))
-        sheet_area_cm2 = (sheet_width_mm * sheet_height_mm) / 100 if sheet_width_mm > 0 and sheet_height_mm > 0 else 0.0
-        if calculation_type == "full_sheet" and sheet_cost > 0:
-            platform_cost = sheet_cost
-        elif sheet_area_cm2 > 0 and sheet_cost > 0 and area_cm2 > 0:
-            platform_cost = (area_cm2 / sheet_area_cm2) * sheet_cost
-    else:
-        platform_cost = _float(option.get("platform_print_cost") or option.get("print_cost_max") or slot.get("print_cost_max"))
+    if calculation_type in {"area_fixed_rate", "area", "cm2", "sheet", "area_from_sheet"}:
+        pricing = {**slot, **option, "calculation_type": calculation_type}
+        costing = outsourced_rates.calculate_outsourced_area_cost(
+            area_cm2,
+            pricing,
+            fallback_cost=(option.get("platform_print_cost") or option.get("print_cost_max") or slot.get("print_cost_max") or 0),
+        )
+        return {
+            "calculation_type": calculation_type,
+            "area_cm2": costing["actual_area_cm2"],
+            "chargeable_area_cm2": costing["chargeable_area_cm2"],
+            "minimum_area_cm2": costing["minimum_area_cm2"],
+            "minimum_area_applied": costing["minimum_area_applied"],
+            "application_cost": costing["application_cost"],
+            "platform_print_cost": costing["calculated_print_cost"],
+            "production_pricing_source": option.get("production_pricing_source") or "production_method",
+            "production_method_key": option.get("production_method_key"),
+            "manufacturing_profile_id": option.get("manufacturing_profile_id") or slot.get("manufacturing_profile_id"),
+            "legacy_print_option_profile_id": option.get("legacy_print_option_profile_id"),
+            "legacy_print_option_profile_name": option.get("legacy_print_option_profile_name"),
+        }
 
+    platform_cost = _float(option.get("platform_print_cost") or option.get("print_cost_max") or slot.get("print_cost_max"))
     waste_percentage = _float(option.get("waste_percentage") or slot.get("waste_percentage"))
     if platform_cost > 0 and waste_percentage:
         platform_cost *= 1 + (waste_percentage / 100)
-
     markup_percentage = _float(option.get("markup_percentage") or slot.get("markup_percentage"))
     if platform_cost > 0 and markup_percentage:
         platform_cost *= 1 + (markup_percentage / 100)
-
     minimum_print_cost = _float(option.get("minimum_print_cost") or slot.get("minimum_print_cost"))
     if platform_cost > 0 and minimum_print_cost:
         platform_cost = max(platform_cost, minimum_print_cost)
-
     return {
         "calculation_type": calculation_type,
         "area_cm2": round(area_cm2, 2),
         "platform_print_cost": _money(platform_cost),
+        "production_pricing_source": option.get("production_pricing_source") or "print_option",
+        "production_method_key": option.get("production_method_key"),
+        "legacy_print_option_profile_id": option.get("legacy_print_option_profile_id"),
+        "legacy_print_option_profile_name": option.get("legacy_print_option_profile_name"),
     }
 
 
-def _creator_print_price(routes_main_module: Any, option: Dict[str, Any], platform_print_cost: float) -> float:
+def _creator_print_price(resolve_marked_price: Optional[Callable], option: Dict[str, Any], platform_print_cost: float) -> float:
     explicit = option.get("creator_print_price")
     if explicit not in (None, "", 0):
         return _money(explicit)
 
-    resolver = getattr(routes_main_module, "_resolve_marked_price", None)
-    if callable(resolver):
-        return _money(resolver(
+    if callable(resolve_marked_price):
+        return _money(resolve_marked_price(
             platform_print_cost,
             None,
             option.get("platform_print_markup_type") or "manual",
@@ -116,12 +284,11 @@ def _creator_print_price(routes_main_module: Any, option: Dict[str, Any], platfo
     return _money(platform_print_cost * 1.10)
 
 
-async def _repair_missing_raw_print_costs(db, routes_main_module: Any, product_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Repair zero raw print costs using the live global print option.
+async def _repair_missing_raw_print_costs(db, resolve_marked_price: Optional[Callable], product_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Repair zero raw print costs using live pricing source data.
 
-    Some templates still carry older embedded print option copies with the same
-    id but fixed/zero pricing. The launch-safe source of truth for raw print
-    pricing is db.print_options. Production operations are added after this.
+    Legacy source is db.print_options. Production Methods can now supply the same
+    cost model as Print Options while preserving legacy behaviour by default.
     """
     slots = [slot for slot in product_data.get("artworks") or [] if isinstance(slot, dict) and slot.get("print_option_id")]
     if not slots:
@@ -131,23 +298,38 @@ async def _repair_missing_raw_print_costs(db, routes_main_module: Any, product_d
     options = await db.print_options.find({"id": {"$in": option_ids}}, {"_id": 0}).to_list(500)
     option_map = {str(option.get("id")): option for option in options if option.get("id")}
 
+    method_keys: List[str] = []
+    for slot in slots:
+        option = option_map.get(str(slot.get("print_option_id"))) or {}
+        method = _method_key_from_option_slot(option, slot)
+        if method and method not in method_keys:
+            method_keys.append(method)
+    method_rules = await db.production_methods.find({"method_key": {"$in": method_keys}}, {"_id": 0}).to_list(200) if method_keys else []
+    method_map = {normalize_method_key(rule.get("method_key") or rule.get("internal_id")): rule for rule in method_rules}
+
     repaired = False
     for slot in slots:
         option = option_map.get(str(slot.get("print_option_id")))
         if not option:
             continue
 
+        method_key = _method_key_from_option_slot(option, slot)
+        active_option = _merge_method_costing(option, slot, method_map.get(method_key))
         current_platform_cost = _float(slot.get("platform_print_cost") or slot.get("calculated_print_cost") or slot.get("raw_print_cost"))
-        live_costing = _calculate_raw_print_cost(option, slot)
+        live_costing = _calculate_raw_print_cost(active_option, slot)
         live_platform_cost = _money(live_costing.get("platform_print_cost"))
 
-        if live_platform_cost <= 0 or current_platform_cost > 0:
+        # Preserve existing valid Builder calculations unless this method has been
+        # explicitly switched to production_method pricing.
+        if live_platform_cost <= 0:
+            continue
+        if current_platform_cost > 0 and live_costing.get("production_pricing_source") != "production_method":
             continue
 
-        creator_price = _creator_print_price(routes_main_module, option, live_platform_cost)
+        creator_price = _creator_print_price(resolve_marked_price, active_option, live_platform_cost)
 
         slot["calculation_type"] = live_costing["calculation_type"]
-        slot["method_key"] = option.get("method_key") or slot.get("method_key")
+        slot["method_key"] = method_key or option.get("method_key") or slot.get("method_key")
         slot["print_method"] = option.get("print_method") or slot.get("print_method")
         slot["area_cm2"] = live_costing["area_cm2"]
         slot["charged_area_cm2"] = slot.get("charged_area_cm2") or live_costing["area_cm2"]
@@ -156,7 +338,11 @@ async def _repair_missing_raw_print_costs(db, routes_main_module: Any, product_d
         slot["print_cost_max"] = live_platform_cost
         slot["platform_print_cost"] = live_platform_cost
         slot["creator_print_price"] = creator_price
-        slot["production_pricing_repaired_from_global_option"] = True
+        slot["production_pricing_source"] = live_costing.get("production_pricing_source") or "print_option"
+        slot["production_method_costing_applied"] = slot["production_pricing_source"] == "production_method"
+        slot["production_pricing_repaired_from_global_option"] = slot["production_pricing_source"] != "production_method"
+        slot["legacy_print_option_profile_id"] = live_costing.get("legacy_print_option_profile_id")
+        slot["legacy_print_option_profile_name"] = live_costing.get("legacy_print_option_profile_name")
         repaired = True
 
     if not repaired:
@@ -175,6 +361,7 @@ async def _repair_missing_raw_print_costs(db, routes_main_module: Any, product_d
         "raw_print_cost_repaired_from_global_options": True,
         "platform_raw_print_cost": platform_print_cost,
         "creator_raw_print_price": creator_print_price,
+        "production_method_costing_supported": True,
     })
     product_data["costing_breakdown"] = breakdown
 
@@ -256,40 +443,55 @@ async def _production_operation_breakdown(db, product_data: Dict[str, Any]) -> D
                 total_platform_cost += line["platform_cost"]
                 total_estimated_time += line["estimated_time"]
 
-    return {
+    embedded_methods = _embedded_application_methods(product_data)
+    if embedded_methods:
+        lines = [
+            line for line in lines
+            if not (
+                normalize_method_key(line.get("method_key")) in embedded_methods
+                and str(line.get("operation_type") or "") in DIRECT_APPLICATION_OPERATION_TYPES
+            )
+        ]
+        total_platform_cost = sum(_float(line.get("platform_cost")) for line in lines)
+        total_estimated_time = sum(_float(line.get("estimated_time")) for line in lines)
+
+    result = {
         "lines": lines,
         "method_keys": method_keys,
-        "platform_operation_cost": round(total_platform_cost, 2),
+        "platform_operation_cost": _money_half_up(total_platform_cost),
         "estimated_operation_time": round(total_estimated_time, 2),
     }
+    if embedded_methods:
+        result["embedded_application_methods"] = sorted(embedded_methods)
+        result["direct_application_operations_suppressed"] = True
+    return result
 
 
-def _operation_creator_price(routes_main_module: Any, platform_operation_cost: float) -> float:
-    if platform_operation_cost <= 0:
-        return 0.0
-    markup = getattr(routes_main_module, "_platform_markup", None)
-    if callable(markup):
-        return _money(markup(platform_operation_cost, 0.10))
-    return _money(platform_operation_cost * 1.10)
+def _operation_creator_price(
+    routes_main_module: Any,
+    platform_operation_cost: float,
+) -> float:
+    # Production operations are internal components of the configured
+    # printing price. They must not be charged to creators a second time.
+    return 0.0
 
 
-def _refresh_product_costing(routes_main_module: Any, product_data: Dict[str, Any], operation_breakdown: Dict[str, Any]) -> Dict[str, Any]:
+def _refresh_product_costing(platform_costing_breakdown: Callable, product_data: Dict[str, Any], operation_breakdown: Dict[str, Any]) -> Dict[str, Any]:
     platform_operation_cost = _money(operation_breakdown.get("platform_operation_cost"))
     if platform_operation_cost <= 0:
         product_data.setdefault("production_operation_cost", 0)
         product_data.setdefault("production_operation_lines", [])
         return product_data
 
-    operation_creator_price = _operation_creator_price(routes_main_module, platform_operation_cost)
+    operation_creator_price = _operation_creator_price(None, platform_operation_cost)
 
     base_platform_print_cost = _money(product_data.get("platform_print_cost"))
     base_creator_print_price = _money(product_data.get("creator_print_price") or product_data.get("print_cost") or product_data.get("estimated_print_cost"))
 
     platform_print_cost = _money(base_platform_print_cost + platform_operation_cost)
-    creator_print_price = _money(base_creator_print_price + operation_creator_price)
+    creator_print_price = base_creator_print_price
 
-    costing_fn = getattr(routes_main_module, "_platform_costing_breakdown")
-    costing = costing_fn(
+    costing = platform_costing_breakdown(
         product_data.get("platform_blank_cost") or product_data.get("estimated_blank_cost") or 0,
         platform_print_cost,
         product_data.get("commission_rate") or 0,
@@ -326,6 +528,7 @@ def _refresh_product_costing(routes_main_module: Any, product_data: Dict[str, An
         "minimum_selling_price": costing["minimum_selling_price"],
         "production_operation_platform_cost": platform_operation_cost,
         "production_operation_creator_price": operation_creator_price,
+        "production_operation_pricing_treatment": "internal_only",
         "production_operation_lines": operation_breakdown.get("lines") or [],
     })
     product_data["costing_breakdown"] = breakdown
@@ -333,25 +536,14 @@ def _refresh_product_costing(routes_main_module: Any, product_data: Dict[str, An
     return product_data
 
 
-def install_production_operation_pricing(routes_main_module: Any) -> None:
-    """Patch routes_main.normalize_template_product_payload once."""
-    if getattr(routes_main_module, "_production_operation_pricing_installed", False):
-        return
-
-    original = routes_main_module.normalize_template_product_payload
-
-    async def wrapped_normalize_template_product_payload(*, db, data, creator, user, allow_admin_publish=False):
-        product_data = await original(
-            db=db,
-            data=data,
-            creator=creator,
-            user=user,
-            allow_admin_publish=allow_admin_publish,
-        )
-        product_data = await _repair_missing_raw_print_costs(db, routes_main_module, product_data)
-        operation_breakdown = await _production_operation_breakdown(db, product_data)
-        return _refresh_product_costing(routes_main_module, product_data, operation_breakdown)
-
-    routes_main_module._base_normalize_template_product_payload = original
-    routes_main_module.normalize_template_product_payload = wrapped_normalize_template_product_payload
-    routes_main_module._production_operation_pricing_installed = True
+async def apply_production_operation_pricing(
+    db,
+    product_data: Dict[str, Any],
+    *,
+    resolve_marked_price: Optional[Callable] = None,
+    platform_costing_breakdown: Callable,
+) -> Dict[str, Any]:
+    """Apply print-cost repair and internal production-operation costing explicitly."""
+    product_data = await _repair_missing_raw_print_costs(db, resolve_marked_price, product_data)
+    operation_breakdown = await _production_operation_breakdown(db, product_data)
+    return _refresh_product_costing(platform_costing_breakdown, product_data, operation_breakdown)

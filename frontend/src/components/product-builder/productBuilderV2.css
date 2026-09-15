@@ -1,0 +1,507 @@
+/* Builder V2 hotfix styles loaded by the product builder modules. */
+
+/* Move navigation above progress in the right sidebar without touching the current React layout yet. */
+.product-builder-aside {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1rem !important;
+}
+
+.product-builder-aside > section {
+  margin-top: 0 !important;
+}
+
+.product-builder-aside > section:last-child {
+  order: -20;
+}
+
+/* Wide workspaces place their navigation/status card below the canvas/pricing area. Pull it above the workspace. */
+.product-builder-layout > section.card.flex {
+  order: -20;
+}
+
+/* Keep the wide workspace cards visually tighter. */
+.product-builder-layout > section.card.flex .grid {
+  align-items: center;
+}
+
+/* Text-layer scaling fix: the selected layer box is the product-size control. */
+[data-testid="product-artwork-studio"] .cursor-move {
+  container-type: size;
+  overflow: visible !important;
+  will-change: left, top, width, height, transform;
+  transform: translateZ(0);
+  contain: layout style;
+}
+
+[data-testid="product-artwork-studio"] .cursor-move > img,
+[data-testid="product-artwork-studio"] .cursor-move > .pointer-events-none,
+[data-testid="product-artwork-studio"] .cursor-move > .whitespace-pre {
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+/* Text previews may scale beyond their typographic line box, but image layers
+   must remain exactly inside the green placement box. The previous generic
+   .pointer-events-none selector also matched artwork <img> elements and forced
+   them to 116% with negative margins and padding. */
+[data-testid="product-artwork-studio"] .cursor-move > .whitespace-pre {
+  font-size: min(34cqw, 66cqh) !important;
+  line-height: 1.28 !important;
+  overflow: visible !important;
+  width: 116% !important;
+  height: 116% !important;
+  margin-left: -8% !important;
+  margin-top: -8% !important;
+  padding: 3% !important;
+  box-sizing: border-box !important;
+}
+
+[data-testid="product-artwork-studio"] .cursor-move > img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Keep the Studio canvas isolated from the rest of the Builder as much as possible. */
+.studio-v21 main,
+.studio-v21 main .relative,
+.studio-v21 aside {
+  contain: layout style paint;
+}
+
+.studio-v21 img {
+  image-rendering: auto;
+}
+
+/* Pricing cleanup: make the pricing step read like cards instead of a dense table. */
+[data-testid$="product-builder"] .pricing-table,
+[data-testid$="product-builder"] .variation-pricing-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+[data-testid$="product-builder"] .pricing-table td,
+[data-testid$="product-builder"] .pricing-table th,
+[data-testid$="product-builder"] .variation-pricing-table td,
+[data-testid$="product-builder"] .variation-pricing-table th {
+  vertical-align: top;
+}
+
+/* Production cost breakdown belongs in Pricing Summary, not in the variation table. */
+.ff-production-cost-breakdown {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.ff-production-cost-breakdown > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.ff-production-cost-breakdown span {
+  color: #a1a1aa;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+}
+
+.ff-production-cost-breakdown strong {
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+.ff-production-method-lines {
+  display: grid !important;
+  gap: 0.35rem !important;
+  margin: -0.2rem 0 0.2rem 0;
+  padding-left: 0.7rem !important;
+  border-left: 1px solid rgba(255,255,255,0.10);
+  border-bottom: 0 !important;
+}
+
+.ff-production-method-lines > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+.ff-production-method-lines span,
+.ff-production-method-lines strong {
+  font-size: 11px;
+  color: #71717a;
+}
+
+.ff-production-total {
+  border-top: 1px solid rgba(255,255,255,0.18);
+  border-bottom: 0 !important;
+  padding-top: 0.65rem;
+  padding-bottom: 0 !important;
+}
+
+.ff-production-total span,
+.ff-production-total strong {
+  color: #fff;
+}
+
+/* Variation pricing matrix clean-up. */
+[data-testid="variation-pricing-matrix"] {
+  overflow: hidden;
+}
+
+[data-testid="variation-pricing-matrix"] > .p-5 {
+  padding: 1.05rem !important;
+}
+
+[data-testid="variation-pricing-matrix"] .ff-print-method-summary,
+[data-testid="variation-pricing-matrix"] .ff-print-method-summary-inline,
+[data-testid="variation-pricing-matrix"] .ff-print-method-summary-pricing {
+  display: none !important;
+}
+
+[data-testid="variation-pricing-matrix"] .mb-4.rounded-xl {
+  border-radius: 0.75rem !important;
+  background: rgba(0,0,0,0.22) !important;
+  padding: 0.85rem !important;
+  margin-bottom: 0.9rem !important;
+}
+
+[data-testid="variation-pricing-matrix"] .mb-4.rounded-xl > .flex {
+  align-items: center !important;
+  gap: 0.85rem !important;
+}
+
+[data-testid="variation-pricing-matrix"] .w-full.overflow-x-auto {
+  border-radius: 0.75rem !important;
+  overflow: auto !important;
+  background: rgba(0,0,0,0.22);
+}
+
+[data-testid="variation-pricing-matrix"] table {
+  min-width: 780px !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+/* Hide product base and print cost from the visible override table. They now live in Estimated production cost. */
+[data-testid="variation-pricing-matrix"] colgroup col:nth-child(2),
+[data-testid="variation-pricing-matrix"] colgroup col:nth-child(3),
+[data-testid="variation-pricing-matrix"] th:nth-child(2),
+[data-testid="variation-pricing-matrix"] th:nth-child(3),
+[data-testid="variation-pricing-matrix"] td:nth-child(2),
+[data-testid="variation-pricing-matrix"] td:nth-child(3) {
+  display: none !important;
+}
+
+[data-testid="variation-pricing-matrix"] th {
+  padding: 0.72rem 0.85rem !important;
+  background: rgba(255,255,255,0.035) !important;
+  color: #a1a1aa !important;
+  font-size: 11px !important;
+  letter-spacing: 0.04em;
+  vertical-align: middle !important;
+}
+
+[data-testid="variation-pricing-matrix"] td {
+  padding: 0.72rem 0.85rem !important;
+  vertical-align: middle !important;
+}
+
+[data-testid="variation-pricing-matrix"] td:nth-child(6),
+[data-testid="variation-pricing-matrix"] th:nth-child(6) {
+  text-align: right !important;
+  width: 130px !important;
+}
+
+[data-testid="variation-pricing-matrix"] td:nth-child(4),
+[data-testid="variation-pricing-matrix"] td:nth-child(5) {
+  min-width: 170px;
+}
+
+[data-testid="variation-pricing-matrix"] input[type="number"],
+[data-testid="variation-pricing-matrix"] input[type="text"],
+[data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"] {
+  width: 100% !important;
+  min-height: 38px !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
+  background: #070707 !important;
+  color: #fff !important;
+  border-radius: 0.45rem !important;
+  padding: 0.5rem 0.65rem !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
+
+[data-testid="variation-pricing-matrix"] input[type="checkbox"] {
+  width: 15px !important;
+  height: 15px !important;
+  accent-color: #34c759;
+}
+
+[data-testid="variation-pricing-matrix"] .sticky.left-0 {
+  background: #050505 !important;
+  box-shadow: 10px 0 18px rgba(0,0,0,0.32);
+}
+
+[data-testid="variation-pricing-matrix"] tbody tr:hover td,
+[data-testid="variation-pricing-matrix"] tbody tr:hover .sticky.left-0 {
+  background-color: rgba(255,255,255,0.035) !important;
+}
+
+/* Builder numeric and decimal inputs must always behave LTR, even if browser bidi heuristics kick in. */
+.product-builder-main input,
+.product-builder-main textarea,
+.product-builder-main select,
+.product-builder-layout input,
+.product-builder-layout textarea,
+.product-builder-layout select,
+.pricing-step-full-width input,
+[data-testid="variation-pricing-matrix"] input,
+[data-testid="product-artwork-studio"] input {
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+  text-align: left !important;
+}
+
+.product-builder-main input[type="number"],
+.product-builder-main input[type="text"],
+.product-builder-layout input[type="number"],
+.product-builder-layout input[type="text"],
+.pricing-step-full-width input[type="number"],
+.pricing-step-full-width input[type="text"],
+[data-testid="variation-pricing-matrix"] input[type="number"],
+[data-testid="variation-pricing-matrix"] input[type="text"],
+[data-testid="product-artwork-studio"] input[type="number"],
+[data-testid="product-artwork-studio"] input[type="text"],
+.pricing-step-full-width input[data-ff-money-input="1"],
+[data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"] {
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+  text-align: left !important;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.pricing-step-full-width input[type="number"]::-webkit-outer-spin-button,
+.pricing-step-full-width input[type="number"]::-webkit-inner-spin-button,
+[data-testid="variation-pricing-matrix"] input[type="number"]::-webkit-outer-spin-button,
+[data-testid="variation-pricing-matrix"] input[type="number"]::-webkit-inner-spin-button,
+.pricing-step-full-width input[data-ff-money-input="1"]::-webkit-outer-spin-button,
+.pricing-step-full-width input[data-ff-money-input="1"]::-webkit-inner-spin-button,
+[data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"]::-webkit-outer-spin-button,
+[data-testid="variation-pricing-matrix"] input[data-ff-money-input="1"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Make review/pricing sections breathe more on the large creator workflow screens. */
+.product-builder-main .card,
+.product-builder-main section.card {
+  border-color: rgba(255,255,255,0.14);
+}
+
+.product-builder-main input[type="number"],
+.product-builder-main input[type="text"],
+.product-builder-main textarea,
+.product-builder-main select {
+  min-height: 42px;
+}
+
+@media (max-width: 1024px) {
+  .product-builder-layout > section.card.flex {
+    order: 0;
+  }
+}
+
+/* One persistent action bar for the seven editable Builder screens. */
+.product-builder-shell {
+  padding-bottom: 88px;
+}
+
+.builder-navigation {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 99990;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(112px, auto));
+  gap: 0.65rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 12px;
+  background: rgba(10,10,10,0.94);
+  box-shadow: 0 14px 38px rgba(0,0,0,0.5);
+  backdrop-filter: blur(14px);
+}
+
+.builder-nav-button {
+  min-width: 112px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.builder-nav-button-secondary {
+  background: transparent;
+}
+
+.builder-nav-button-save {
+  border-color: rgba(52,199,89,0.8);
+  background: #0A1B10;
+}
+
+.builder-nav-button-primary {
+  background: var(--admin-primary, #FF3B30);
+  border-color: var(--admin-primary, #FF3B30);
+}
+
+.builder-nav-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Creator console contrast lock.
+   Public brand theme variables must not turn dashboard copy dark on dark. */
+.creator-workspace {
+  --ff-page-bg: #0A0A0A;
+  --ff-page-text: #F7F7F7;
+  --ff-card-bg: #111111;
+  --ff-card-text: #F7F7F7;
+  --ff-card-border: rgba(255,255,255,0.16);
+  --ff-surface-bg: #181818;
+  --ff-muted-text: #B3B3BC;
+  --ff-header-bg: rgba(10,10,10,0.97);
+  --ff-header-text: #FFFFFF;
+}
+
+.creator-workspace,
+.creator-workspace main,
+.creator-workspace [data-testid$="-main"] {
+  background: #0A0A0A !important;
+  color: #F7F7F7 !important;
+}
+
+.creator-workspace .card,
+.creator-workspace section,
+.creator-workspace [class*="bg-black"] {
+  color: #F7F7F7;
+}
+
+.creator-workspace .overline,
+.creator-workspace .label,
+.creator-workspace .text-zinc-400,
+.creator-workspace .text-zinc-500,
+.creator-workspace .text-zinc-600,
+.creator-workspace [class*="text-[var(--ff-muted-text)]"] {
+  color: #B3B3BC !important;
+}
+
+.creator-workspace .text-white,
+.creator-workspace h1,
+.creator-workspace h2,
+.creator-workspace h3,
+.creator-workspace h4,
+.creator-workspace strong,
+.creator-workspace b {
+  color: #FFFFFF !important;
+}
+
+.creator-workspace button:not(:disabled),
+.creator-workspace a {
+  opacity: 1;
+}
+
+.creator-workspace button {
+  color: #FFFFFF !important;
+}
+
+html[data-theme-bg-tone] .creator-workspace .overline,
+html[data-theme-bg-tone] .creator-workspace .label,
+html[data-theme-bg-tone] .creator-workspace .text-zinc-400,
+html[data-theme-bg-tone] .creator-workspace .text-zinc-500,
+html[data-theme-bg-tone] .creator-workspace .text-zinc-600,
+html[data-theme-bg-tone] .creator-workspace [class*="text-[var(--ff-muted-text)]"] {
+  color: #B3B3BC !important;
+}
+
+html[data-theme-bg-tone] .creator-workspace [data-testid^="creator-"] {
+  color: #F7F7F7 !important;
+}
+
+.creator-workspace .input-base,
+.creator-workspace input,
+.creator-workspace textarea,
+.creator-workspace select,
+.creator-workspace option {
+  color: #111111 !important;
+}
+
+@media (max-width: 640px) {
+  .product-builder-shell {
+    padding-bottom: 82px;
+  }
+
+  .builder-navigation {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
+    padding: 0.45rem;
+  }
+
+  .builder-nav-button {
+    min-width: 0;
+    padding-inline: 0.45rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+  }
+}
+
+
+/* Creator canvas pointer-interaction lock. */
+[data-testid="product-artwork-studio"] [data-artwork-layer-id] {
+  position: absolute;
+  z-index: 20;
+  pointer-events: auto !important;
+  touch-action: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+[data-testid="product-artwork-studio"] [data-artwork-layer-id] button {
+  z-index: 40;
+  pointer-events: auto !important;
+  touch-action: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+[data-testid="product-artwork-studio"] main,
+[data-testid="product-artwork-studio"] main > div,
+[data-testid="product-artwork-studio"] main [data-artwork-layer-id] {
+  -webkit-user-drag: none;
+}

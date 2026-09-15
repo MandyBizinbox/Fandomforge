@@ -635,21 +635,54 @@ class ProductTemplateSizeChart(BaseModel):
     notes: Optional[str] = ""
 
 
+class ProductTemplateGalleryImage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(default_factory=uid)
+    name: Optional[str] = ""
+    image_url: str
+    role: Literal[
+        "catalogue_thumbnail",
+        "creator_selection",
+        "editor_background",
+        "front_mockup",
+        "back_mockup",
+        "side_mockup",
+        "angled_mockup",
+        "full_wrap_editor",
+        "size_guide",
+        "gallery",
+    ] = "gallery"
+    view_key: Optional[str] = None
+    source_print_area_id: Optional[str] = None
+    derived_from_artwork_mode: Optional[str] = None
+    crop: Dict[str, float] = Field(default_factory=dict)
+    sort_order: int = 0
+    is_primary: bool = False
+    status: Literal["active", "draft", "archived"] = "active"
+
+
 class ProductTemplateMockupScreen(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str = Field(default_factory=uid)
     name: str
     view: str = "front"
+    view_key: Optional[str] = None
+    role: Optional[str] = None
     image_url: Optional[str] = None
     width_px: Optional[float] = None
     height_px: Optional[float] = None
+    source_print_area_id: Optional[str] = None
+    derived_from_artwork_mode: Optional[str] = None
+    crop: Dict[str, float] = Field(default_factory=dict)
     sort_order: int = 0
     is_primary: bool = False
+    status: Literal["active", "draft", "archived"] = "active"
 
 
 class ProductTemplatePrintArea(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     name: str
@@ -669,15 +702,30 @@ class ProductTemplatePrintArea(BaseModel):
     height_pct: Optional[float] = None
     width_mm: Optional[float] = None
     height_mm: Optional[float] = None
+
+    # V2 printable geometry. Percentage placement remains the bounding box;
+    # these fields define how creator artwork is clipped inside that box.
+    geometry_type: Literal["rectangle", "circle", "ellipse", "polygon", "mask"] = "rectangle"
+    shape_type: Optional[str] = None
+    clip_shape: Optional[str] = None
+    polygon_points: List[Dict[str, float]] = Field(default_factory=list)
+    mask_url: Optional[str] = None
+    clip_mask_url: Optional[str] = None
+    bleed_mm: float = 0
+    safe_margin_mm: float = 0
+    rotation_deg: float = 0
+    pricing_area_mode: Literal["bounding_box", "shape"] = "bounding_box"
+
     dpi: int = 300
     fit_mode: str = "contain"
     required: bool = False
     allowed_print_option_ids: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
+    status: Literal["active", "draft", "archived"] = "active"
 
 
 class ProductTemplatePrintOption(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     print_method: Optional[str] = None
@@ -710,7 +758,7 @@ class ProductTemplatePrintOption(BaseModel):
 
 
 class ProductTemplateVariation(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     sku: Optional[str] = None
@@ -733,12 +781,15 @@ class ProductTemplateVariation(BaseModel):
     supplier_sku: Optional[str] = None
     image_url: Optional[str] = None
     mockup_screen_overrides: Dict[str, str] = Field(default_factory=dict)
+    print_area_overrides: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     enabled: bool = True
     sort_order: int = 0
     status: Literal["active", "draft", "archived"] = "active"
 
 
 class ProductTemplateBase(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     name: str
     slug: Optional[str] = None
     product_type_id: Optional[str] = None
@@ -751,6 +802,11 @@ class ProductTemplateBase(BaseModel):
     supplier_name: Optional[str] = ""
     supplier_url: Optional[str] = ""
     supplier_notes: Optional[str] = ""
+
+    # Status and catalogue visibility are independent controls.
+    creator_visible: bool = True
+    admin_visible: bool = True
+
     size_chart: ProductTemplateSizeChart = Field(default_factory=ProductTemplateSizeChart)
 
     # Legacy template-level fallback pricing.
@@ -773,6 +829,8 @@ class ProductTemplateBase(BaseModel):
     mockup_url: Optional[str] = None
     product_image_url: Optional[str] = None
     mockup_images: List[str] = Field(default_factory=list)
+    template_gallery: List[ProductTemplateGalleryImage] = Field(default_factory=list)
+    artwork_modes: List[Literal["single_area", "front_back", "full_wrap"]] = Field(default_factory=list)
     mockup_screens: List[ProductTemplateMockupScreen] = Field(default_factory=list)
 
     available_sizes: List[str] = Field(default_factory=list)
@@ -780,6 +838,13 @@ class ProductTemplateBase(BaseModel):
 
     attribute_ids: List[str] = Field(default_factory=list)
     selected_attribute_values: dict = Field(default_factory=dict)
+
+    # Attribute-owned variation production profiles.
+    # Example: colour owns editor images while size owns print geometry.
+    variation_inheritance: Dict[str, Any] = Field(default_factory=dict)
+    attribute_image_profiles: Dict[str, Any] = Field(default_factory=dict)
+    attribute_production_profiles: Dict[str, Any] = Field(default_factory=dict)
+
     variations: List[ProductTemplateVariation] = Field(default_factory=list)
 
     print_option_ids: List[str] = Field(default_factory=list)
@@ -790,10 +855,14 @@ class ProductTemplateBase(BaseModel):
 
 
 class ProductTemplateCreate(ProductTemplateBase):
+    model_config = ConfigDict(extra="allow")
+
     pass
 
 
 class ProductTemplateUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     name: Optional[str] = None
     slug: Optional[str] = None
     product_type_id: Optional[str] = None
@@ -806,6 +875,8 @@ class ProductTemplateUpdate(BaseModel):
     supplier_name: Optional[str] = None
     supplier_url: Optional[str] = None
     supplier_notes: Optional[str] = None
+    creator_visible: Optional[bool] = None
+    admin_visible: Optional[bool] = None
     size_chart: Optional[ProductTemplateSizeChart] = None
 
     base_price: Optional[float] = None
@@ -825,6 +896,8 @@ class ProductTemplateUpdate(BaseModel):
     mockup_url: Optional[str] = None
     product_image_url: Optional[str] = None
     mockup_images: Optional[List[str]] = None
+    template_gallery: Optional[List[ProductTemplateGalleryImage]] = None
+    artwork_modes: Optional[List[Literal["single_area", "front_back", "full_wrap"]]] = None
     mockup_screens: Optional[List[ProductTemplateMockupScreen]] = None
 
     available_sizes: Optional[List[str]] = None
@@ -832,6 +905,9 @@ class ProductTemplateUpdate(BaseModel):
 
     attribute_ids: Optional[List[str]] = None
     selected_attribute_values: Optional[dict] = None
+    variation_inheritance: Optional[Dict[str, Any]] = None
+    attribute_image_profiles: Optional[Dict[str, Any]] = None
+    attribute_production_profiles: Optional[Dict[str, Any]] = None
     variations: Optional[List[ProductTemplateVariation]] = None
 
     print_option_ids: Optional[List[str]] = None
@@ -842,7 +918,7 @@ class ProductTemplateUpdate(BaseModel):
 
 
 class ProductTemplate(ProductTemplateBase):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     slug: str
@@ -888,7 +964,7 @@ class ProductVariation(BaseModel):
 
 
 class ProductArtworkSnapshot(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     original_url: Optional[str] = None
     original_width_px: Optional[float] = None
@@ -903,7 +979,7 @@ class ProductArtworkSnapshot(BaseModel):
 
 
 class ProductArtworkPlacement(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     screen_id: Optional[str] = None
     print_area_id: Optional[str] = None
@@ -916,7 +992,7 @@ class ProductArtworkPlacement(BaseModel):
 
 
 class ProductArtworkSlot(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     print_area_id: str
@@ -988,7 +1064,7 @@ class ProductArtworkSlot(BaseModel):
 
 
 class ProductArtworkGroup(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     label: str = "Default artwork"
@@ -999,9 +1075,12 @@ class ProductArtworkGroup(BaseModel):
     inherits_from: Optional[str] = None
     artworks: List[ProductArtworkSlot] = Field(default_factory=list)
     primary_mockup_image_url: Optional[str] = None
+    derived_mockup_images: List[Dict[str, Any]] = Field(default_factory=list)
     sort_order: int = 0
 
 class ProductBase(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     title: str
     description: str = ""
     specs: str = ""
@@ -1069,10 +1148,14 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
+    model_config = ConfigDict(extra="allow")
+
     pass
 
 
 class ProductUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     title: Optional[str] = None
     description: Optional[str] = None
     specs: Optional[str] = None
@@ -1135,7 +1218,7 @@ class ProductUpdate(BaseModel):
 
 
 class Product(ProductBase):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     band_id: str
@@ -1202,7 +1285,7 @@ class ShippingAddress(BaseModel):
 
 
 class ProductionSnapshot(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     template_id: Optional[str] = None
     template_name: Optional[str] = None
@@ -1239,7 +1322,7 @@ class ProductionSnapshot(BaseModel):
 
 
 class OrderItem(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=uid)
     product_id: str
@@ -1970,6 +2053,55 @@ class PlatformPackageUpdate(BaseModel):
     default_printer_id: Optional[str] = None
 
 
+def default_theme_palettes() -> Dict[str, Dict[str, str]]:
+    return {
+        "light": {
+            "background_color": "#FFFFFF",
+            "page_text_color": "#111111",
+            "surface_background_color": "#F7F7F8",
+            "surface_text_color": "#111111",
+            "card_background_color": "#FFFFFF",
+            "card_text_color": "#111111",
+            "card_border_color": "#D9DCE1",
+            "muted_text_color": "#6B7280",
+            "input_background_color": "#FFFFFF",
+            "input_text_color": "#111111",
+            "input_border_color": "#CDD1D6",
+            "header_background_color": "#FFFFFF",
+            "header_text_color": "#111111",
+            "button_primary_background_color": "",
+            "button_primary_text_color": "#FFFFFF",
+            "button_primary_border_color": "",
+            "button_alternate_background_color": "#111111",
+            "button_alternate_text_color": "#FFFFFF",
+            "button_alternate_border_color": "#111111",
+            "button_secondary_border_color": "#CDD1D6",
+        },
+        "dark": {
+            "background_color": "#0A0A0A",
+            "page_text_color": "#FFFFFF",
+            "surface_background_color": "#111111",
+            "surface_text_color": "#FFFFFF",
+            "card_background_color": "#161616",
+            "card_text_color": "#FFFFFF",
+            "card_border_color": "#343434",
+            "muted_text_color": "#A3A3A3",
+            "input_background_color": "#0F0F0F",
+            "input_text_color": "#FFFFFF",
+            "input_border_color": "#3A3A3A",
+            "header_background_color": "#0A0A0A",
+            "header_text_color": "#FFFFFF",
+            "button_primary_background_color": "",
+            "button_primary_text_color": "#FFFFFF",
+            "button_primary_border_color": "",
+            "button_alternate_background_color": "#FFFFFF",
+            "button_alternate_text_color": "#000000",
+            "button_alternate_border_color": "#FFFFFF",
+            "button_secondary_border_color": "#444444",
+        },
+    }
+
+
 class PublicPlatformConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -1985,6 +2117,10 @@ class PublicPlatformConfig(BaseModel):
     favicon_url: Optional[str] = ""
     primary_color: Optional[str] = "#FF3B30"
     accent_color: Optional[str] = "#FF7A1A"
+    storefront_theme_mode: Literal["light", "dark", "system"] = "light"
+    admin_theme_mode: Literal["light", "dark", "system"] = "dark"
+    allow_theme_toggle: bool = False
+    theme_palettes: Dict[str, Dict[str, str]] = Field(default_factory=default_theme_palettes)
     country: str = "ZA"
     timezone: str = "Africa/Johannesburg"
     business_name: Optional[str] = ""
@@ -2011,6 +2147,12 @@ class PlatformSettings(BaseModel):
     logo_url: Optional[str] = ""
     favicon_url: Optional[str] = ""
     accent_color: str = "#FF7A1A"
+    # Context-aware theme ownership. Flat fields below remain compatibility
+    # fallbacks until every legacy component has migrated to semantic tokens.
+    storefront_theme_mode: Literal["light", "dark", "system"] = "light"
+    admin_theme_mode: Literal["light", "dark", "system"] = "dark"
+    allow_theme_toggle: bool = False
+    theme_palettes: Dict[str, Dict[str, str]] = Field(default_factory=default_theme_palettes)
     theme_mode: str = "dark"
     background_color: str = "#0A0A0A"
     page_text_color: str = ""

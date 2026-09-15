@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { http } from "../lib/api";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { AUTH_EXPIRED_EVENT, http } from "../lib/api";
+import { clearAuthToken, getAuthToken, setAuthToken } from "../lib/authToken";
+import { establishAuthSession } from "../lib/authSession";
 
 const AuthCtx = createContext(null);
 
@@ -8,54 +10,81 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("mf_token");
+    const token = getAuthToken();
 
-    if (!token) { setLoading(false); return; }
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
     http.get("/auth/me")
-      .then((r) => setUser(r.data))
-      .catch(() => { localStorage.removeItem("mf_token"); })
+      .then((response) => setUser(response.data))
+      .catch(() => {
+        clearAuthToken();
+        setUser(null);
+      })
       .finally(() => setLoading(false));
   }, []);
 
-  const login = async (email, password) => {
-    const r = await http.post("/auth/login", { email, password });
-    localStorage.setItem("mf_token", r.data.access_token);
-    setUser(r.data.user);
-    return r.data.user;
-  };
+  useEffect(() => {
+    const handleExpiredSession = () => {
+      clearAuthToken();
+      setUser(null);
+      setLoading(false);
+    };
 
-  const register = async (email, password, name, role = "buyer") => {
-    const r = await http.post("/auth/register", { email, password, name, role });
-    localStorage.setItem("mf_token", r.data.access_token);
-    setUser(r.data.user);
-    return r.data.user;
-  };
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleExpiredSession);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpiredSession);
+  }, []);
 
-  const logout = () => {
-    localStorage.removeItem("mf_token");
+  const login = useCallback(async (email, password) => {
+    const response = await http.post("/auth/login", { email, password });
+    setAuthToken(response.data.access_token);
+    setUser(response.data.user);
+    return response.data.user;
+  }, []);
+
+  const register = useCallback(async (email, password, name, role = "buyer") => {
+    const response = await http.post("/auth/register", { email, password, name, role });
+    setAuthToken(response.data.access_token);
+    setUser(response.data.user);
+    return response.data.user;
+  }, []);
+
+  const logout = useCallback(() => {
+    clearAuthToken();
     setUser(null);
-  };
+  }, []);
 
-  const exchangeGoogleSession = async (sessionId) => {
-    const r = await http.post("/auth/google/session", null, {
+  const exchangeGoogleSession = useCallback(async (sessionId) => {
+    const response = await http.post("/auth/google/session", null, {
       headers: { "X-Session-ID": sessionId },
     });
-    localStorage.setItem("mf_token", r.data.access_token);
-    setUser(r.data.user);
-    return r.data.user;
-  };
+    setAuthToken(response.data.access_token);
+    setUser(response.data.user);
+    return response.data.user;
+  }, []);
 
-  const refreshUser = async () => {
-    const r = await http.get("/auth/me");
-    setUser(r.data);
-    return r.data;
-  };
+  const refreshUser = useCallback(async () => {
+    const response = await http.get("/auth/me");
+    setUser(response.data);
+    return response.data;
+  }, []);
 
-  return (
-    <AuthCtx.Provider value={{ user, loading, login, register, logout, exchangeGoogleSession, refreshUser }}>
-      {children}
-    </AuthCtx.Provider>
-  );
+  const adoptSession = useCallback((session) => establishAuthSession(session, setUser), []);
+
+  const value = useMemo(() => ({
+    user,
+    loading,
+    login,
+    register,
+    logout,
+    exchangeGoogleSession,
+    refreshUser,
+    adoptSession,
+  }), [user, loading, login, register, logout, exchangeGoogleSession, refreshUser, adoptSession]);
+
+  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 
 export function useAuth() {

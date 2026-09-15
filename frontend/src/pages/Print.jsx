@@ -2,8 +2,12 @@ import React, { useEffect } from "react";
 import { Link } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { ArrowRight, ClipboardList, FileImage, Printer, ShieldCheck, Truck } from "lucide-react";
+import { usePlatformConfig } from "../lib/platform";
 
 export default function Print() {
+  const { platform } = usePlatformConfig();
+  const platformName = platform.platform_name || "Fandom Forge";
+
   useEffect(() => {
     const selector = 'meta[name="robots"][data-print-page="true"]';
     document.querySelector(selector)?.remove();
@@ -29,16 +33,14 @@ export default function Print() {
               Help fulfil made-to-order community merchandise.
             </h1>
             <p className="text-[var(--ff-muted-text)] text-lg max-w-xl mb-8">
-              FandomForge works with approved South African production partners to print, package, and dispatch orders created through direct-link creator stores.
+              {platformName} works with approved South African production partners to print, package and dispatch orders created through creator stores.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4">
               <Link to="/register/printer" className="btn-primary">
                 Apply As Printer <ArrowRight size={18} />
               </Link>
-              <Link to="/contact" className="btn-secondary">
-                Contact Us
-              </Link>
+              <Link to="/contact" className="btn-secondary">Contact Us</Link>
             </div>
           </div>
 
@@ -46,7 +48,7 @@ export default function Print() {
             <p className="overline mb-4">Fulfilment workflow</p>
             <div className="space-y-5">
               <Step icon={<ClipboardList />} title="Receive approved jobs" text="Production work is routed through the platform once orders are ready for fulfilment." />
-              <Step icon={<FileImage />} title="Use supplied artwork" text="Order details include the product, variation, production notes, and approved artwork where required." />
+              <Step icon={<FileImage />} title="Use supplied artwork" text="Order details include the product, variation, production notes and stored artwork files, including generated text artwork." />
               <Step icon={<Printer />} title="Produce consistently" text="Partners work to controlled product and quality standards." />
               <Step icon={<Truck />} title="Update fulfilment" text="Production and dispatch updates keep creators and customers informed." />
             </div>
@@ -61,8 +63,8 @@ export default function Print() {
 
           <div className="grid md:grid-cols-3 gap-6">
             <Feature title="Controlled jobs" text="Orders arrive through a fulfilment workflow instead of public product browsing." />
-            <Feature title="Production clarity" text="Printer tasks focus on approved products, artwork, variations, and dispatch details." />
-            <Feature title="South African fulfilment" text="FandomForge is designed around local production and delivery expectations." />
+            <Feature title="Production clarity" text="Printer tasks focus on approved products, artwork, variations and dispatch details." />
+            <Feature title="South African fulfilment" text={`${platformName} is designed around local production and delivery expectations.`} />
             <Feature title="Dashboard workflow" text="Approved partners can manage production statuses and completed work from their dashboard." />
             <Feature title="Quality standards" text="Consistent production keeps creator stores trustworthy for their own communities." />
             <Feature title="No public catalogue role" text="Printer participation supports fulfilment; it is not a public marketplace listing." />
@@ -75,7 +77,7 @@ export default function Print() {
           <p className="overline mb-2">Join the network</p>
           <h2 className="font-display text-5xl uppercase mb-6">Apply As A Printer</h2>
           <p className="text-[var(--ff-muted-text)] mb-8">
-            Submit your details and production capabilities so FandomForge can assess whether your service is a fit for the fulfilment network.
+            Submit your details and production capabilities so {platformName} can assess whether your service is a fit for the fulfilment network.
           </p>
           <Link to="/register/printer" className="btn-primary">
             Apply Now <ArrowRight size={18} />

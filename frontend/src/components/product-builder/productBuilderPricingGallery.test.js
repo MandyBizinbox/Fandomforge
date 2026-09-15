@@ -1,0 +1,301 @@
+import fs from "fs";
+import path from "path";
+import {
+  calculatePricing,
+  getAggregatedPrintCostLines,
+  getProductBuilderStorefrontGalleryCandidates,
+} from "./productBuilderUtils";
+import {
+  getProductGalleryImages,
+} from "../product/productDisplayUtils";
+
+
+describe("production-cost platform fee pricing", () => {
+  test("charges 15 percent on blank plus printing", () => {
+    const pricing = calculatePricing({
+      sellingPrice: 50,
+      blankCost: 22,
+      printCost: 10,
+      commissionRate: 0.15,
+    });
+
+    expect(pricing.productionSubtotal).toBe(32);
+    expect(pricing.commission).toBe(4.8);
+    expect(pricing.production).toBe(36.8);
+    expect(pricing.minimumSellingPrice).toBe(36.8);
+    expect(pricing.profit).toBe(13.2);
+  });
+
+  test("platform fee remains fixed when retail price changes", () => {
+    const lowRetail = calculatePricing({
+      sellingPrice: 40,
+      blankCost: 22,
+      printCost: 10,
+      commissionRate: 0.15,
+    });
+    const highRetail = calculatePricing({
+      sellingPrice: 100,
+      blankCost: 22,
+      printCost: 10,
+      commissionRate: 0.15,
+    });
+
+    expect(lowRetail.commission).toBe(4.8);
+    expect(highRetail.commission).toBe(4.8);
+    expect(highRetail.profit - lowRetail.profit).toBe(60);
+  });
+});
+
+
+describe("creator storefront gallery selection", () => {
+  test("combines storefront template images and generated mockups", () => {
+    const candidates = getProductBuilderStorefrontGalleryCandidates(
+      {
+        template_gallery: [
+          {
+            image_url: "/template-front.png",
+            name: "Template front",
+            role: "front_mockup",
+            status: "active",
+          },
+          {
+            image_url: "/editor.png",
+            name: "Editor",
+            role: "editor_background",
+            status: "active",
+          },
+        ],
+      },
+      [
+        {
+          label: "Default artwork",
+          primary_mockup_image_url: "/generated.png",
+          artworks: [
+            { mockup_image_url: "/generated.png" },
+          ],
+          derived_mockup_images: [
+            {
+              image_url: "/angled.png",
+              name: "Angled",
+              role: "angled_mockup",
+            },
+          ],
+        },
+      ]
+    );
+
+    expect(candidates.map((row) => row.url)).toEqual([
+      "/template-front.png",
+      "/generated.png",
+      "/angled.png",
+    ]);
+  });
+
+  test("public gallery respects explicit creator selection", () => {
+    const images = getProductGalleryImages({
+      primary_mockup_image_url: "/selected-b.png",
+      mockup_images: [
+        "/selected-a.png",
+        "/selected-b.png",
+      ],
+      artwork_groups: [
+        {
+          scope_type: "all",
+          primary_mockup_image_url: "/not-selected.png",
+          artworks: [],
+        },
+      ],
+    });
+
+    expect(images).toEqual([
+      "/selected-b.png",
+      "/selected-a.png",
+    ]);
+    expect(images).not.toContain("/not-selected.png");
+  });
+});
+
+describe("combined same-method print-job pricing", () => {
+  const area = {
+    id: "front-area",
+    screen_id: "front-screen",
+    width_mm: 500,
+    height_mm: 700,
+  };
+
+  const dtf = {
+    id: "dtf-transfer",
+    method_key: "dtf",
+    calculation_type: "area_fixed_rate",
+    cost_per_cm2: 0.06,
+    minimum_print_cost: 50,
+  };
+
+  const layer = (id, patch = {}) => ({
+    id,
+    artwork_group_id: "default-all",
+    screen_id: "front-screen",
+    print_area_id: "front-area",
+    print_option_id: "dtf-transfer",
+    original_url: `/${id}.png`,
+    placement: {
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 50,
+      rotation: 0,
+    },
+    ...patch,
+  });
+
+  test("sums overlapping layer areas instead of charging a bounding box", () => {
+    const lines = getAggregatedPrintCostLines(
+      [{ id: "default-all", artworks: [layer("first"), layer("second")] }],
+      [dtf],
+      { print_areas: [area] }
+    );
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].combined).toBe(true);
+    expect(lines[0].layer_count).toBe(2);
+    expect(lines[0].combined_area_cm2).toBe(1750);
+    expect(lines[0].cost).toBe(105);
+  });
+
+  test("applies the print minimum once to the combined job", () => {
+    const smallLayer = (id) => layer(id, {
+      placement: { x: 10, y: 10, width: 10, height: 10, rotation: 0 },
+    });
+
+    const lines = getAggregatedPrintCostLines(
+      [{ id: "default-all", artworks: [smallLayer("first-small"), smallLayer("second-small")] }],
+      [dtf],
+      { print_areas: [area] }
+    );
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].combined_area_cm2).toBe(70);
+    expect(lines[0].cost).toBe(50);
+    expect(lines[0].costing.minimum_print_cost_applied).toBe(true);
+  });
+
+  test("keeps different profiles as separate production jobs", () => {
+    const premium = { ...dtf, id: "dtf-premium", cost_per_cm2: 0.08 };
+    const lines = getAggregatedPrintCostLines(
+      [{
+        id: "default-all",
+        artworks: [
+          layer("standard"),
+          layer("premium", { print_option_id: "dtf-premium" }),
+        ],
+      }],
+      [dtf, premium],
+      { print_areas: [area] }
+    );
+
+    expect(lines).toHaveLength(2);
+    expect(lines.every((line) => line.combined === false)).toBe(true);
+  });
+});
+
+
+describe("Product Builder V4 semantic UI contract", () => {
+  const builderPath = path.join(__dirname, "ProductBuilderV4.jsx");
+  const cssPath = path.join(__dirname, "productBuilderV4.css");
+
+  test("builder chrome uses the dedicated semantic theme layer", () => {
+    const source = fs.readFileSync(builderPath, "utf8");
+    expect(source).toContain('import "./productBuilderV4.css";');
+    expect(source).toContain("pb4-step-tab");
+    expect(source).toContain("pb4-step-summary");
+    expect(source).toContain("pb4-footer");
+    expect(source).not.toContain('border-[#FF3B30] bg-[#FF3B30]/15');
+    expect(source).not.toContain("bg-black/90 backdrop-blur-xl");
+  });
+
+  test("semantic styles are driven by Platform Settings tokens and responsive footer rules", () => {
+    const css = fs.readFileSync(cssPath, "utf8");
+    expect(css).toContain("var(--ff-primary)");
+    expect(css).toContain("var(--ff-card-bg)");
+    expect(css).toContain("var(--ff-card-border)");
+    expect(css).toContain("var(--ff-muted-text)");
+    expect(css).toContain("grid-template-columns: 1fr 1fr");
+    expect(css).toContain("@media (min-width: 640px)");
+  });
+
+  test("business behavior owners remain in ProductBuilderV4", () => {
+    const source = fs.readFileSync(builderPath, "utf8");
+    expect(source).toContain("const validateStep = (key) =>");
+    expect(source).toContain("const buildPayload = () =>");
+    expect(source).toContain("const save = async ({ publish = false } = {}) =>");
+    expect(source).toContain("const publishCreator = async (target) =>");
+    expect(source).toContain("pricing.canPublishWithOverride");
+  });
+});
+
+
+describe("Product Builder V4 progressive Basics selection", () => {
+  const builderPath = path.join(__dirname, "ProductBuilderV4.jsx");
+  const cssPath = path.join(__dirname, "productBuilderV4.css");
+
+  test("type selection gates compact template cards and selected-template details", () => {
+    const source = fs.readFileSync(builderPath, "utf8");
+    expect(source).toContain("pb4-type-grid");
+    expect(source).toContain("selectedProductTypeId ? <section");
+    expect(source).toContain("pb4-template-card");
+    expect(source).toContain("pb4-template-detail");
+    expect(source).toContain("getTemplateShortDescription(selectedTemplate)");
+    expect(source).toContain("Select a product type above to open its available templates.");
+    expect(source).toContain("selectedTemplate && <section");
+  });
+
+  test("progressive selection uses dense responsive grids with a desktop detail rail", () => {
+    const css = fs.readFileSync(cssPath, "utf8");
+    expect(css).toContain("grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr))");
+    expect(css).toContain("grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr))");
+    expect(css).toContain("@media (min-width: 1024px)");
+    expect(css).toContain("grid-template-columns: minmax(0, 1.45fr) minmax(18rem, 0.75fr)");
+  });
+});
+
+
+describe("Product Builder active-ready template eligibility", () => {
+  const builderPath = path.join(__dirname, "ProductBuilderV4.jsx");
+
+  test("new template choices use canonical readiness and require active status", () => {
+    const source = fs.readFileSync(builderPath, "utf8");
+    expect(source).toContain('import { templateReadiness } from "../../lib/templateReadiness";');
+    expect(source).toContain('normalise(template?.status) === "active"');
+    expect(source).toContain("templateReadiness(template, globalPrintOptions).isLaunchReady");
+    expect(source).toContain("loadedTemplates.filter((template) => isBuilderSelectableTemplate(template, loadedPrintOptions))");
+  });
+
+  test("existing products retain their already-linked template for editing", () => {
+    const source = fs.readFileSync(builderPath, "utf8");
+    expect(source).toContain("const existingTemplate = loadedTemplates.find");
+    expect(source).toContain("templatesForBuilder = [...selectableTemplates, existingTemplate]");
+    expect(source).toContain("setTemplates(templatesForBuilder)");
+  });
+});
+
+
+describe("creator dashboard canonical Product Builder ownership", () => {
+  const dashboardPath = path.join(__dirname, "../../pages/BandDashboard.jsx");
+
+  test("creator product create/edit routes use ProductBuilder with no legacy form generation", () => {
+    const source = fs.readFileSync(dashboardPath, "utf8");
+    expect(source).toContain('<Route path="products/new" element={<ProductBuilder mode="creator" backTo="/creator/products" />} />');
+    expect(source).toContain('<Route path="products/:id" element={<ProductBuilder mode="creator" backTo="/creator/products" />} />');
+    expect(source).not.toContain("function ProductForm()");
+    expect(source).not.toContain("useParams");
+    expect(source).not.toContain("AttributeVariationEditor");
+  });
+
+  test("creator dashboard overview and banner preview use the cleaned UI", () => {
+    const source = fs.readFileSync(dashboardPath, "utf8");
+    expect(source).toContain('className="grid grid-cols-2 lg:grid-cols-5 gap-3"');
+    expect(source).toContain('className="ff-admin-stat-card min-w-0"');
+    expect(source).toContain('previewImageClassName = "object-contain p-3"');
+    expect(source).toContain('previewImageClassName="object-cover"');
+  });
+});
