@@ -571,3 +571,91 @@
   .creator-studio-scope-modal { width: calc(100vw - 16px); max-height: calc(100vh - 80px); }
   .creator-studio-scope-cta { flex-direction: column; align-items: stretch; }
 }
+
+
+/* Creator Studio focused-canvas refinements */
+.creator-scoped-product-studio { min-height: 100%; }
+.creator-scoped-product-studio > .studio-v21 { min-height: 100%; }
+
+.creator-artwork-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--ff-card-border);
+  background: var(--ff-card-bg);
+  color: var(--ff-card-text);
+}
+.creator-artwork-toolbar-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+.creator-artwork-toolbar-actions .btn-secondary { min-height: 34px; padding: 0 11px; font-size: 0.72rem; }
+.creator-artwork-method { display: flex; align-items: center; gap: 8px; min-width: min(360px, 44%); }
+.creator-artwork-method > span { flex: 0 0 auto; color: var(--ff-muted-text); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 800; }
+.creator-artwork-method select { min-height: 34px; padding-block: 5px; }
+.creator-artwork-main-grid > main { min-height: min(72vh, 760px) !important; border-color: var(--ff-card-border) !important; background: var(--ff-card-bg) !important; }
+.creator-artwork-main-grid > aside { min-height: min(72vh, 760px) !important; border-color: var(--ff-card-border) !important; background: var(--ff-surface-bg) !important; color: var(--ff-surface-text) !important; }
+.creator-artwork-view-tabs {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 12px 4px;
+  background: linear-gradient(to top, var(--ff-page-bg) 70%, transparent);
+}
+.creator-artwork-view-tabs button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--ff-card-border);
+  border-radius: 999px;
+  background: var(--ff-button-alternate-bg);
+  color: var(--ff-button-alternate-text);
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.creator-artwork-view-tabs button.is-active { background: var(--ff-button-primary-bg); color: var(--ff-button-primary-text); border-color: var(--ff-button-primary-border); }
+
+.creator-studio-scopes-panel, .creator-studio-layers-panel { padding: 10px 12px 18px; }
+.creator-studio-scope-mode-row { display: grid; grid-template-columns: 1fr 1fr 0.75fr; gap: 5px; margin-bottom: 12px; }
+.creator-studio-scope-mode-row button, .creator-studio-scope-values button { border: 1px solid var(--ff-card-border); background: var(--ff-button-alternate-bg); color: var(--ff-button-alternate-text); cursor: pointer; }
+.creator-studio-scope-mode-row button { min-height: 34px; padding: 5px 7px; font-size: 0.64rem; font-weight: 800; }
+.creator-studio-scope-mode-row button.is-active, .creator-studio-scope-values button.is-active { border-color: var(--ff-primary); background: color-mix(in srgb, var(--ff-primary) 12%, var(--ff-button-alternate-bg)); }
+.creator-studio-scope-builder { padding: 10px; margin-bottom: 12px; border: 1px solid var(--ff-card-border); background: var(--ff-card-bg); color: var(--ff-card-text); }
+.creator-studio-scope-values { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.creator-studio-scope-values button { min-height: 30px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 0.66rem; }
+.creator-studio-small-action { min-height: 32px; margin-top: 9px; font-size: 0.68rem; }
+.creator-studio-scope-list { display: grid; gap: 7px; }
+.creator-studio-scope-row { border: 1px solid var(--ff-card-border); background: var(--ff-card-bg); color: var(--ff-card-text); display: grid; grid-template-columns: minmax(0,1fr) 34px; }
+.creator-studio-scope-row.is-active { border-color: var(--ff-primary); }
+.creator-studio-scope-row-main { min-width: 0; padding: 9px 10px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.creator-studio-scope-row-main strong { display: block; font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.creator-studio-scope-row-main span { display: block; margin-top: 3px; color: var(--ff-muted-text); font-size: 0.61rem; }
+.creator-studio-scope-delete { border: 0; border-left: 1px solid var(--ff-card-border); background: transparent; color: var(--ff-muted-text); cursor: pointer; }
+.creator-studio-scope-delete:hover { color: var(--ff-danger, #e05252); }
+.creator-studio-exact-list { grid-column: 1 / -1; display: grid; gap: 4px; padding: 8px 10px 10px; border-top: 1px solid var(--ff-card-border); }
+.creator-studio-exact-list label { display: flex; align-items: center; gap: 7px; font-size: 0.65rem; }
+
+.creator-studio-layer-group { border-bottom: 1px solid var(--ff-card-border); padding-bottom: 8px; margin-bottom: 8px; }
+.creator-studio-layer-group-head { width: 100%; display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 8px 7px; border: 0; background: transparent; color: var(--ff-surface-text); text-align: left; cursor: pointer; }
+.creator-studio-layer-group-head.is-active { color: var(--ff-primary); }
+.creator-studio-layer-group-head strong { font-size: 0.7rem; }
+.creator-studio-layer-group-head span { color: var(--ff-muted-text); font-size: 0.6rem; }
+.creator-studio-layer-list { display: grid; gap: 5px; }
+.creator-studio-layer-row { width: 100%; display: grid; grid-template-columns: 28px minmax(0,1fr); gap: 7px; align-items: center; padding: 7px; border: 1px solid var(--ff-card-border); background: var(--ff-card-bg); color: var(--ff-card-text); text-align: left; cursor: pointer; }
+.creator-studio-layer-row.is-active { border-color: var(--ff-primary); }
+.creator-studio-layer-icon { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--ff-card-border); }
+.creator-studio-layer-copy { min-width: 0; }
+.creator-studio-layer-copy strong, .creator-studio-layer-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.creator-studio-layer-copy strong { font-size: 0.68rem; }
+.creator-studio-layer-copy small { margin-top: 2px; color: var(--ff-muted-text); font-size: 0.58rem; }
+
+@media (max-width: 1020px) {
+  .creator-artwork-toolbar { align-items: stretch; flex-direction: column; }
+  .creator-artwork-method { min-width: 0; width: 100%; }
+}

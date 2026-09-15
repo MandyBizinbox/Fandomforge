@@ -795,9 +795,14 @@ async function uploadGeneratedCanvas(canvas, fileName) {
   return response.data.url;
 }
 
-export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false }) {
+export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false, creatorMode = false, activeSlotId: controlledActiveSlotId = "", onActiveSlotChange }) {
   const [activeGroupId, setActiveGroupId] = useState(asArray(artworkGroups)[0]?.id || "");
-  const [activeSlotId, setActiveSlotId] = useState("");
+  const [internalActiveSlotId, setInternalActiveSlotId] = useState("");
+  const activeSlotId = controlledActiveSlotId || internalActiveSlotId;
+  const setActiveSlotId = useCallback((id) => {
+    setInternalActiveSlotId(id);
+    onActiveSlotChange?.(id);
+  }, [onActiveSlotChange]);
   const [activeScreenId, setActiveScreenId] = useState(asArray(template?.mockup_screens)[0]?.id || "");
   const [activePrintAreaId, setActivePrintAreaId] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -858,6 +863,16 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     if (activeSlot) return printAreas.find((area) => area.id === activeSlot.print_area_id) || null;
     return areasForScreen.find((area) => area.id === activePrintAreaId) || areasForScreen[0] || null;
   }, [activeSlot, printAreas, areasForScreen, activePrintAreaId]);
+
+  useEffect(() => {
+    if (!controlledActiveSlotId) return;
+    const slot = slots.find((item) => item.id === controlledActiveSlotId);
+    if (!slot) return;
+    const area = printAreas.find((item) => item.id === slot.print_area_id);
+    if (!area) return;
+    if (area.screen_id && area.screen_id !== currentScreenId) setActiveScreenId(area.screen_id);
+    setActivePrintAreaId(area.id);
+  }, [controlledActiveSlotId, currentScreenId, printAreas, slots]);
 
   const legacyProfileFallbacks = useMemo(() => asArray(printOptions).map(profileFromLegacyPrintOption).filter((profile) => profile.id), [printOptions]);
   const profileCatalog = useMemo(() => {
@@ -1644,6 +1659,25 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     <div className="space-y-4 studio-v21" data-testid="product-artwork-studio">
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(event) => uploadFileToImageLayer(event.target.files?.[0] || null)} />
 
+      {creatorMode ? (
+        <section className="creator-artwork-toolbar">
+          <div className="creator-artwork-toolbar-actions">
+            <button type="button" className="btn-secondary" disabled={!activeGroup || !areasForScreen.length || uploading} onClick={() => { pendingReplaceSlotIdRef.current = ""; pendingUploadAreaRef.current = activeArea || normalPrintAreas[0] || areasForScreen[0]; fileInputRef.current?.click(); }}><ImageIcon size={15} /> {uploading ? "Uploading" : "Add image"}</button>
+            <button type="button" className="btn-secondary" disabled={!activeGroup || !areasForScreen.length} onClick={addTextLayer}><Type size={15} /> Add text</button>
+          </div>
+          <label className="creator-artwork-method">
+            <span>Print method</span>
+            <select className="input-base" value={selectedProfile?.id || activeSlot?.print_option_id || ""} disabled={!activeSlot || profilesLoading} onChange={(event) => activeSlot && setLayerManufacturingProfile(activeSlot.id, event.target.value)}>
+              <option value="">{profilesLoading ? "Loading print methods…" : "Select print method"}</option>
+              {groupedProfiles.map((group) => (
+                <optgroup key={group.key} label={group.label}>
+                  {group.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profileLabel(profile)}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+        </section>
+      ) : (
       <section className="grid xl:grid-cols-[minmax(260px,1fr)_minmax(360px,1.8fr)_140px_250px] gap-3">
         <div className="border border-[#34C759]/40 bg-black/40 p-3">
           <div className="text-center font-bold uppercase mb-2">Select product print view</div>
@@ -1705,8 +1739,10 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
           </div>
         </div>
       </section>
+      )}
 
-      <div className="grid grid-cols-1 2xl:grid-cols-[220px_minmax(720px,1fr)_320px] gap-4">
+      <div className={creatorMode ? "grid grid-cols-1 2xl:grid-cols-[minmax(720px,1fr)_300px] gap-3 creator-artwork-main-grid" : "grid grid-cols-1 2xl:grid-cols-[220px_minmax(720px,1fr)_320px] gap-4"}>
+        {!creatorMode && (
         <aside className="border border-[#34C759]/40 bg-black/30 p-3 min-h-[680px] flex flex-col">
           <div className="text-center font-bold uppercase mb-3">Layers</div>
           <div className="space-y-3 flex-1 overflow-auto pr-1">
@@ -1766,6 +1802,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
             </div>
           )}
         </aside>
+        )}
 
         <main className="border border-white/10 bg-black min-h-[680px] flex items-center justify-center overflow-hidden rounded-xl p-4">
           {activeImage ? (
@@ -1815,6 +1852,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
               {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingReplaceSlotIdRef.current = activeSlot.id; pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
               <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} slot={activeSlot} />
               <ColourRestrictionBlock profile={selectedProfile} slot={activeSlot} onChange={(value) => setLayerStockedColour(activeSlot.id, value)} />
+              {!creatorMode && (
               <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">
                 <div className="overline mb-2">Costing</div>
                 <div className="grid grid-cols-2 gap-y-1">
@@ -1837,12 +1875,22 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                   </p>
                 )}
               </div>
+              )}
               <div className="border-t border-white/10 pt-4"><div className="overline mb-2">Placement</div><p className="text-xs text-zinc-500 mb-3 flex items-center gap-2"><Move size={13} /> Drag the layer on the preview.</p><label className="flex items-center gap-2 text-xs text-zinc-300 mb-3"><input type="checkbox" checked={activeSlot.lock_aspect_ratio !== false} onChange={(event) => patchSlot(activeSlot.id, { lock_aspect_ratio: event.target.checked })} /> Lock aspect ratio</label><div className="grid grid-cols-2 gap-2"><NumericControl label="X %" value={activePlacement.x} onChange={(value) => patchPlacement(activeSlot.id, { x: value })} /><NumericControl label="Y %" value={activePlacement.y} onChange={(value) => patchPlacement(activeSlot.id, { y: value })} /><NumericControl label="W %" value={activePlacement.width} onChange={(value) => patchPlacement(activeSlot.id, { width: value })} /><NumericControl label="H %" value={activePlacement.height} onChange={(value) => patchPlacement(activeSlot.id, { height: value })} /><NumericControl label="Rotation" value={activePlacement.rotation} onChange={(value) => patchPlacement(activeSlot.id, { rotation: value })} /></div><div className="grid grid-cols-3 gap-2 mt-3"><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 0, y: 0, width: 100, height: 100, rotation: 0 })}>Fit</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 25, y: 25, width: 50, height: 50, rotation: 0 })}>Center</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, defaultPlacement(activeArea))}>Reset</button></div></div>
               {missingMethodCount > 0 && <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg">{missingMethodCount} layer(s) need manufacturing profiles.</div>}
             </div>
           ) : <div className="text-zinc-500 text-sm"><div className="overline mb-3">Inspector</div><p>Add an image or text layer to begin.</p></div>}
         </aside>
       </div>
+      {creatorMode && screens.length > 1 && (
+        <nav className="creator-artwork-view-tabs" aria-label="Product print views">
+          {screens.map((screen) => {
+            const active = screen.id === currentScreenId;
+            const count = slots.filter((slot) => slot.screen_id === screen.id || printAreas.find((area) => area.id === slot.print_area_id)?.screen_id === screen.id).length;
+            return <button key={screen.id} type="button" className={active ? "is-active" : ""} onClick={() => selectView(screen.id)}>{screenLabel(screen)}{count ? ` · ${count}` : ""}</button>;
+          })}
+        </nav>
+      )}
     </div>
   );
 }

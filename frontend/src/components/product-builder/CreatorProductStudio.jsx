@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   Images,
   Info,
+  Layers,
   Package,
   Palette,
   Pencil,
@@ -28,6 +29,8 @@ import { templateReadiness } from "../../lib/templateReadiness";
 import ArtworkScopeSelector from "./ArtworkScopeSelector";
 import ScopedProductArtworkStudio from "./ScopedProductArtworkStudio";
 import ScopedArtworkMockupGenerator from "./ScopedArtworkMockupGenerator";
+import CreatorArtworkScopesPanel from "./CreatorArtworkScopesPanel";
+import CreatorLayersPanel from "./CreatorLayersPanel";
 import {
   asArray,
   buildProductVariations,
@@ -199,6 +202,9 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   const [viewMode, setViewMode] = useState("edit");
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [scopeMatrixOpen, setScopeMatrixOpen] = useState(false);
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [activeArtworkGroupId, setActiveArtworkGroupId] = useState("");
+  const [activeArtworkSlotId, setActiveArtworkSlotId] = useState("");
   const [scopePrompted, setScopePrompted] = useState(false);
   const [templateInfoOpen, setTemplateInfoOpen] = useState(true);
   const [variantsOpen, setVariantsOpen] = useState(true);
@@ -284,7 +290,6 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
           setForm((current) => ({
             ...current,
             ...productDraft,
-            specs: getTemplateSpecs(selected),
             selected_template_variation_ids: initialIds,
           }));
         }
@@ -409,6 +414,17 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
     setScopeMatrixOpen(true);
     setScopePrompted(true);
   }, [loading, scopePrompted, form.artwork_groups.length, form.selected_template_variation_ids.length]);
+
+  useEffect(() => {
+    if (!form.artwork_groups.length) {
+      setActiveArtworkGroupId("");
+      setActiveArtworkSlotId("");
+      return;
+    }
+    if (!form.artwork_groups.some((group) => group.id === activeArtworkGroupId)) {
+      setActiveArtworkGroupId(form.artwork_groups[0].id);
+    }
+  }, [activeArtworkGroupId, form.artwork_groups]);
 
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
@@ -676,11 +692,12 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
         </div>
       </header>
 
-      <div className={`creator-studio-body ${detailsOpen ? "has-details" : "details-collapsed"}`}>
+      <div className={`creator-studio-body ${(detailsOpen || scopeMatrixOpen || layersOpen) ? "has-details" : "details-collapsed"}`}>
         <aside className="creator-studio-left-rail" aria-label="Product tools">
-          <button type="button" className={detailsOpen ? "is-active" : ""} onClick={() => setDetailsOpen((value) => !value)} title="Store product details"><Info size={19} /><span>Details</span></button>
-          <button type="button" className={scopeMatrixOpen ? "is-active" : ""} onClick={() => setScopeMatrixOpen(true)} title="Artwork variation matrix"><SlidersHorizontal size={19} /><span>Scopes</span></button>
+          <button type="button" className={detailsOpen ? "is-active" : ""} onClick={() => { const next = !detailsOpen; setDetailsOpen(next); if (next) { setScopeMatrixOpen(false); setLayersOpen(false); } }} title="Store product details"><Info size={19} /><span>Details</span></button>
+          <button type="button" className={scopeMatrixOpen ? "is-active" : ""} onClick={() => { const next = !scopeMatrixOpen; setScopeMatrixOpen(next); if (next) { setDetailsOpen(false); setLayersOpen(false); } }} title="Artwork scopes"><SlidersHorizontal size={19} /><span>Scopes</span></button>
           <button type="button" className={workspace === "design" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("design"); }} title="Design"><Palette size={19} /><span>Design</span></button>
+          <button type="button" className={layersOpen ? "is-active" : ""} onClick={() => { const next = !layersOpen; setLayersOpen(next); if (next) { setDetailsOpen(false); setScopeMatrixOpen(false); } }} title="Artwork layers"><Layers size={19} /><span>Layers</span></button>
           <button type="button" className={workspace === "mockups" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("mockups"); }} title="Mockups"><Images size={19} /><span>Mockups</span></button>
         </aside>
 
@@ -702,6 +719,9 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
               <StudioField label="Storefront description">
                 <textarea rows={5} value={form.description} onChange={(event) => update("description", event.target.value)} />
               </StudioField>
+              <StudioField label="Product specs" hint="Copied from the Catalogue template as a separate editable field.">
+                <textarea rows={6} value={form.specs} onChange={(event) => update("specs", event.target.value)} placeholder="Material, dimensions, care or product specifications" />
+              </StudioField>
             </StudioAccordion>
 
             <StudioAccordion title="Template information" icon={Package} open={templateInfoOpen} onToggle={() => setTemplateInfoOpen((value) => !value)} summary={selectedTemplate?.name || "Catalogue product"}>
@@ -717,6 +737,39 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
               </div>
               {form.specs && <div className="creator-studio-template-specs">{form.specs}</div>}
             </StudioAccordion>
+          </aside>
+        )}
+
+        {scopeMatrixOpen && (
+          <aside className="creator-studio-left-panel">
+            <div className="creator-studio-panel-heading">
+              <div><span>Artwork</span><strong>Scopes</strong></div>
+              <button type="button" className="creator-studio-panel-close" onClick={() => setScopeMatrixOpen(false)}>×</button>
+            </div>
+            <CreatorArtworkScopesPanel
+              selectedVariations={selectedVariations}
+              hasTemplateVariations={hasVariations}
+              groups={form.artwork_groups}
+              onChange={setArtworkGroups}
+              activeGroupId={activeArtworkGroupId}
+              onActiveGroupChange={setActiveArtworkGroupId}
+            />
+          </aside>
+        )}
+
+        {layersOpen && (
+          <aside className="creator-studio-left-panel">
+            <div className="creator-studio-panel-heading">
+              <div><span>Artwork</span><strong>Layers</strong></div>
+              <button type="button" className="creator-studio-panel-close" onClick={() => setLayersOpen(false)}>×</button>
+            </div>
+            <CreatorLayersPanel
+              groups={form.artwork_groups}
+              activeGroupId={activeArtworkGroupId}
+              activeSlotId={activeArtworkSlotId}
+              onSelectGroup={(groupId) => setActiveArtworkGroupId(groupId)}
+              onSelectSlot={(groupId, slotId) => { setActiveArtworkGroupId(groupId); setActiveArtworkSlotId(slotId); }}
+            />
           </aside>
         )}
 
@@ -769,7 +822,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
               {!form.artwork_groups.length ? (
                 <div className="creator-studio-scope-cta">
                   <div><span>Artwork variations</span><strong>Choose how artwork should vary across the selected products</strong><p>The variation matrix now opens separately so it does not take over the design canvas.</p></div>
-                  <button type="button" className="btn-secondary" onClick={() => setScopeMatrixOpen(true)}>Open artwork scopes</button>
+                  <button type="button" className="btn-secondary" onClick={() => { setScopeMatrixOpen(true); setDetailsOpen(false); setLayersOpen(false); }}>Open artwork scopes</button>
                 </div>
               ) : (
                 <ScopedProductArtworkStudio
@@ -779,6 +832,11 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
                   onArtworkGroupsChange={setArtworkGroups}
                   selectedVariations={selectedVariations}
                   isAdmin={false}
+                  creatorMode={true}
+                  activeGroupId={activeArtworkGroupId}
+                  onActiveGroupChange={setActiveArtworkGroupId}
+                  activeSlotId={activeArtworkSlotId}
+                  onActiveSlotChange={setActiveArtworkSlotId}
                 />
               )}
             </div>
@@ -853,7 +911,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
             )}
             <div className="creator-studio-cost-grid">
               <div><span>Base</span><strong>{money(pricing.blank)}</strong></div>
-              <div><span>Printing</span><strong>{money(pricing.print)}</strong></div>
+              <div><span>Artwork printing</span><strong>{money(pricing.print)}</strong></div>
               <div><span>Production</span><strong>{money(pricing.production)}</strong></div>
               <div><span>Your amount</span><strong className={pricing.profit >= 0 ? "is-positive" : "is-negative"}>{money(pricing.profit)}</strong></div>
             </div>
@@ -877,28 +935,6 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
         </aside>
       </div>
 
-      {scopeMatrixOpen && (
-        <div className="creator-studio-modal-backdrop" onMouseDown={() => setScopeMatrixOpen(false)}>
-          <section className="creator-studio-scope-modal" role="dialog" aria-modal="true" aria-label="Artwork variation matrix" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="creator-studio-scope-modal-head">
-              <div><span>Artwork setup</span><strong>How should the artwork vary?</strong><p>Choose one shared design, split artwork by an attribute, or target exact product variations.</p></div>
-              <button type="button" className="creator-studio-panel-close" onClick={() => setScopeMatrixOpen(false)}>×</button>
-            </header>
-            <div className="creator-studio-scope-modal-body">
-              <ArtworkScopeSelector
-                selectedVariations={selectedVariations}
-                hasTemplateVariations={hasVariations}
-                groups={form.artwork_groups}
-                onChange={setArtworkGroups}
-              />
-            </div>
-            <footer className="creator-studio-scope-modal-foot">
-              <span>{form.artwork_groups.length ? `${form.artwork_groups.length} artwork scope${form.artwork_groups.length === 1 ? "" : "s"} configured` : "Choose an artwork scope to continue"}</span>
-              <button type="button" className="btn-primary" onClick={() => setScopeMatrixOpen(false)}>Done</button>
-            </footer>
-          </section>
-        </div>
-      )}
     </div>
   );
 }
