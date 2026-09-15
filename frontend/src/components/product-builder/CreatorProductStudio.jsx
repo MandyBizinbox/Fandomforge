@@ -625,7 +625,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
       const payload = buildPayload();
       const response = isNew
         ? await http.post("/products", payload)
-        : await http.put(`/products/${routeId}`, payload);
+        : await http.patch(`/products/${routeId}`, payload);
       const saved = response.data;
       setProduct(saved);
       emitCreatorProductsReadyRefresh();
