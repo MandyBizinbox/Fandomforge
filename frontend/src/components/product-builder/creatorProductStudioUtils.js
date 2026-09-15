@@ -94,11 +94,52 @@ export function inferStudioPricingAttribute(variations = []) {
   return scored.sort((a, b) => b.score - a.score)[0]?.key || keys[0];
 }
 
+function stringifyTemplateField(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => typeof item === "string" ? item : `${item.label || item.name || "Spec"}: ${item.value ?? ""}`).join("\n");
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).map(([key, item]) => `${key}: ${typeof item === "object" ? JSON.stringify(item) : item}`).join("\n");
+  }
+  return String(value || "").trim();
+}
+
+export function creatorTemplateSpecs(template = {}) {
+  const explicit = template.specs
+    ?? template.specifications
+    ?? template.product_specs
+    ?? template.features
+    ?? template.specification_text
+    ?? "";
+  const explicitText = stringifyTemplateField(explicit);
+  if (explicitText) return explicitText;
+
+  const description = String(template.description || "").trim();
+  const looksLikeSpecs = /(^|\n)\s*(key features|features|attributes|specifications?)\b|(^|\n)\s*(material|capacity|fabric(?: weight)?|gsm|size|dimensions?)\s*:/i.test(description);
+  return looksLikeSpecs ? description : "";
+}
+
+export function creatorTemplateDescription(template = {}) {
+  const explicit = [
+    template.creator_default_description,
+    template.storefront_description,
+    template.marketing_description,
+    template.short_description,
+  ].map((value) => String(value || "").trim()).find(Boolean);
+  if (explicit) return explicit;
+
+  const description = String(template.description || "").trim();
+  if (!description) return "";
+  const specs = creatorTemplateSpecs(template);
+  return specs && normaliseStudioValue(specs) === normaliseStudioValue(description) ? "" : description;
+}
+
 export function buildCreatorProductDraftFromTemplate(template = {}) {
   return {
     template_id: template.id || "",
     title: template.creator_default_title || template.name || template.title || "",
-    description: template.creator_default_description || template.description || template.short_description || "",
+    description: creatorTemplateDescription(template),
+    specs: creatorTemplateSpecs(template),
     category: template.category || "",
     brand: template.brand || "",
   };
