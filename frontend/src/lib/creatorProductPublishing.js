@@ -8,6 +8,13 @@ export function getCreatorProductArtworkStatus(product = {}) {
   return status || "not_required";
 }
 
+export function getCreatorProductReviewSubmissionStatus(product = {}) {
+  const status = String(product?.review_submission_status || "").trim().toLowerCase();
+  if (status === "submitted") return "submitted";
+  if (status === "draft") return "draft";
+  return "legacy";
+}
+
 export function isCreatorProductPublished(product = {}) {
   return Boolean(product?.published || product?.is_published || product?.published_at);
 }
@@ -26,6 +33,7 @@ export function effectiveCreatorPricingStatus(product = {}) {
 
 export function canPublishCreatorProduct(product = {}) {
   if (isCreatorProductPublished(product) || needsCreatorPricingApproval(product)) return false;
+  if (getCreatorProductReviewSubmissionStatus(product) === "draft") return false;
   if (!product?.id) return Boolean(product?.title) && Number(product?.estimated_creator_profit ?? 0) >= 0;
   const artworkStatus = getCreatorProductArtworkStatus(product);
   return artworkStatus === "approved" || artworkStatus === "not_required";
