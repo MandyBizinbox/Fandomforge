@@ -1,0 +1,122 @@
+name: Creator Draft Review Split
+
+on:
+  push:
+    branches:
+      - feature/creator-builder-studio
+    paths:
+      - ".github/workflows/creator-draft-review-split.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/creator-builder-studio
+          fetch-depth: 0
+      - name: Patch creator draft and review flow
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # ---------------- backend routes ----------------
+          path = Path('backend/routes_main.py')
+          text = path.read_text()
+
+          import_old = 'from template_lifecycle import template_delete_impact_payload\nfrom e2e_runtime import with_e2e_mock_gateway\n'
+          import_new = '''from template_lifecycle import template_delete_impact_payload\nfrom e2e_runtime import with_e2e_mock_gateway\nfrom creator_product_review import (\n    REVIEW_DRAFT,\n    REVIEW_SUBMITTED,\n    reset_product_artwork_review,\n    review_is_locked,\n    review_queue_includes_product,\n)\n'''
+          if import_old not in text:
+              raise SystemExit('routes import anchor not found')
+          text = text.replace(import_old, import_new, 1)
+
+          create_anchor = '''    data = await normalize_template_product_payload(\n        db=db,\n        data=payload.model_dump(),\n        creator=creator,\n        user=user,\n        allow_admin_publish=False,\n    )\n\n    default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})\n'''
+          create_replacement = '''    data = await normalize_template_product_payload(\n        db=db,\n        data=payload.model_dump(),\n        creator=creator,\n        user=user,\n        allow_admin_publish=False,\n    )\n\n    if data.get("review_submission_status") == REVIEW_DRAFT:\n        data, _ = reset_product_artwork_review(\n            data,\n            submission_status=REVIEW_DRAFT,\n        )\n\n    default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})\n'''
+          if create_anchor not in text:
+              raise SystemExit('creator create anchor not found')
+          text = text.replace(create_anchor, create_replacement, 1)
+
+          get_to_patch_anchor = '''    return Product(**_decorate_product_effective_pricing(doc, template=template))\n\n\n@products_router.patch("/{product_id}", response_model=Product)\nasync def update_product(\n'''
+          submit_endpoint = '''    return Product(**_decorate_product_effective_pricing(doc, template=template))\n\n\n@products_router.post("/{product_id}/submit-review", response_model=Product)\nasync def submit_product_for_review(\n    product_id: str,\n    request: Request,\n    user: User = Depends(get_current_user),\n):\n    db = request.app.state.db\n    product = await db.products.find_one({"id": product_id}, {"_id": 0})\n    if not product:\n        raise HTTPException(status_code=404, detail="Product not found")\n\n    creator = await get_band_for_product_access(db, user, product, permission="manage_products")\n    if not creator:\n        raise HTTPException(status_code=403, detail="Not your product")\n\n    if review_is_locked(product):\n        raise HTTPException(status_code=409, detail="This product is already in review")\n\n    if not (product.get("title") or "").strip():\n        raise HTTPException(status_code=400, detail="Add a product title before sending for review")\n    if not float(product.get("selling_price") or 0):\n        raise HTTPException(status_code=400, detail="Set a selling price before sending for review")\n    if not (product.get("mockup_images") or []):\n        raise HTTPException(status_code=400, detail="Generate at least one mockup before sending for review")\n\n    now = utcnow().isoformat()\n    submitted, artwork_count = reset_product_artwork_review(\n        product,\n        submission_status=REVIEW_SUBMITTED,\n        submitted_at=now,\n    )\n    if artwork_count == 0:\n        raise HTTPException(status_code=400, detail="Add artwork before sending for review")\n\n    update_doc = {\n        "artwork_groups": submitted.get("artwork_groups") or [],\n        "artworks": submitted.get("artworks") or [],\n        "artwork": submitted.get("artwork"),\n        "artwork_review_status": submitted.get("artwork_review_status"),\n        "artwork_review_notes": None,\n        "review_submission_status": REVIEW_SUBMITTED,\n        "review_submitted_at": now,\n        "published": False,\n        "updated_at": now,\n    }\n    await db.products.update_one({"id": product_id}, {"$set": iso_dates(update_doc)})\n    doc = await db.products.find_one({"id": product_id}, {"_id": 0})\n    template = None\n    if doc.get("template_id"):\n        template = await db.product_templates.find_one({"id": doc.get("template_id")}, {"_id": 0})\n    return Product(**_decorate_product_effective_pricing(doc, template=template))\n\n\n@products_router.patch("/{product_id}", response_model=Product)\nasync def update_product(\n'''
+          if get_to_patch_anchor not in text:
+              raise SystemExit('submit review insertion anchor not found')
+          text = text.replace(get_to_patch_anchor, submit_endpoint, 1)
+
+          update_anchor = '''    updates = payload.model_dump(exclude_none=True)\n\n    if not updates:\n        raise HTTPException(status_code=400, detail="Nothing to update")\n\n    merged = {**product, **updates}\n'''
+          update_replacement = '''    updates = payload.model_dump(exclude_none=True)\n\n    if not updates:\n        raise HTTPException(status_code=400, detail="Nothing to update")\n\n    if user.role not in ("super_admin", "admin") and review_is_locked(product):\n        raise HTTPException(\n            status_code=409,\n            detail="This product is in review and cannot be edited until review is complete",\n        )\n\n    merged = {**product, **updates}\n'''
+          if update_anchor not in text:
+              raise SystemExit('creator update lock anchor not found')
+          text = text.replace(update_anchor, update_replacement, 1)
+
+          normalized_anchor = '''    normalized = await normalize_template_product_payload(\n        db=db,\n        data=merged,\n        creator=creator,\n        user=user,\n        allow_admin_publish=user.role in ("super_admin", "admin"),\n    )\n\n    update_doc = {k: v for k, v in normalized.items() if k not in ("id", "band_id", "slug", "created_at", "created_by_user_id", "created_by_role")}\n'''
+          normalized_replacement = '''    normalized = await normalize_template_product_payload(\n        db=db,\n        data=merged,\n        creator=creator,\n        user=user,\n        allow_admin_publish=user.role in ("super_admin", "admin"),\n    )\n\n    if user.role not in ("super_admin", "admin") and updates.get("review_submission_status") == REVIEW_DRAFT:\n        normalized, _ = reset_product_artwork_review(\n            normalized,\n            submission_status=REVIEW_DRAFT,\n        )\n\n    update_doc = {k: v for k, v in normalized.items() if k not in ("id", "band_id", "slug", "created_at", "created_by_user_id", "created_by_role")}\n'''
+          if normalized_anchor not in text:
+              raise SystemExit('creator draft reset anchor not found')
+          text = text.replace(normalized_anchor, normalized_replacement, 1)
+
+          queue_anchor = '''    products = await db.products.find(product_query, {"_id": 0}).sort("updated_at", -1).to_list(1000)\n    band_ids = list({p.get("band_id") for p in products if p.get("band_id")})\n'''
+          queue_replacement = '''    products = await db.products.find(product_query, {"_id": 0}).sort("updated_at", -1).to_list(1000)\n    products = [product for product in products if review_queue_includes_product(product)]\n    band_ids = list({p.get("band_id") for p in products if p.get("band_id")})\n'''
+          if queue_anchor not in text:
+              raise SystemExit('review queue anchor not found')
+          text = text.replace(queue_anchor, queue_replacement, 1)
+          path.write_text(text)
+
+          # ---------------- Creator Studio ----------------
+          path = Path('frontend/src/components/product-builder/CreatorProductStudio.jsx')
+          text = path.read_text()
+
+          state_anchor = '  const [saving, setSaving] = useState(false);\n  const [publishing, setPublishing] = useState(false);\n'
+          state_replacement = '  const [saving, setSaving] = useState(false);\n  const [submittingReview, setSubmittingReview] = useState(false);\n  const [publishing, setPublishing] = useState(false);\n'
+          if state_anchor not in text:
+              raise SystemExit('frontend state anchor not found')
+          text = text.replace(state_anchor, state_replacement, 1)
+
+          payload_anchor = '''      published: false,\n      publish_on_approval: false,\n      selected_template_variation_ids: form.selected_template_variation_ids,\n'''
+          payload_replacement = '''      published: false,\n      publish_on_approval: false,\n      review_submission_status: "draft",\n      review_submitted_at: null,\n      selected_template_variation_ids: form.selected_template_variation_ids,\n'''
+          if payload_anchor not in text:
+              raise SystemExit('frontend payload anchor not found')
+          text = text.replace(payload_anchor, payload_replacement, 1)
+
+          block_start = text.index('  const validate = () => {')
+          block_end = text.index('  const backPath =', block_start)
+          new_block = '''  const validateDraft = () => {\n    if (!form.title.trim()) return "Add a product title in Product details.";\n    if (!form.template_id) return "Choose a product from the Catalogue.";\n    return null;\n  };\n\n  const validateReview = () => {\n    const draftError = validateDraft();\n    if (draftError) return draftError;\n    if (hasVariations && !form.selected_template_variation_ids.length) return "Choose at least one variant.";\n    if (!form.artwork_groups.length || !readyArtworkSlots.length) return "Add artwork and choose a print method.";\n    if (!generatedMockups.length) return "Generate at least one mockup.";\n    if (!effectiveSellingPrice) return "Set a selling price.";\n    return null;\n  };\n\n  const persistDraft = async ({ redirect = true, quiet = false } = {}) => {\n    const error = validateDraft();\n    if (error) {\n      toast.error(error);\n      return null;\n    }\n    setSaving(true);\n    try {\n      const payload = {\n        ...buildPayload(),\n        review_submission_status: "draft",\n        review_submitted_at: null,\n        published: false,\n      };\n      const response = isNew\n        ? await http.post("/products", payload)\n        : await http.patch(`/products/${routeId}`, payload);\n      const saved = response.data;\n      setProduct(saved);\n      emitCreatorProductsReadyRefresh();\n      if (!quiet) toast.success(isNew ? "Draft created" : "Draft saved");\n      if (redirect) navigate("/creator/products", { replace: true });\n      return saved;\n    } catch (error) {\n      toast.error(error.response?.data?.detail || "Could not save draft");\n      return null;\n    } finally {\n      setSaving(false);\n    }\n  };\n\n  const saveDraft = async () => {\n    await persistDraft({ redirect: true });\n  };\n\n  const sendForReview = async () => {\n    const error = validateReview();\n    if (error) {\n      toast.error(error);\n      return;\n    }\n    setSubmittingReview(true);\n    try {\n      const saved = await persistDraft({ redirect: false, quiet: true });\n      if (!saved?.id) return;\n      const response = await http.post(`/products/${saved.id}/submit-review`);\n      setProduct(response.data);\n      emitCreatorProductsReadyRefresh();\n      toast.success(product?.artwork_review_status === "rejected" ? "Product resubmitted for review" : "Product sent for review");\n      navigate("/creator/products", { replace: true });\n    } catch (error) {\n      toast.error(error.response?.data?.detail || "Could not send product for review");\n    } finally {\n      setSubmittingReview(false);\n    }\n  };\n\n  const publish = async () => {\n    if (!product?.id) {\n      await persistDraft({ redirect: true });\n      return;\n    }\n    if (!canPublishCreatorProduct(product)) {\n      toast.error("This product is not ready to publish yet. Complete review requirements first.");\n      return;\n    }\n    setPublishing(true);\n    try {\n      const response = await setCreatorProductPublished(product.id, true);\n      setProduct(response?.data || { ...product, published: true });\n      toast.success("Product published");\n      navigate("/creator/products", { replace: true });\n    } catch (error) {\n      toast.error(error.response?.data?.detail || "Could not publish product");\n    } finally {\n      setPublishing(false);\n    }\n  };\n\n'''
+          text = text[:block_start] + new_block + text[block_end:]
+
+          computed_anchor = '''  const selectedImage = form.primary_mockup_image_url || form.mockup_image_url || templateImage(selectedTemplate);\n  const published = isCreatorProductPublished(product || {});\n  const priceValues = pricingAttribute\n'''
+          computed_replacement = '''  const selectedImage = form.primary_mockup_image_url || form.mockup_image_url || templateImage(selectedTemplate);\n  const published = isCreatorProductPublished(product || {});\n  const reviewSubmissionStatus = product?.review_submission_status || "draft";\n  const reviewPending = reviewSubmissionStatus === "submitted" && product?.artwork_review_status === "pending_review";\n  const reviewRejected = product?.artwork_review_status === "rejected";\n  const reviewApproved = product?.artwork_review_status === "approved";\n  const reviewStatusLabel = published\n    ? "Live"\n    : reviewPending\n      ? "In review"\n      : reviewRejected\n        ? "Changes requested"\n        : reviewApproved\n          ? "Approved"\n          : readyToSave\n            ? "Ready for review"\n            : "Draft";\n  const priceValues = pricingAttribute\n'''
+          if computed_anchor not in text:
+              raise SystemExit('frontend review status anchor not found')
+          text = text.replace(computed_anchor, computed_replacement, 1)
+
+          topbar_old = '''        <div className="creator-studio-topbar-mode" role="tablist" aria-label="Studio mode">\n          <button type="button" className={viewMode === "edit" ? "is-active" : ""} onClick={() => setViewMode("edit")}><Pencil size={14} /> Edit</button>\n          <button type="button" className={viewMode === "preview" ? "is-active" : ""} onClick={() => setViewMode("preview")}><Eye size={14} /> Preview</button>\n        </div>\n        <div className="creator-studio-topbar-actions">\n          <span className={`creator-studio-save-state ${readyToSave ? "is-ready" : ""}`}>{published ? "Live" : readyToSave ? "Ready to save" : "Draft"}</span>\n          <button type="button" className="btn-primary creator-studio-save" onClick={save} disabled={saving}>\n            <Save size={14} /> {saving ? "Saving…" : "Save product"}\n          </button>\n        </div>\n'''
+          topbar_new = '''        <div className="creator-studio-topbar-mode" role="tablist" aria-label="Studio mode">\n          <button type="button" className={viewMode === "edit" ? "is-active" : ""} onClick={() => !reviewPending && setViewMode("edit")} disabled={reviewPending}><Pencil size={14} /> Edit</button>\n          <button type="button" className={viewMode === "preview" ? "is-active" : ""} onClick={() => setViewMode("preview")}><Eye size={14} /> Preview</button>\n        </div>\n        <div className="creator-studio-topbar-actions">\n          <span className={`creator-studio-save-state ${readyToSave && !reviewPending ? "is-ready" : ""}`}>{reviewStatusLabel}</span>\n          {!reviewPending && (\n            <>\n              <button type="button" className="btn-secondary creator-studio-save creator-studio-save-draft" onClick={saveDraft} disabled={saving || submittingReview}>\n                <Save size={14} /> {saving ? "Saving…" : "Save draft"}\n              </button>\n              <button type="button" className="btn-primary creator-studio-review-submit" onClick={sendForReview} disabled={saving || submittingReview || !readyToSave}>\n                <Sparkles size={14} /> {submittingReview ? "Sending…" : reviewRejected ? "Resubmit for review" : "Send for review"}\n              </button>\n            </>\n          )}\n          {reviewPending && <span className="creator-studio-review-lock">Editing locked while review is pending</span>}\n        </div>\n'''
+          if topbar_old not in text:
+              raise SystemExit('frontend topbar anchor not found')
+          text = text.replace(topbar_old, topbar_new, 1)
+          path.write_text(text)
+
+          # ---------------- Creator Studio CSS ----------------
+          path = Path('frontend/src/components/product-builder/creatorProductStudio.css')
+          text = path.read_text()
+          css = '''\n\n/* Explicit creator draft / review actions */\n.creator-studio-topbar-actions { flex-wrap: wrap; }\n.creator-studio-save-draft,\n.creator-studio-review-submit {\n  min-width: 132px;\n  justify-content: center;\n}\n.creator-studio-review-lock {\n  color: var(--ff-muted-text);\n  font-size: 0.67rem;\n  line-height: 1.25;\n  text-align: right;\n  max-width: 180px;\n}\n.creator-studio-topbar-mode button:disabled,\n.creator-studio-topbar-actions button:disabled {\n  opacity: 0.5;\n  cursor: not-allowed;\n}\n@media (max-width: 1180px) {\n  .creator-studio-review-submit { min-width: 116px; }\n  .creator-studio-save-draft { min-width: 108px; }\n}\n'''
+          if '/* Explicit creator draft / review actions */' not in text:
+              text += css
+          path.write_text(text)
+          PY
+      - name: Run focused backend review-state test
+        shell: bash
+        run: |
+          cd backend
+          python -m pytest -q tests/test_creator_product_review_state.py
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "FandomForge CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add backend/routes_main.py frontend/src/components/product-builder/CreatorProductStudio.jsx frontend/src/components/product-builder/creatorProductStudio.css
+          git commit -m "Split creator draft save from review submission"
+          git push origin HEAD:feature/creator-builder-studio
