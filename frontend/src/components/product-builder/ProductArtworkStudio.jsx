@@ -1822,51 +1822,90 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                       const layerCosting = calculateAreaPrintCost(
                         slot,
                         area,
-                        p        {!creatorMode && (
+                        profile || slot
+                      );
+                      return (
+                        <button key={slot.id} type="button" onClick={() => { setActiveSlotId(slot.id); setActivePrintAreaId(area.id); }} className={`w-full text-left border px-2 py-2 ${active ? "border-[#FF3B30] bg-[#FF3B30]/15" : "border-white/30 bg-black/40 hover:border-white/60"}`}>
+                          <div className="font-bold text-xs uppercase">{slot.text_layer ? "Text Layer" : "Image Layer"}</div>
+                          <div className="text-[10px] text-zinc-500 mt-1 truncate">{profile ? `${methodLabel(profile.method_key)} · ${profileLabel(profile)}` : "No manufacturing profile"}</div>
+                          <div className="text-[10px] text-zinc-500 mt-1">
+                            {round(layerCosting.area_cm2 || 0)} cm²
+                          </div>
+                          {costLine && (
+                            <div className="text-[10px] text-[#34C759] mt-1">
+                              {costLine.combined
+                                ? `${costLine.layer_count}-layer job · ${money(costLine.cost)}`
+                                : money(costLine.cost)}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                    {!areaSlots.length && <div className="border border-dashed border-white/10 p-2 text-[10px] text-zinc-600">No layers</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <button type="button" className="btn-primary w-full mt-4" disabled={generating || !canGenerateMockup} onClick={generateMockup}><RefreshCw size={14} /> {generating ? "Generating…" : `Generate ${screenLabel(activeScreen)} Mockup`}</button>
+          {activeSlot?.mockup_image_url && <div className="mt-3 border border-white/10 p-2"><div className="overline mb-2">Generated mockup</div><img src={assetUrl(activeSlot.mockup_image_url)} alt="Generated mockup" className="w-full max-h-40 object-contain" /></div>}
+          {asArray(activeGroup?.derived_mockup_images).length > 0 && (
+            <div className="mt-3 border border-white/10 p-2">
+              <div className="overline mb-2">Derived sellable views</div>
+              <div className="grid grid-cols-2 gap-2">
+                {asArray(activeGroup.derived_mockup_images).map((mockup) => (
+                  <div key={mockup.id || mockup.image_url} className="border border-white/10 bg-black/30 p-1">
+                    <img src={assetUrl(mockup.image_url)} alt={mockup.view_key || mockup.role || "Derived mockup"} className="w-full aspect-square object-contain" />
+                    <div className="text-[9px] uppercase tracking-widest text-zinc-500 mt-1 truncate">{mockup.view_key || mockup.role}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </aside>
+        )}
+
+        <main className={creatorMode ? "creator-artwork-canvas-stage min-h-[680px] flex items-center justify-center overflow-visible" : "border border-white/10 bg-black min-h-[680px] flex items-center justify-center overflow-hidden rounded-xl p-4"}>
+          {activeImage ? (
+            <div className="relative inline-block max-w-full max-h-[820px] select-none leading-none align-middle">
+              <img src={assetUrl(activeImage)} alt={screenLabel(activeScreen)} className="block h-auto w-auto max-h-[820px] max-w-full object-contain" draggable="false" />
+              {areasForScreen.map((area) => {
+                const areaSlots = currentScreenSlots.filter((slot) => slot.print_area_id === area.id);
+                const areaActive = activeArea?.id === area.id;
+                return (
+                  <div key={area.id} ref={(element) => { if (element) areaRefs.current[area.id] = element; }} className="absolute overflow-visible" style={{ left: `${areaPct(area, "x")}%`, top: `${areaPct(area, "y")}%`, width: `${areaPct(area, "width")}%`, height: `${areaPct(area, "height")}%` }} onMouseDown={(event) => { event.stopPropagation(); setActivePrintAreaId(area.id); }}>
+                    <div
+                      className={`absolute inset-0 pointer-events-none border-2 ${areaActive ? "border-[#FF3B30] bg-[#FF3B30]/10" : "border-[#FF3B30]/50 bg-[#FF3B30]/5"}`}
+                      style={{
+                        ...geometryClipStyle(area),
+                        transform: `rotate(${Number(area.rotation_deg || 0)}deg)`,
+                        transformOrigin: "center",
+                      }}
+                    />
+                    <div className="absolute -top-8 left-0 z-30 bg-[#FF3B30] text-white text-[10px] uppercase tracking-widest px-2 py-1 whitespace-nowrap">{area.name} · {area.geometry_type || "rectangle"} · {area.width_mm || 0}×{area.height_mm || 0}mm</div>
+                    {areaSlots.map((slot) => {
+                      if (!slotHasArtwork(slot)) return null;
+                      const placement = sanitizePlacement(previewPlacements[slot.id] || slot.placement, area);
+                      const active = activeSlot?.id === slot.id;
+                      return (
+                        <div key={slot.id} data-artwork-layer-id={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center", touchAction: "none", willChange: "left, top, width, height, transform" }} onPointerDown={(event) => startDrag(event, slot, "move")} onMouseDown={(event) => startDrag(event, slot, "move")}>
+                          {slot.text_layer ? <TextLayerPreview slot={slot} /> : <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-fill pointer-events-none" draggable="false" />}
+                          {active && <><ResizeHandle position="nw" onStart={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onStart={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onStart={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onStart={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onPointerDown={(event) => startDrag(event, slot, "rotate")} onMouseDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          ) : <div className="text-center text-zinc-600"><ImageIcon className="mx-auto mb-4" size={56} /><div className="font-display text-3xl uppercase">No product view</div></div>}
+        </main>
+
+        {!creatorMode && (
           <aside className="border border-white/10 bg-black/20 p-3 rounded-xl min-h-[680px] overflow-auto">
             {creatorInspectorContent}
           </aside>
-        )} rounded-xl min-h-[680px] overflow-auto">
-          {activeSlot && activeArea ? (
-            <div className="space-y-4">
-              <div className="flex items-start justify-between gap-3"><div><div className="overline mb-1">Inspector</div><h3 className="font-display text-2xl uppercase">{activeSlot.text_layer ? "Text" : "Image"} Layer</h3><p className="text-xs text-zinc-500 mt-1">{activeArea.name} · {activeArea.width_mm || 0}×{activeArea.height_mm || 0}mm</p></div><button type="button" className="btn-secondary border-[#FF3B30] text-[#FF8A84] whitespace-nowrap" onClick={() => removeSlot(activeSlot.id)} title="Delete selected layer"><Trash2 size={16} /> Delete Layer</button></div>
-              {activeSlot.text_layer && <div className="border border-white/10 bg-black/30 rounded-xl p-3 space-y-3"><div className="font-bold text-sm">Text editor</div><label><span className="label">Text</span><textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(event) => updateTextLayer({ text_content: event.target.value })} /></label><div className="grid grid-cols-2 gap-2"><label><span className="label">Font</span><select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(event) => updateTextLayer({ text_font_family: event.target.value })}>{TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}</select></label><label><span className="label">Weight</span><select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(event) => updateTextLayer({ text_font_weight: event.target.value })}><option value="400">Regular</option><option value="600">Semi-bold</option><option value="700">Bold</option><option value="900">Heavy</option></select></label><label><span className="label">Text render size</span><input className="input-base" type="text" inputMode="numeric" value={Number(activeSlot.text_font_size || 180)} onChange={(event) => updateTextLayer({ text_font_size: event.target.value })} onBlur={(event) => updateTextLayer({ text_font_size: clamp(event.target.value, TEXT_RENDER_MIN, TEXT_RENDER_MAX) })} /></label>{supportsStockedColours(selectedProfile || {}) ? (
-                  <div><span className="label">Colour</span><div className="input-base h-[42px] flex items-center text-xs text-zinc-500">Use the approved stocked colour below</div></div>
-                ) : (
-                  <label><span className="label">Colour</span><input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(event) => updateTextLayer({ text_color: event.target.value })} /></label>
-                )}</div><p className="text-[11px] text-zinc-500">Use handles to resize text. Render size controls sharpness, not final product size.</p></div>}
-              {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingReplaceSlotIdRef.current = activeSlot.id; pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
-              <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} slot={activeSlot} />
-              <ColourRestrictionBlock profile={selectedProfile} slot={activeSlot} onChange={(value) => setLayerStockedColour(activeSlot.id, value)} />
-              {!creatorMode && (
-              <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">
-                <div className="overline mb-2">Costing</div>
-                <div className="grid grid-cols-2 gap-y-1">
-                  <span>Profile</span><span className="text-right text-zinc-200">{selectedProfile ? profileLabel(selectedProfile) : "None"}</span>
-                  <span>Calculation</span><span className="text-right text-zinc-200">{activeSlot.calculation_type || selectedProfile?.calculation_type || "—"}</span>
-                  <span>Minimum</span><span className="text-right text-zinc-200">{money(activeSlot.minimum_print_cost || selectedProfile?.minimum_print_cost || 0)}</span>
-                  <span>{selectedCostLine?.combined ? "Combined job cost" : "Layer cost"}</span>
-                  <span className="text-right text-[#34C759]">{money(selectedLayerCost)}</span>
-                </div>
-                {selectedCostLine?.combined && (
-                  <p className="text-[#B8F5C3] mt-2">
-                    This layer contributes {round(selectedLayerAreaCm2)} cm² to a{" "}
-                    {selectedCostLine.layer_count}-layer {methodLabel(selectedCostLine.method_key)}{" "}
-                    print job totalling {round(selectedJobAreaCm2)} cm².
-                  </p>
-                )}
-                {selectedCostLine?.costing?.minimum_print_cost_applied && (
-                  <p className="text-[#FFE08A] mt-2">
-                    The minimum print cost is applied once to the combined print job.
-                  </p>
-                )}
-              </div>
-              )}
-              <div className="border-t border-white/10 pt-4"><div className="overline mb-2">Placement</div><p className="text-xs text-zinc-500 mb-3 flex items-center gap-2"><Move size={13} /> Drag the layer on the preview.</p><label className="flex items-center gap-2 text-xs text-zinc-300 mb-3"><input type="checkbox" checked={activeSlot.lock_aspect_ratio !== false} onChange={(event) => patchSlot(activeSlot.id, { lock_aspect_ratio: event.target.checked })} /> Lock aspect ratio</label><div className="grid grid-cols-2 gap-2"><NumericControl label="X %" value={activePlacement.x} onChange={(value) => patchPlacement(activeSlot.id, { x: value })} /><NumericControl label="Y %" value={activePlacement.y} onChange={(value) => patchPlacement(activeSlot.id, { y: value })} /><NumericControl label="W %" value={activePlacement.width} onChange={(value) => patchPlacement(activeSlot.id, { width: value })} /><NumericControl label="H %" value={activePlacement.height} onChange={(value) => patchPlacement(activeSlot.id, { height: value })} /><NumericControl label="Rotation" value={activePlacement.rotation} onChange={(value) => patchPlacement(activeSlot.id, { rotation: value })} /></div><div className="grid grid-cols-3 gap-2 mt-3"><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 0, y: 0, width: 100, height: 100, rotation: 0 })}>Fit</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 25, y: 25, width: 50, height: 50, rotation: 0 })}>Center</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, defaultPlacement(activeArea))}>Reset</button></div></div>
-              {missingMethodCount > 0 && <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg">{missingMethodCount} layer(s) need manufacturing profiles.</div>}
-            </div>
-          ) : <div className="text-zinc-500 text-sm"><div className="overline mb-3">Inspector</div><p>Add an image or text layer to begin.</p></div>}
-        </aside>
+        )}
       </div>
       {creatorMode && inspectorTarget && createPortal(
         <div className="creator-layer-inspector-content">{creatorInspectorContent}</div>,
