@@ -735,4 +735,27 @@
   .creator-artwork-canvas-stage > div.relative,
   .creator-artwork-canvas-stage > div.relative > img { max-height: calc(100vh - 220px) !important; }
 }
-\n\n/* Mockups now behave like the compact left-side product tool drawers. */\n.creator-studio-mockups-panel { overflow: hidden; }\n.creator-studio-mockups-scroll { height: calc(100% - 64px); overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px 18px; }\n.creator-studio-mockups-intro { display: grid; gap: 4px; padding: 2px 0 10px; }\n.creator-studio-mockups-intro strong { font-size: 0.78rem; }\n.creator-studio-mockups-intro span { color: var(--ff-muted-text); font-size: 0.66rem; line-height: 1.45; }\n.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] { border: 0 !important; border-radius: 0 !important; background: transparent !important; padding: 0 !important; }\n.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] > div:first-child { display: grid !important; gap: 8px !important; }\n.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] h2 { font-size: 1.15rem !important; line-height: 1.05 !important; }\n.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] p { font-size: 0.66rem !important; line-height: 1.45 !important; margin-top: 4px !important; }\n.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] .btn-primary { width: 100%; justify-content: center; min-height: 36px; font-size: 0.7rem; }\n.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 6px !important; }\n.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] > .grid > div { min-width: 0; padding: 8px !important; }\n.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] img { max-height: 110px; }\n.creator-studio-mockups-gallery { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ff-card-border); }\n.creator-studio-mockups-gallery .creator-studio-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }\n.creator-studio-mockups-gallery .creator-studio-gallery-card { min-height: 132px; padding: 6px; }\n.creator-studio-mockups-gallery .creator-studio-gallery-card img { height: 96px; }\n.creator-studio-mockups-gallery .creator-studio-gallery-card > span { font-size: 0.6rem; }\n.creator-studio-mockups-gallery .creator-studio-gallery-card b,\n.creator-studio-mockups-gallery .creator-studio-gallery-card em { top: 8px; font-size: 0.52rem; padding: 3px 4px; }\n.creator-studio-mockups-gallery .creator-studio-gallery-card b { left: 8px; }\n.creator-studio-mockups-gallery .creator-studio-gallery-card em { right: 8px; }\n
+
+/* Mockups now behave like the compact left-side product tool drawers. */
+.creator-studio-mockups-panel { overflow: hidden; }
+.creator-studio-mockups-scroll { height: calc(100% - 64px); overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px 18px; }
+.creator-studio-mockups-intro { display: grid; gap: 4px; padding: 2px 0 10px; }
+.creator-studio-mockups-intro strong { font-size: 0.78rem; }
+.creator-studio-mockups-intro span { color: var(--ff-muted-text); font-size: 0.66rem; line-height: 1.45; }
+.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] { border: 0 !important; border-radius: 0 !important; background: transparent !important; padding: 0 !important; }
+.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] > div:first-child { display: grid !important; gap: 8px !important; }
+.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] h2 { font-size: 1.15rem !important; line-height: 1.05 !important; }
+.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] p { font-size: 0.66rem !important; line-height: 1.45 !important; margin-top: 4px !important; }
+.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] .btn-primary { width: 100%; justify-content: center; min-height: 36px; font-size: 0.7rem; }
+.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 6px !important; }
+.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] > .grid > div { min-width: 0; padding: 8px !important; }
+.creator-studio-mockups-panel [data-testid="scoped-artwork-mockup-generator"] img { max-height: 110px; }
+.creator-studio-mockups-gallery { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ff-card-border); }
+.creator-studio-mockups-gallery .creator-studio-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.creator-studio-mockups-gallery .creator-studio-gallery-card { min-height: 132px; padding: 6px; }
+.creator-studio-mockups-gallery .creator-studio-gallery-card img { height: 96px; }
+.creator-studio-mockups-gallery .creator-studio-gallery-card > span { font-size: 0.6rem; }
+.creator-studio-mockups-gallery .creator-studio-gallery-card b,
+.creator-studio-mockups-gallery .creator-studio-gallery-card em { top: 8px; font-size: 0.52rem; padding: 3px 4px; }
+.creator-studio-mockups-gallery .creator-studio-gallery-card b { left: 8px; }
+.creator-studio-mockups-gallery .creator-studio-gallery-card em { right: 8px; }
