@@ -26,7 +26,6 @@ import {
   setCreatorProductPublished,
 } from "../../lib/creatorProductPublishing";
 import { templateReadiness } from "../../lib/templateReadiness";
-import ArtworkScopeSelector from "./ArtworkScopeSelector";
 import ScopedProductArtworkStudio from "./ScopedProductArtworkStudio";
 import ScopedArtworkMockupGenerator from "./ScopedArtworkMockupGenerator";
 import CreatorArtworkScopesPanel from "./CreatorArtworkScopesPanel";
@@ -735,7 +734,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
                 {selectedTemplate?.brand && <span>Brand <strong>{selectedTemplate.brand}</strong></span>}
                 {selectedTemplate?.category && <span>Category <strong>{selectedTemplate.category}</strong></span>}
               </div>
-              {form.specs && <div className="creator-studio-template-specs">{form.specs}</div>}
+              {getTemplateSpecs(selectedTemplate) && <div className="creator-studio-template-specs">{getTemplateSpecs(selectedTemplate)}</div>}
             </StudioAccordion>
           </aside>
         )}
