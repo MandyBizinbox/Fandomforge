@@ -759,3 +759,28 @@
 .creator-studio-mockups-gallery .creator-studio-gallery-card em { top: 8px; font-size: 0.52rem; padding: 3px 4px; }
 .creator-studio-mockups-gallery .creator-studio-gallery-card b { left: 8px; }
 .creator-studio-mockups-gallery .creator-studio-gallery-card em { right: 8px; }
+
+
+/* Explicit creator draft / review actions */
+.creator-studio-topbar-actions { flex-wrap: wrap; }
+.creator-studio-save-draft,
+.creator-studio-review-submit {
+  min-width: 132px;
+  justify-content: center;
+}
+.creator-studio-review-lock {
+  color: var(--ff-muted-text);
+  font-size: 0.67rem;
+  line-height: 1.25;
+  text-align: right;
+  max-width: 180px;
+}
+.creator-studio-topbar-mode button:disabled,
+.creator-studio-topbar-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+@media (max-width: 1180px) {
+  .creator-studio-review-submit { min-width: 116px; }
+  .creator-studio-save-draft { min-width: 108px; }
+}

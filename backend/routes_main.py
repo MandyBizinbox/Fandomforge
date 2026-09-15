@@ -149,6 +149,13 @@ from product_template_csv import (
 
 from template_lifecycle import template_delete_impact_payload
 from e2e_runtime import with_e2e_mock_gateway
+from creator_product_review import (
+    REVIEW_DRAFT,
+    REVIEW_SUBMITTED,
+    reset_product_artwork_review,
+    review_is_locked,
+    review_queue_includes_product,
+)
 
 
 # =============================================================================
@@ -4173,6 +4180,12 @@ async def create_product(
         allow_admin_publish=False,
     )
 
+    if data.get("review_submission_status") == REVIEW_DRAFT:
+        data, _ = reset_product_artwork_review(
+            data,
+            submission_status=REVIEW_DRAFT,
+        )
+
     default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})
     slug = slugify(data["title"]) + "-" + uid()[:4]
 
@@ -4288,6 +4301,59 @@ async def get_product(
     return Product(**_decorate_product_effective_pricing(doc, template=template))
 
 
+@products_router.post("/{product_id}/submit-review", response_model=Product)
+async def submit_product_for_review(
+    product_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    db = request.app.state.db
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    creator = await get_band_for_product_access(db, user, product, permission="manage_products")
+    if not creator:
+        raise HTTPException(status_code=403, detail="Not your product")
+
+    if review_is_locked(product):
+        raise HTTPException(status_code=409, detail="This product is already in review")
+
+    if not (product.get("title") or "").strip():
+        raise HTTPException(status_code=400, detail="Add a product title before sending for review")
+    if not float(product.get("selling_price") or 0):
+        raise HTTPException(status_code=400, detail="Set a selling price before sending for review")
+    if not (product.get("mockup_images") or []):
+        raise HTTPException(status_code=400, detail="Generate at least one mockup before sending for review")
+
+    now = utcnow().isoformat()
+    submitted, artwork_count = reset_product_artwork_review(
+        product,
+        submission_status=REVIEW_SUBMITTED,
+        submitted_at=now,
+    )
+    if artwork_count == 0:
+        raise HTTPException(status_code=400, detail="Add artwork before sending for review")
+
+    update_doc = {
+        "artwork_groups": submitted.get("artwork_groups") or [],
+        "artworks": submitted.get("artworks") or [],
+        "artwork": submitted.get("artwork"),
+        "artwork_review_status": submitted.get("artwork_review_status"),
+        "artwork_review_notes": None,
+        "review_submission_status": REVIEW_SUBMITTED,
+        "review_submitted_at": now,
+        "published": False,
+        "updated_at": now,
+    }
+    await db.products.update_one({"id": product_id}, {"$set": iso_dates(update_doc)})
+    doc = await db.products.find_one({"id": product_id}, {"_id": 0})
+    template = None
+    if doc.get("template_id"):
+        template = await db.product_templates.find_one({"id": doc.get("template_id")}, {"_id": 0})
+    return Product(**_decorate_product_effective_pricing(doc, template=template))
+
+
 @products_router.patch("/{product_id}", response_model=Product)
 async def update_product(
     product_id: str,
@@ -4310,6 +4376,12 @@ async def update_product(
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
 
+    if user.role not in ("super_admin", "admin") and review_is_locked(product):
+        raise HTTPException(
+            status_code=409,
+            detail="This product is in review and cannot be edited until review is complete",
+        )
+
     merged = {**product, **updates}
     normalized = await normalize_template_product_payload(
         db=db,
@@ -4318,6 +4390,12 @@ async def update_product(
         user=user,
         allow_admin_publish=user.role in ("super_admin", "admin"),
     )
+
+    if user.role not in ("super_admin", "admin") and updates.get("review_submission_status") == REVIEW_DRAFT:
+        normalized, _ = reset_product_artwork_review(
+            normalized,
+            submission_status=REVIEW_DRAFT,
+        )
 
     update_doc = {k: v for k, v in normalized.items() if k not in ("id", "band_id", "slug", "created_at", "created_by_user_id", "created_by_role")}
     update_doc["updated_at"] = utcnow().isoformat()
@@ -7316,6 +7394,7 @@ async def _build_artwork_review_rows(db, status: Optional[str] = None, product_i
         product_query["id"] = product_id
 
     products = await db.products.find(product_query, {"_id": 0}).sort("updated_at", -1).to_list(1000)
+    products = [product for product in products if review_queue_includes_product(product)]
     band_ids = list({p.get("band_id") for p in products if p.get("band_id")})
     template_ids = list({p.get("template_id") for p in products if p.get("template_id")})
 

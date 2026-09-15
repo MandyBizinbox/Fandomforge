@@ -192,6 +192,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [product, setProduct] = useState(null);
   const [templates, setTemplates] = useState([]);
@@ -583,6 +584,8 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
       customization_enabled: false,
       published: false,
       publish_on_approval: false,
+      review_submission_status: "draft",
+      review_submitted_at: null,
       selected_template_variation_ids: form.selected_template_variation_ids,
       selected_print_area_id: primary?.print_area_id || "",
       selected_print_option_id: primary?.print_option_id || "",
@@ -604,9 +607,15 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
     };
   };
 
-  const validate = () => {
+  const validateDraft = () => {
     if (!form.title.trim()) return "Add a product title in Product details.";
     if (!form.template_id) return "Choose a product from the Catalogue.";
+    return null;
+  };
+
+  const validateReview = () => {
+    const draftError = validateDraft();
+    if (draftError) return draftError;
     if (hasVariations && !form.selected_template_variation_ids.length) return "Choose at least one variant.";
     if (!form.artwork_groups.length || !readyArtworkSlots.length) return "Add artwork and choose a print method.";
     if (!generatedMockups.length) return "Generate at least one mockup.";
@@ -614,36 +623,66 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
     return null;
   };
 
-  const save = async () => {
-    const error = validate();
+  const persistDraft = async ({ redirect = true, quiet = false } = {}) => {
+    const error = validateDraft();
     if (error) {
       toast.error(error);
-      return false;
+      return null;
     }
     setSaving(true);
     try {
-      const payload = buildPayload();
+      const payload = {
+        ...buildPayload(),
+        review_submission_status: "draft",
+        review_submitted_at: null,
+        published: false,
+      };
       const response = isNew
         ? await http.post("/products", payload)
         : await http.patch(`/products/${routeId}`, payload);
       const saved = response.data;
       setProduct(saved);
       emitCreatorProductsReadyRefresh();
-      toast.success(isNew ? "Product created" : "Product saved");
-      navigate("/creator/products", { replace: true });
-      return true;
+      if (!quiet) toast.success(isNew ? "Draft created" : "Draft saved");
+      if (redirect) navigate("/creator/products", { replace: true });
+      return saved;
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Could not save product");
-      return false;
+      toast.error(error.response?.data?.detail || "Could not save draft");
+      return null;
     } finally {
       setSaving(false);
     }
   };
 
+  const saveDraft = async () => {
+    await persistDraft({ redirect: true });
+  };
+
+  const sendForReview = async () => {
+    const error = validateReview();
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    setSubmittingReview(true);
+    try {
+      const saved = await persistDraft({ redirect: false, quiet: true });
+      if (!saved?.id) return;
+      const response = await http.post(`/products/${saved.id}/submit-review`);
+      setProduct(response.data);
+      emitCreatorProductsReadyRefresh();
+      toast.success(product?.artwork_review_status === "rejected" ? "Product resubmitted for review" : "Product sent for review");
+      navigate("/creator/products", { replace: true });
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Could not send product for review");
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
   const publish = async () => {
     if (!product?.id) {
-      const saved = await save();
-      if (!saved) return;
+      await persistDraft({ redirect: true });
       return;
     }
     if (!canPublishCreatorProduct(product)) {
@@ -666,6 +705,21 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   const backPath = isNew && catalogueTemplateId ? creatorStudioBackPath(catalogueTemplateId) : backTo;
   const selectedImage = form.primary_mockup_image_url || form.mockup_image_url || templateImage(selectedTemplate);
   const published = isCreatorProductPublished(product || {});
+  const reviewSubmissionStatus = product?.review_submission_status || "draft";
+  const reviewPending = reviewSubmissionStatus === "submitted" && product?.artwork_review_status === "pending_review";
+  const reviewRejected = product?.artwork_review_status === "rejected";
+  const reviewApproved = product?.artwork_review_status === "approved";
+  const reviewStatusLabel = published
+    ? "Live"
+    : reviewPending
+      ? "In review"
+      : reviewRejected
+        ? "Changes requested"
+        : reviewApproved
+          ? "Approved"
+          : readyToSave
+            ? "Ready for review"
+            : "Draft";
   const priceValues = pricingAttribute
     ? [...new Set(selectedVariations.map((variation) => String(getAttributeValue(variation, pricingAttribute) || "")).filter(Boolean))]
     : [];
@@ -685,14 +739,22 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
           <strong>{form.title || selectedTemplate?.name || "Untitled product"}</strong>
         </div>
         <div className="creator-studio-topbar-mode" role="tablist" aria-label="Studio mode">
-          <button type="button" className={viewMode === "edit" ? "is-active" : ""} onClick={() => setViewMode("edit")}><Pencil size={14} /> Edit</button>
+          <button type="button" className={viewMode === "edit" ? "is-active" : ""} onClick={() => !reviewPending && setViewMode("edit")} disabled={reviewPending}><Pencil size={14} /> Edit</button>
           <button type="button" className={viewMode === "preview" ? "is-active" : ""} onClick={() => setViewMode("preview")}><Eye size={14} /> Preview</button>
         </div>
         <div className="creator-studio-topbar-actions">
-          <span className={`creator-studio-save-state ${readyToSave ? "is-ready" : ""}`}>{published ? "Live" : readyToSave ? "Ready to save" : "Draft"}</span>
-          <button type="button" className="btn-primary creator-studio-save" onClick={save} disabled={saving}>
-            <Save size={14} /> {saving ? "Saving…" : "Save product"}
-          </button>
+          <span className={`creator-studio-save-state ${readyToSave && !reviewPending ? "is-ready" : ""}`}>{reviewStatusLabel}</span>
+          {!reviewPending && (
+            <>
+              <button type="button" className="btn-secondary creator-studio-save creator-studio-save-draft" onClick={saveDraft} disabled={saving || submittingReview}>
+                <Save size={14} /> {saving ? "Saving…" : "Save draft"}
+              </button>
+              <button type="button" className="btn-primary creator-studio-review-submit" onClick={sendForReview} disabled={saving || submittingReview || !readyToSave}>
+                <Sparkles size={14} /> {submittingReview ? "Sending…" : reviewRejected ? "Resubmit for review" : "Send for review"}
+              </button>
+            </>
+          )}
+          {reviewPending && <span className="creator-studio-review-lock">Editing locked while review is pending</span>}
         </div>
       </header>
 
