@@ -140,13 +140,14 @@ function findColourHex(variations, attributeKey, value) {
   return hex || "";
 }
 
-function templateImage(template = {}) {
-  return template.creator_catalogue_thumbnail_url
-    || template.primary_image
-    || template.product_image_url
-    || template.mockup_url
-    || asArray(template.mockup_images)[0]
-    || asArray(template.mockup_screens).find((screen) => screen?.image_url)?.image_url
+function templateImage(template) {
+  const source = template || {};
+  return source.creator_catalogue_thumbnail_url
+    || source.primary_image
+    || source.product_image_url
+    || source.mockup_url
+    || asArray(source.mockup_images)[0]
+    || asArray(source.mockup_screens).find((screen) => screen?.image_url)?.image_url
     || "";
 }
 
