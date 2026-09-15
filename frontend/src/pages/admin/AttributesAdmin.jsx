@@ -13,13 +13,14 @@ function ValueChips({ values, onChange }) {
     setDraft("");
   };
   const remove = (v) => onChange(values.filter((x) => x !== v));
+  const HeadingTag = embedded ? "h2" : "h1";
   return (
     <div>
       <div className="flex flex-wrap gap-2 mb-2">
         {values.map((v) => (
-          <span key={v} className="inline-flex items-center gap-1 px-3 py-1 border border-white/20 text-xs uppercase tracking-widest" data-testid={`chip-${v}`}>
+          <span key={v} className="inline-flex items-center gap-1 px-3 py-1 border border-[var(--ff-card-border)] text-xs uppercase tracking-widest" data-testid={`chip-${v}`}>
             {v}
-            <button type="button" onClick={() => remove(v)} className="hover:text-[#FF3B30]"><X size={12} /></button>
+            <button type="button" onClick={() => remove(v)} className="hover:text-[var(--ff-primary)]"><X size={12} /></button>
           </span>
         ))}
       </div>
@@ -34,9 +35,9 @@ function ValueChips({ values, onChange }) {
   );
 }
 
-export default function AttributesAdmin() {
+export default function AttributesAdmin({ embedded = false } = {}) {
   const [rows, setRows] = useState([]);
-  const [editing, setEditing] = useState(null); // attribute being edited (or new draft)
+  const [editing, setEditing] = useState(null);
   const load = () => http.get("/attributes").then((r) => setRows(r.data));
   useEffect(() => { load(); }, []);
 
@@ -75,7 +76,7 @@ export default function AttributesAdmin() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <div className="overline mb-2">Catalog</div>
-          <h1 className="font-display text-5xl uppercase">Attributes</h1>
+          <HeadingTag className={`font-display uppercase ${embedded ? "text-3xl" : "text-5xl"}`}>Attributes</HeadingTag>
         </div>
         {!editing && <button onClick={startNew} className="btn-primary" data-testid="attr-new-btn"><Plus size={14} /> New Attribute</button>}
       </div>
@@ -101,22 +102,22 @@ export default function AttributesAdmin() {
         </form>
       )}
 
-      <div className="border border-white/15">
-        <table className="table-brutal">
+      <div className="border border-[var(--ff-card-border)] overflow-x-auto">
+        <table className="table-brutal min-w-[720px]">
           <thead><tr><th>Name</th><th>Values</th><th>Used as variation</th><th></th></tr></thead>
           <tbody>
             {rows.map((a) => (
               <tr key={a.id} data-testid={`attr-row-${a.slug}`}>
                 <td className="font-bold">{a.name}</td>
-                <td className="text-zinc-300 text-xs">{a.values.join(", ")}</td>
+                <td className="text-[var(--ff-muted-text)] text-xs">{a.values.join(", ")}</td>
                 <td>{a.used_for_variation ? <span className="badge badge-success">Yes</span> : <span className="badge badge-muted">No</span>}</td>
                 <td className="text-right whitespace-nowrap">
-                  <button onClick={() => startEdit(a)} className="text-xs uppercase tracking-widest text-[#FF3B30] hover:text-white font-bold mr-3" data-testid={`attr-edit-${a.slug}`}>Edit</button>
-                  <button onClick={() => remove(a)} className="text-xs uppercase tracking-widest text-zinc-400 hover:text-[#FF3B30] font-bold" data-testid={`attr-delete-${a.slug}`}>Delete</button>
+                  <button onClick={() => startEdit(a)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] hover:text-[var(--ff-card-text)] font-bold mr-3" data-testid={`attr-edit-${a.slug}`}>Edit</button>
+                  <button onClick={() => remove(a)} className="text-xs uppercase tracking-widest text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)] font-bold" data-testid={`attr-delete-${a.slug}`}>Delete</button>
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={4} className="p-10 text-center text-zinc-500 overline">No attributes — create your first</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={4} className="p-10 text-center text-[var(--ff-muted-text)] overline">No attributes — create your first</td></tr>}
           </tbody>
         </table>
       </div>

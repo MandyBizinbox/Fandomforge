@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Image as ImageIcon, Move, RefreshCw, RotateCcw, Trash2, Type } from "lucide-react";
 import { http, assetUrl } from "../../lib/api";
@@ -14,7 +15,9 @@ import {
   makeId,
   money,
   normalizeProductionMethodKey,
+  resolveArtworkPhysicalDimensions,
 } from "./productBuilderUtils";
+import { resolveArtworkMockupBox } from "./productBuilderMockupGeometry";
 
 const TEXT_RENDER_MIN = 24;
 const TEXT_RENDER_MAX = 1200;
@@ -521,16 +524,17 @@ function resolveProfileForSlot(slot = {}, profiles = [], legacyPrintOptions = []
   return legacy ? profileFromLegacyPrintOption(legacy) : null;
 }
 
-function calculateArtworkPrintSize(area, placement) {
-  const areaWidthMm = Number(area?.width_mm || 0);
-  const areaHeightMm = Number(area?.height_mm || 0);
-  const widthPct = Number(placement?.width ?? placement?.width_pct ?? 100);
-  const heightPct = Number(placement?.height ?? placement?.height_pct ?? 100);
-  if (!areaWidthMm || !areaHeightMm || !widthPct || !heightPct) {
+function calculateArtworkPrintSize(area, placement, slot = {}) {
+  const physical = resolveArtworkPhysicalDimensions({ ...slot, placement }, area);
+  const areaWidthMm = physical.areaWidthMm;
+  const areaHeightMm = physical.areaHeightMm;
+  const widthPct = physical.placementWidthPct;
+  const heightPct = physical.placementHeightPct;
+  const widthMm = physical.artworkWidthMm;
+  const heightMm = physical.artworkHeightMm;
+  if (!areaWidthMm || !areaHeightMm || !widthMm || !heightMm) {
     return { valid: false, widthPct, heightPct, areaWidthMm, areaHeightMm };
   }
-  const widthMm = areaWidthMm * (widthPct / 100);
-  const heightMm = areaHeightMm * (heightPct / 100);
   const areaCm2 = (widthMm / 10) * (heightMm / 10);
   if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm) || !Number.isFinite(areaCm2) || areaCm2 <= 0) {
     return { valid: false, widthPct, heightPct, areaWidthMm, areaHeightMm };
@@ -548,6 +552,8 @@ function calculateArtworkPrintSize(area, placement) {
     areaHeightCm: Math.round((areaHeightMm / 10) * 10) / 10,
     widthPct: round(widthPct),
     heightPct: round(heightPct),
+    aspectRatio: physical.aspectRatio,
+    aspectLocked: physical.aspectLocked,
   };
 }
 
@@ -641,9 +647,17 @@ function TextLayerPreview({ slot }) {
   );
 }
 
-function ResizeHandle({ position, onPointerDown }) {
+function ResizeHandle({ position, onStart }) {
   const positionClasses = { nw: "-left-2 -top-2 cursor-nwse-resize", ne: "-right-2 -top-2 cursor-nesw-resize", sw: "-left-2 -bottom-2 cursor-nesw-resize", se: "-right-2 -bottom-2 cursor-nwse-resize" };
-  return <button type="button" aria-label={`Resize ${position}`} className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`} onPointerDown={onPointerDown} />;
+  return (
+    <button
+      type="button"
+      aria-label={`Resize ${position}`}
+      className={`absolute z-30 h-4 w-4 rounded-full bg-[#34C759] border-2 border-black ${positionClasses[position]}`}
+      onPointerDown={onStart}
+      onMouseDown={onStart}
+    />
+  );
 }
 
 function NumericControl({ label, value, onChange }) {
@@ -655,8 +669,8 @@ function NumericControl({ label, value, onChange }) {
   );
 }
 
-function ArtworkPrintSizeBlock({ area, placement }) {
-  const size = calculateArtworkPrintSize(area, placement);
+function ArtworkPrintSizeBlock({ area, placement, slot }) {
+  const size = calculateArtworkPrintSize(area, placement, slot);
   return (
     <div className="border border-[#34C759]/30 bg-[#0A1B10] rounded-xl p-3">
       <div className="overline mb-2">Artwork Print Size</div>
@@ -666,7 +680,7 @@ function ArtworkPrintSizeBlock({ area, placement }) {
           <div>{size.widthMm.toFixed(0)} × {size.heightMm.toFixed(0)} mm</div>
           <div>{size.areaCm2.toFixed(1)} cm²</div>
           <div className="text-zinc-500 pt-2">Print area: {size.areaWidthCm.toFixed(1)} × {size.areaHeightCm.toFixed(1)} cm</div>
-          <div className="text-zinc-500">Layer: {size.widthPct.toFixed(1)}% × {size.heightPct.toFixed(1)}%</div>
+          <div className="text-zinc-500">{size.aspectLocked ? `Scale: ${size.widthPct.toFixed(1)}% of print-area width · Aspect ${size.aspectRatio.toFixed(3)}:1` : `Layer: ${size.widthPct.toFixed(1)}% × ${size.heightPct.toFixed(1)}%`}</div>
         </div>
       ) : (
         <div className="text-xs text-zinc-500">Set print-area dimensions and layer size to calculate physical artwork dimensions safely.</div>
@@ -710,11 +724,16 @@ async function renderSlotIntoPrintAreaLayer(slot, area, targetWidth, targetHeigh
   const context = layer.getContext("2d");
   const geometry = normalisePrintAreaGeometry(area);
   const placement = sanitizePlacement(slot.placement, area);
-  const artX = (Number(placement.x || 0) / 100) * width;
-  const artY = (Number(placement.y || 0) / 100) * height;
-  const artW = (Number(placement.width || 100) / 100) * width;
-  const artH = (Number(placement.height || 100) / 100) * height;
-  const rotation = (Number(placement.rotation || 0) * Math.PI) / 180;
+const renderBox = resolveArtworkMockupBox(
+  { ...slot, placement },
+  area,
+  { width, height }
+);
+const artX = renderBox.x;
+const artY = renderBox.y;
+const artW = renderBox.width;
+const artH = renderBox.height;
+const rotation = (Number(renderBox.rotation || 0) * Math.PI) / 180;
 
   context.save();
   if (geometry.geometry_type !== "mask") {
@@ -777,9 +796,15 @@ async function uploadGeneratedCanvas(canvas, fileName) {
   return response.data.url;
 }
 
-export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false }) {
+export default function ProductArtworkStudio({ template, printOptions, artworkGroups, onArtworkGroupsChange, selectedVariations, isAdmin = false, creatorMode = false, activeSlotId: controlledActiveSlotId = "", onActiveSlotChange, inspectorPortalId = "creator-layer-inspector-slot" }) {
   const [activeGroupId, setActiveGroupId] = useState(asArray(artworkGroups)[0]?.id || "");
-  const [activeSlotId, setActiveSlotId] = useState("");
+  const [internalActiveSlotId, setInternalActiveSlotId] = useState("");
+  const [inspectorTarget, setInspectorTarget] = useState(null);
+  const activeSlotId = controlledActiveSlotId || internalActiveSlotId;
+  const setActiveSlotId = useCallback((id) => {
+    setInternalActiveSlotId(id);
+    onActiveSlotChange?.(id);
+  }, [onActiveSlotChange]);
   const [activeScreenId, setActiveScreenId] = useState(asArray(template?.mockup_screens)[0]?.id || "");
   const [activePrintAreaId, setActivePrintAreaId] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -792,8 +817,8 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const pendingReplaceSlotIdRef = useRef("");
   const areaRefs = useRef({});
   const dragRef = useRef(null);
-  const dragRafRef = useRef(null);
   const dragLatestRef = useRef(null);
+  const dragCleanupRef = useRef(null);
 
   const groups = asArray(artworkGroups);
   const variations = asArray(selectedVariations);
@@ -841,6 +866,30 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     return areasForScreen.find((area) => area.id === activePrintAreaId) || areasForScreen[0] || null;
   }, [activeSlot, printAreas, areasForScreen, activePrintAreaId]);
 
+  useEffect(() => {
+    if (!controlledActiveSlotId) return;
+    const slot = slots.find((item) => item.id === controlledActiveSlotId);
+    if (!slot) return;
+    const area = printAreas.find((item) => item.id === slot.print_area_id);
+    if (!area) return;
+    if (area.screen_id && area.screen_id !== currentScreenId) setActiveScreenId(area.screen_id);
+    setActivePrintAreaId(area.id);
+  }, [controlledActiveSlotId, currentScreenId, printAreas, slots]);
+
+  useEffect(() => {
+    if (!creatorMode || !activeSlot?.id || controlledActiveSlotId) return;
+    onActiveSlotChange?.(activeSlot.id);
+  }, [activeSlot?.id, controlledActiveSlotId, creatorMode, onActiveSlotChange]);
+
+  useEffect(() => {
+    if (!creatorMode || typeof document === "undefined") {
+      if (inspectorTarget) setInspectorTarget(null);
+      return;
+    }
+    const target = document.getElementById(inspectorPortalId);
+    setInspectorTarget((current) => current === target ? current : target);
+  });
+
   const legacyProfileFallbacks = useMemo(() => asArray(printOptions).map(profileFromLegacyPrintOption).filter((profile) => profile.id), [printOptions]);
   const profileCatalog = useMemo(() => {
     const merged = [];
@@ -871,7 +920,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     return merged;
   }, [manufacturingProfiles, legacyProfileFallbacks]);
 
-  const allowedProfilesForArea = (area) => {
+  const allowedProfilesForArea = useCallback((area) => {
     if (!area) return [];
     const templateOptionIds = asArray(template?.print_option_ids);
     const areaOptionIds = [
@@ -886,9 +935,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     const exactProfiles = activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds, { methodFallback: false }));
     if (exactProfiles.length) return exactProfiles;
     return activeProfiles.filter((profile) => profileMatchesAllowedIds(profile, allowedIds, { methodFallback: true }));
-  };
+  }, [profileCatalog, template]);
 
-  const allowedProfiles = useMemo(() => allowedProfilesForArea(activeArea), [activeArea, profileCatalog, template]);
+  const allowedProfiles = useMemo(() => allowedProfilesForArea(activeArea), [activeArea, allowedProfilesForArea]);
   const selectedProfile = useMemo(() => {
     const candidate = resolveProfileForSlot(activeSlot || {}, profileCatalog, printOptions);
     if (!candidate) return null;
@@ -900,12 +949,45 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const templateForCosting = useMemo(() => ({ ...(template || {}), print_areas: printAreas }), [template, printAreas]);
   const currentScreenCostLines = useMemo(() => getAggregatedPrintCostLines([{ ...(activeGroup || {}), artworks: currentScreenSlots }], profileCatalog, templateForCosting), [activeGroup, currentScreenSlots, profileCatalog, templateForCosting]);
   const allCostLines = useMemo(() => getAggregatedPrintCostLines(activeGroup ? [activeGroup] : [], profileCatalog, templateForCosting), [activeGroup, profileCatalog, templateForCosting]);
-  const allGroupPrintCost = Math.round(allCostLines.reduce((total, line) => total + Number(line.cost || 0), 0) * 100) / 100;
-  const selectedLayerCost = useMemo(() => {
-    if (!activeSlot || !activeArea) return 0;
+  const allGroupPrintCost = Math.round(
+    allCostLines.reduce(
+      (total, line) => total + Number(line.cost || 0),
+      0
+    ) * 100
+  ) / 100;
+
+  const selectedCostLine = useMemo(
+    () => (
+      allCostLines.find(
+        (line) => asArray(line.slot_ids).includes(activeSlot?.id)
+      ) || null
+    ),
+    [activeSlot?.id, allCostLines]
+  );
+
+  const selectedLayerCosting = useMemo(() => {
+    if (!activeSlot || !activeArea) return null;
     const profile = selectedProfile || activeSlot;
-    return Number(calculateAreaPrintCost(activeSlot, activeArea, profile).calculated_print_cost || activeSlot.calculated_print_cost || activeSlot.print_cost_max || 0);
+    return calculateAreaPrintCost(activeSlot, activeArea, profile);
   }, [activeSlot, activeArea, selectedProfile]);
+
+  const selectedLayerCost = Number(
+    selectedCostLine?.cost
+    ?? selectedLayerCosting?.calculated_print_cost
+    ?? activeSlot?.calculated_print_cost
+    ?? activeSlot?.print_cost_max
+    ?? 0
+  );
+
+  const selectedLayerAreaCm2 = Number(
+    selectedLayerCosting?.area_cm2 || activeSlot?.area_cm2 || 0
+  );
+
+  const selectedJobAreaCm2 = Number(
+    selectedCostLine?.combined_area_cm2
+    || selectedCostLine?.costing?.area_cm2
+    || selectedLayerAreaCm2
+  );
   const missingMethodCount = currentScreenSlots.filter((slot) => slotHasArtwork(slot) && !slot.print_option_id).length;
   const canGenerateMockup = Boolean(activeImage && currentScreenSlots.some((slot) => slotHasArtwork(slot) && slot.print_option_id));
   const groupedProfiles = useMemo(() => {
@@ -952,18 +1034,20 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     if (activePrintAreaId && !areasForScreen.some((area) => area.id === activePrintAreaId)) setActivePrintAreaId(areasForScreen[0]?.id || "");
   }, [areasForScreen, activePrintAreaId]);
 
-  const setGroups = (nextGroups) => onArtworkGroupsChange(nextGroups.map((group, index) => ({ ...group, sort_order: index })));
-  const setGroupSlots = (groupId, nextSlots) => {
+  const setGroups = useCallback((nextGroups) => {
+    onArtworkGroupsChange(nextGroups.map((group, index) => ({ ...group, sort_order: index })));
+  }, [onArtworkGroupsChange]);
+  const setGroupSlots = useCallback((groupId, nextSlots) => {
     const nextGroups = patchGroup(groups, groupId, (group) => {
       const primaryMockup = nextSlots.find((slot) => slot.mockup_image_url)?.mockup_image_url || group.primary_mockup_image_url || "";
       return { ...group, artworks: nextSlots.map((slot, index) => ({ ...slot, sort_order: index })), primary_mockup_image_url: primaryMockup };
     });
     setGroups(nextGroups);
-  };
-  const patchSlot = (slotId, patch) => {
+  }, [groups, setGroups]);
+  const patchSlot = useCallback((slotId, patch) => {
     if (!activeGroup) return;
     setGroupSlots(activeGroup.id, slots.map((slot) => (slot.id === slotId ? { ...slot, ...patch } : slot)));
-  };
+  }, [activeGroup, slots, setGroupSlots]);
 
   useEffect(() => {
     if (!activeGroup || !profileCatalog.length || !slots.length) return;
@@ -1007,7 +1091,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       return slot;
     });
     if (changed) setGroupSlots(activeGroup.id, nextSlots);
-  }, [profileCatalog, activeGroup?.id, slots, printAreas, printOptions]);
+  }, [profileCatalog, activeGroup, slots, printAreas, printOptions, allowedProfilesForArea, setGroupSlots]);
 
   const areaRatioFor = (areaId) => {
     const rect = areaRefs.current[areaId]?.getBoundingClientRect?.();
@@ -1168,9 +1252,32 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     const nextSettings = normaliseTextSettings({ text_content: activeSlot.text_content, text_font_family: activeSlot.text_font_family, text_font_weight: activeSlot.text_font_weight, text_font_size: activeSlot.text_font_size, text_color: activeSlot.text_color, ...patch });
     const asset = buildTextLayerAsset(nextSettings);
     const placement = sanitizePlacement(activeSlot.placement, activeArea);
-    const nextPlacement = activeSlot.lock_aspect_ratio === false ? placement : { ...placement, height: fitHeightForAspect(activeArea.id, placement.width, asset.artwork_aspect_ratio) };
-    patchSlot(activeSlot.id, { ...asset, placement: nextPlacement });
-    window.requestAnimationFrame(() => patchPlacement(activeSlot.id, nextPlacement));
+    const nextPlacement = activeSlot.lock_aspect_ratio === false
+      ? placement
+      : { ...placement, height: fitHeightForAspect(activeArea.id, placement.width, asset.artwork_aspect_ratio) };
+    const nextSlot = { ...activeSlot, ...asset, placement: nextPlacement };
+    const profile = resolveProfileForSlot(nextSlot, profileCatalog, printOptions) || nextSlot;
+    const costing = calculateAreaPrintCost(nextSlot, activeArea, profile);
+    patchSlot(activeSlot.id, {
+      ...asset,
+      placement: nextPlacement,
+      placement_box_width_mm: costing.placement_box_width_mm,
+      placement_box_height_mm: costing.placement_box_height_mm,
+      artwork_aspect_ratio: costing.artwork_aspect_ratio || asset.artwork_aspect_ratio || activeSlot.artwork_aspect_ratio || 0,
+      print_area_width_mm: costing.print_area_width_mm,
+      print_area_height_mm: costing.print_area_height_mm,
+      artwork_width_mm: costing.artwork_width_mm,
+      artwork_height_mm: costing.artwork_height_mm,
+      print_width_mm: costing.print_width_mm,
+      print_height_mm: costing.print_height_mm,
+      area_cm2: costing.area_cm2,
+      raw_print_cost: costing.raw_print_cost,
+      calculated_print_cost: costing.calculated_print_cost,
+      print_cost_max: costing.calculated_print_cost,
+      minimum_print_cost_applied: costing.minimum_print_cost_applied,
+      final_artwork_production_cost: costing.final_artwork_production_cost,
+      pricing_source: costing.pricing_source,
+    });
   };
 
   const removeSlot = useCallback((slotId) => {
@@ -1196,87 +1303,242 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   }, [activeSlot?.id, removeSlot]);
 
   const startDrag = (event, slot, type, handle = "") => {
-    const area = printAreas.find((item) => item.id === slot?.print_area_id);
+    if (dragRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    if (
+      event.button !== undefined
+      && event.button !== null
+      && event.button !== 0
+    ) {
+      return;
+    }
+
+    const area = printAreas.find(
+      (item) => item.id === slot?.print_area_id
+    );
     const areaElement = areaRefs.current[area?.id];
+
     if (!slot || !area || !areaElement) return;
+
     event.preventDefault();
     event.stopPropagation();
+
     setActiveSlotId(slot.id);
     setActivePrintAreaId(area.id);
-    const layerElement = event.currentTarget?.closest?.("[data-artwork-layer-id]") || null;
-    try {
-      event.currentTarget?.setPointerCapture?.(event.pointerId);
-    } catch (error) {
-      // Window-level pointer listeners keep the drag active when pointer capture is unavailable.
-    }
-    dragRef.current = { slotId: slot.id, type, handle, startX: event.clientX, startY: event.clientY, startPlacement: sanitizePlacement(slot.placement, area), areaId: area.id, layerElement };
-  };
 
-  useEffect(() => {
-    const handleMove = (event) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      const slot = slots.find((item) => item.id === drag.slotId);
-      const area = printAreas.find((item) => item.id === drag.areaId);
-      const areaElement = areaRefs.current[drag.areaId];
-      if (!slot || !area || !areaElement) return;
-      event.preventDefault();
-      const rect = areaElement.getBoundingClientRect();
-      const dx = ((event.clientX - drag.startX) / rect.width) * 100;
-      const dy = ((event.clientY - drag.startY) / rect.height) * 100;
-      const start = drag.startPlacement;
+    const eventFamily = String(event.type || "").startsWith("pointer")
+      ? "pointer"
+      : "mouse";
+
+    const moveEventName = eventFamily === "pointer"
+      ? "pointermove"
+      : "mousemove";
+
+    const upEventName = eventFamily === "pointer"
+      ? "pointerup"
+      : "mouseup";
+
+    const cancelEventName = eventFamily === "pointer"
+      ? "pointercancel"
+      : null;
+
+    const startPlacement = sanitizePlacement(
+      previewPlacements[slot.id] || slot.placement,
+      area
+    );
+
+    const drag = {
+      slotId: slot.id,
+      slot,
+      type,
+      handle,
+      startX: Number(event.clientX || 0),
+      startY: Number(event.clientY || 0),
+      startPlacement,
+      area,
+      areaElement,
+      moveEventName,
+      upEventName,
+      cancelEventName,
+    };
+
+    dragRef.current = drag;
+    dragLatestRef.current = startPlacement;
+
+    function cleanupListeners() {
+      window.removeEventListener(moveEventName, handleMove);
+      window.removeEventListener(upEventName, handleUp);
+
+      if (cancelEventName) {
+        window.removeEventListener(cancelEventName, handleUp);
+      }
+
+      if (dragCleanupRef.current === cleanupListeners) {
+        dragCleanupRef.current = null;
+      }
+    }
+
+    function handleMove(moveEvent) {
+      const activeDrag = dragRef.current;
+
+      if (!activeDrag || activeDrag.slotId !== slot.id) return;
+
+      moveEvent.preventDefault();
+
+      const rect = activeDrag.areaElement.getBoundingClientRect();
+
+      if (!rect.width || !rect.height) return;
+
+      const dx = (
+        (Number(moveEvent.clientX || 0) - activeDrag.startX)
+        / rect.width
+      ) * 100;
+
+      const dy = (
+        (Number(moveEvent.clientY || 0) - activeDrag.startY)
+        / rect.height
+      ) * 100;
+
+      const start = activeDrag.startPlacement;
       let next = { ...start };
-      if (drag.type === "move") { next.x = start.x + dx; next.y = start.y + dy; }
-      if (drag.type === "resize") {
-        if (drag.handle.includes("e")) next.width = start.width + dx;
-        if (drag.handle.includes("s")) next.height = start.height + dy;
-        if (drag.handle.includes("w")) { next.x = start.x + dx; next.width = start.width - dx; }
-        if (drag.handle.includes("n")) { next.y = start.y + dy; next.height = start.height - dy; }
-        if (slot.lock_aspect_ratio !== false && Number(slot.artwork_aspect_ratio || 0) > 0) {
+
+      if (activeDrag.type === "move") {
+        next.x = start.x + dx;
+        next.y = start.y + dy;
+      }
+
+      if (activeDrag.type === "resize") {
+        if (activeDrag.handle.includes("e")) {
+          next.width = start.width + dx;
+        }
+
+        if (activeDrag.handle.includes("s")) {
+          next.height = start.height + dy;
+        }
+
+        if (activeDrag.handle.includes("w")) {
+          next.x = start.x + dx;
+          next.width = start.width - dx;
+        }
+
+        if (activeDrag.handle.includes("n")) {
+          next.y = start.y + dy;
+          next.height = start.height - dy;
+        }
+
+        if (
+          activeDrag.slot.lock_aspect_ratio !== false
+          && Number(activeDrag.slot.artwork_aspect_ratio || 0) > 0
+        ) {
           const areaRatio = rect.width / Math.max(1, rect.height);
-          const layerRatio = Number(slot.artwork_aspect_ratio || 1);
-          if (Math.abs(dx) >= Math.abs(dy)) next.height = next.width * (areaRatio / layerRatio);
-          else next.width = next.height * (layerRatio / areaRatio);
+          const layerRatio = Number(
+            activeDrag.slot.artwork_aspect_ratio || 1
+          );
+
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            next.height = next.width * (areaRatio / layerRatio);
+          } else {
+            next.width = next.height * (layerRatio / areaRatio);
+          }
+
+          if (activeDrag.handle.includes("w")) {
+            next.x = start.x + (start.width - next.width);
+          }
+
+          if (activeDrag.handle.includes("n")) {
+            next.y = start.y + (start.height - next.height);
+          }
         }
       }
-      if (drag.type === "rotate") {
-        const cx = rect.left + ((start.x + start.width / 2) / 100) * rect.width;
-        const cy = rect.top + ((start.y + start.height / 2) / 100) * rect.height;
-        next.rotation = Math.atan2(event.clientY - cy, event.clientX - cx) * (180 / Math.PI) + 90;
+
+      if (activeDrag.type === "rotate") {
+        const centerX = rect.left
+          + ((start.x + start.width / 2) / 100) * rect.width;
+
+        const centerY = rect.top
+          + ((start.y + start.height / 2) / 100) * rect.height;
+
+        next.rotation = (
+          Math.atan2(
+            Number(moveEvent.clientY || 0) - centerY,
+            Number(moveEvent.clientX || 0) - centerX
+          )
+          * (180 / Math.PI)
+        ) + 90;
       }
-      const cleaned = sanitizePlacement(next, area);
+
+      const cleaned = sanitizePlacement(next, activeDrag.area);
+
       dragLatestRef.current = cleaned;
-      if (!dragRafRef.current) {
-        dragRafRef.current = window.requestAnimationFrame(() => {
-          dragRafRef.current = null;
-          const placement = dragLatestRef.current;
-          const element = dragRef.current?.layerElement;
-          if (!element || !placement) return;
-          element.style.left = `${placement.x}%`;
-          element.style.top = `${placement.y}%`;
-          element.style.width = `${placement.width}%`;
-          element.style.height = `${placement.height}%`;
-          element.style.transform = `rotate(${placement.rotation}deg)`;
-        });
-      }
-    };
-    const handleUp = () => {
-      const drag = dragRef.current;
-      if (drag && dragLatestRef.current) patchPlacement(drag.slotId, dragLatestRef.current);
+
+      setPreviewPlacements((current) => ({
+        ...current,
+        [activeDrag.slotId]: cleaned,
+      }));
+    }
+
+    function handleUp(upEvent) {
+      upEvent?.preventDefault?.();
+
+      const activeDrag = dragRef.current;
+      const finalPlacement = dragLatestRef.current;
+
+      cleanupListeners();
+
       dragRef.current = null;
       dragLatestRef.current = null;
-      setPreviewPlacements({});
-    };
-    window.addEventListener("pointermove", handleMove, { passive: false });
-    window.addEventListener("pointerup", handleUp);
-    window.addEventListener("pointercancel", handleUp);
-    return () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-      window.removeEventListener("pointercancel", handleUp);
-      if (dragRafRef.current) window.cancelAnimationFrame(dragRafRef.current);
-    };
-  }, [slots, printAreas, profileCatalog]);
+
+      if (activeDrag?.slotId && finalPlacement) {
+        patchPlacement(activeDrag.slotId, finalPlacement);
+      }
+
+      window.requestAnimationFrame(() => {
+        setPreviewPlacements((current) => {
+          if (!activeDrag?.slotId || !current[activeDrag.slotId]) {
+            return current;
+          }
+
+          const next = { ...current };
+          delete next[activeDrag.slotId];
+          return next;
+        });
+      });
+    }
+
+    dragCleanupRef.current?.();
+    dragCleanupRef.current = cleanupListeners;
+
+    window.addEventListener(
+      moveEventName,
+      handleMove,
+      { passive: false }
+    );
+
+    window.addEventListener(
+      upEventName,
+      handleUp,
+      { passive: false }
+    );
+
+    if (cancelEventName) {
+      window.addEventListener(
+        cancelEventName,
+        handleUp,
+        { passive: false }
+      );
+    }
+  };
+
+  useEffect(() => () => {
+    dragCleanupRef.current?.();
+    dragCleanupRef.current = null;
+    dragRef.current = null;
+    dragLatestRef.current = null;
+  }, []);
 
   const generateMockup = async () => {
     const drawableSlots = currentScreenSlots.filter((slot) => slotHasArtwork(slot) && slot.print_option_id);
@@ -1409,10 +1671,74 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     setActiveSlotId(firstSlot?.id || "");
   };
 
+  const creatorInspectorContent = (
+    <>
+          {activeSlot && activeArea ? (
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-3"><div><div className="overline mb-1">Inspector</div><h3 className="font-display text-2xl uppercase">{activeSlot.text_layer ? "Text" : "Image"} Layer</h3><p className="text-xs text-zinc-500 mt-1">{activeArea.name} · {activeArea.width_mm || 0}×{activeArea.height_mm || 0}mm</p></div><button type="button" className="btn-secondary border-[#FF3B30] text-[#FF8A84] whitespace-nowrap" onClick={() => removeSlot(activeSlot.id)} title="Delete selected layer"><Trash2 size={16} /> Delete Layer</button></div>
+              {activeSlot.text_layer && <div className="border border-white/10 bg-black/30 rounded-xl p-3 space-y-3"><div className="font-bold text-sm">Text editor</div><label><span className="label">Text</span><textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(event) => updateTextLayer({ text_content: event.target.value })} /></label><div className="grid grid-cols-2 gap-2"><label><span className="label">Font</span><select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(event) => updateTextLayer({ text_font_family: event.target.value })}>{TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}</select></label><label><span className="label">Weight</span><select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(event) => updateTextLayer({ text_font_weight: event.target.value })}><option value="400">Regular</option><option value="600">Semi-bold</option><option value="700">Bold</option><option value="900">Heavy</option></select></label><label><span className="label">Text render size</span><input className="input-base" type="text" inputMode="numeric" value={Number(activeSlot.text_font_size || 180)} onChange={(event) => updateTextLayer({ text_font_size: event.target.value })} onBlur={(event) => updateTextLayer({ text_font_size: clamp(event.target.value, TEXT_RENDER_MIN, TEXT_RENDER_MAX) })} /></label>{supportsStockedColours(selectedProfile || {}) ? (
+                  <div><span className="label">Colour</span><div className="input-base h-[42px] flex items-center text-xs text-zinc-500">Use the approved stocked colour below</div></div>
+                ) : (
+                  <label><span className="label">Colour</span><input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(event) => updateTextLayer({ text_color: event.target.value })} /></label>
+                )}</div><p className="text-[11px] text-zinc-500">Use handles to resize text. Render size controls sharpness, not final product size.</p></div>}
+              {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingReplaceSlotIdRef.current = activeSlot.id; pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
+              <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} slot={activeSlot} />
+              <ColourRestrictionBlock profile={selectedProfile} slot={activeSlot} onChange={(value) => setLayerStockedColour(activeSlot.id, value)} />
+              {!creatorMode && (
+              <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">
+                <div className="overline mb-2">Costing</div>
+                <div className="grid grid-cols-2 gap-y-1">
+                  <span>Profile</span><span className="text-right text-zinc-200">{selectedProfile ? profileLabel(selectedProfile) : "None"}</span>
+                  <span>Calculation</span><span className="text-right text-zinc-200">{activeSlot.calculation_type || selectedProfile?.calculation_type || "—"}</span>
+                  <span>Minimum</span><span className="text-right text-zinc-200">{money(activeSlot.minimum_print_cost || selectedProfile?.minimum_print_cost || 0)}</span>
+                  <span>{selectedCostLine?.combined ? "Combined job cost" : "Layer cost"}</span>
+                  <span className="text-right text-[#34C759]">{money(selectedLayerCost)}</span>
+                </div>
+                {selectedCostLine?.combined && (
+                  <p className="text-[#B8F5C3] mt-2">
+                    This layer contributes {round(selectedLayerAreaCm2)} cm² to a{" "}
+                    {selectedCostLine.layer_count}-layer {methodLabel(selectedCostLine.method_key)}{" "}
+                    print job totalling {round(selectedJobAreaCm2)} cm².
+                  </p>
+                )}
+                {selectedCostLine?.costing?.minimum_print_cost_applied && (
+                  <p className="text-[#FFE08A] mt-2">
+                    The minimum print cost is applied once to the combined print job.
+                  </p>
+                )}
+              </div>
+              )}
+              <div className="border-t border-white/10 pt-4"><div className="overline mb-2">Placement</div><p className="text-xs text-zinc-500 mb-3 flex items-center gap-2"><Move size={13} /> Drag the layer on the preview.</p><label className="flex items-center gap-2 text-xs text-zinc-300 mb-3"><input type="checkbox" checked={activeSlot.lock_aspect_ratio !== false} onChange={(event) => patchSlot(activeSlot.id, { lock_aspect_ratio: event.target.checked })} /> Lock aspect ratio</label><div className="grid grid-cols-2 gap-2"><NumericControl label="X %" value={activePlacement.x} onChange={(value) => patchPlacement(activeSlot.id, { x: value })} /><NumericControl label="Y %" value={activePlacement.y} onChange={(value) => patchPlacement(activeSlot.id, { y: value })} /><NumericControl label="W %" value={activePlacement.width} onChange={(value) => patchPlacement(activeSlot.id, { width: value })} /><NumericControl label="H %" value={activePlacement.height} onChange={(value) => patchPlacement(activeSlot.id, { height: value })} /><NumericControl label="Rotation" value={activePlacement.rotation} onChange={(value) => patchPlacement(activeSlot.id, { rotation: value })} /></div><div className="grid grid-cols-3 gap-2 mt-3"><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 0, y: 0, width: 100, height: 100, rotation: 0 })}>Fit</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 25, y: 25, width: 50, height: 50, rotation: 0 })}>Center</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, defaultPlacement(activeArea))}>Reset</button></div></div>
+              {missingMethodCount > 0 && <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg">{missingMethodCount} layer(s) need manufacturing profiles.</div>}
+            </div>
+          ) : <div className="text-zinc-500 text-sm"><div className="overline mb-3">Inspector</div><p>Add an image or text layer to begin.</p></div>}
+
+    </>
+  );
+
   return (
     <div className="space-y-4 studio-v21" data-testid="product-artwork-studio">
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(event) => uploadFileToImageLayer(event.target.files?.[0] || null)} />
 
+      {creatorMode ? (
+        <section className="creator-artwork-toolbar">
+          <div className="creator-artwork-toolbar-actions">
+            <button type="button" className="btn-secondary" disabled={!activeGroup || !areasForScreen.length || uploading} onClick={() => { pendingReplaceSlotIdRef.current = ""; pendingUploadAreaRef.current = activeArea || normalPrintAreas[0] || areasForScreen[0]; fileInputRef.current?.click(); }}><ImageIcon size={15} /> {uploading ? "Uploading" : "Add image"}</button>
+            <button type="button" className="btn-secondary" disabled={!activeGroup || !areasForScreen.length} onClick={addTextLayer}><Type size={15} /> Add text</button>
+          </div>
+          <label className="creator-artwork-method">
+            <span>Print method</span>
+            <select className="input-base" value={selectedProfile?.id || activeSlot?.print_option_id || ""} disabled={!activeSlot || profilesLoading} onChange={(event) => activeSlot && setLayerManufacturingProfile(activeSlot.id, event.target.value)}>
+              <option value="">{profilesLoading ? "Loading print methods…" : "Select print method"}</option>
+              {groupedProfiles.map((group) => (
+                <optgroup key={group.key} label={group.label}>
+                  {group.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profileLabel(profile)}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+        </section>
+      ) : (
       <section className="grid xl:grid-cols-[minmax(260px,1fr)_minmax(360px,1.8fr)_140px_250px] gap-3">
         <div className="border border-[#34C759]/40 bg-black/40 p-3">
           <div className="text-center font-bold uppercase mb-2">Select product print view</div>
@@ -1450,19 +1776,34 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
 
         <div className="border border-[#34C759]/40 bg-[#0A1B10] p-3 grid grid-cols-2 gap-3">
           <div className="border-r border-white/40 pr-3">
-            <div className="text-[10px] uppercase tracking-widest">Selected artwork cost</div>
+            <div className="text-[10px] uppercase tracking-widest">Selected print job cost</div>
             <div className="font-display text-4xl mt-2">{money(selectedLayerCost)}</div>
-            {activeSlot?.minimum_print_cost_applied && <div className="text-[10px] text-[#FFE08A] mt-1">Minimum applied</div>}
+            {selectedCostLine?.combined ? (
+              <div className="text-[10px] text-[#B8F5C3] mt-1">
+                {selectedCostLine.layer_count}{" "}
+                {methodLabel(selectedCostLine.method_key)} layers combined
+                {" · "}{round(selectedJobAreaCm2)} cm²
+              </div>
+            ) : (
+              <div className="text-[10px] text-zinc-500 mt-1">{round(selectedLayerAreaCm2)} cm²</div>
+            )}
+            {selectedCostLine?.costing?.minimum_print_cost_applied && (
+              <div className="text-[10px] text-[#FFE08A] mt-1">Job minimum applied once</div>
+            )}
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-widest">Total artwork cost</div>
             <div className="font-display text-4xl mt-2">{money(allGroupPrintCost)}</div>
-            <div className="text-[10px] text-zinc-500 mt-1">Screen: {money(currentScreenCostLines.reduce((total, line) => total + Number(line.cost || 0), 0))}</div>
+            <div className="text-[10px] text-zinc-500 mt-1">
+              Screen: {money(currentScreenCostLines.reduce((total, line) => total + Number(line.cost || 0), 0))}
+            </div>
           </div>
         </div>
       </section>
+      )}
 
-      <div className="grid grid-cols-1 2xl:grid-cols-[220px_minmax(720px,1fr)_320px] gap-4">
+      <div className={creatorMode ? "grid grid-cols-1 gap-3 creator-artwork-main-grid" : "grid grid-cols-1 2xl:grid-cols-[220px_minmax(720px,1fr)_320px] gap-4"}>
+        {!creatorMode && (
         <aside className="border border-[#34C759]/40 bg-black/30 p-3 min-h-[680px] flex flex-col">
           <div className="text-center font-bold uppercase mb-3">Layers</div>
           <div className="space-y-3 flex-1 overflow-auto pr-1">
@@ -1475,11 +1816,28 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                     {areaSlots.map((slot) => {
                       const active = activeSlot?.id === slot.id;
                       const profile = resolveProfileForSlot(slot, profileCatalog, printOptions);
+                      const costLine = allCostLines.find(
+                        (line) => asArray(line.slot_ids).includes(slot.id)
+                      );
+                      const layerCosting = calculateAreaPrintCost(
+                        slot,
+                        area,
+                        profile || slot
+                      );
                       return (
                         <button key={slot.id} type="button" onClick={() => { setActiveSlotId(slot.id); setActivePrintAreaId(area.id); }} className={`w-full text-left border px-2 py-2 ${active ? "border-[#FF3B30] bg-[#FF3B30]/15" : "border-white/30 bg-black/40 hover:border-white/60"}`}>
                           <div className="font-bold text-xs uppercase">{slot.text_layer ? "Text Layer" : "Image Layer"}</div>
                           <div className="text-[10px] text-zinc-500 mt-1 truncate">{profile ? `${methodLabel(profile.method_key)} · ${profileLabel(profile)}` : "No manufacturing profile"}</div>
-                          {slot.calculated_print_cost !== undefined && <div className="text-[10px] text-[#34C759] mt-1">{money(slot.calculated_print_cost)}</div>}
+                          <div className="text-[10px] text-zinc-500 mt-1">
+                            {round(layerCosting.area_cm2 || 0)} cm²
+                          </div>
+                          {costLine && (
+                            <div className="text-[10px] text-[#34C759] mt-1">
+                              {costLine.combined
+                                ? `${costLine.layer_count}-layer job · ${money(costLine.cost)}`
+                                : money(costLine.cost)}
+                            </div>
+                          )}
                         </button>
                       );
                     })}
@@ -1505,8 +1863,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
             </div>
           )}
         </aside>
+        )}
 
-        <main className="border border-white/10 bg-black min-h-[680px] flex items-center justify-center overflow-hidden rounded-xl p-4">
+        <main className={creatorMode ? "creator-artwork-canvas-stage min-h-[680px] flex items-center justify-center overflow-visible" : "border border-white/10 bg-black min-h-[680px] flex items-center justify-center overflow-hidden rounded-xl p-4"}>
           {activeImage ? (
             <div className="relative inline-block max-w-full max-h-[820px] select-none leading-none align-middle">
               <img src={assetUrl(activeImage)} alt={screenLabel(activeScreen)} className="block h-auto w-auto max-h-[820px] max-w-full object-contain" draggable="false" />
@@ -1529,9 +1888,9 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                       const placement = sanitizePlacement(previewPlacements[slot.id] || slot.placement, area);
                       const active = activeSlot?.id === slot.id;
                       return (
-                        <div key={slot.id} data-artwork-layer-id={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center", touchAction: "none", willChange: "left, top, width, height, transform" }} onPointerDown={(event) => startDrag(event, slot, "move")}>
+                        <div key={slot.id} data-artwork-layer-id={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center", touchAction: "none", willChange: "left, top, width, height, transform" }} onPointerDown={(event) => startDrag(event, slot, "move")} onMouseDown={(event) => startDrag(event, slot, "move")}>
                           {slot.text_layer ? <TextLayerPreview slot={slot} /> : <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-fill pointer-events-none" draggable="false" />}
-                          {active && <><ResizeHandle position="nw" onPointerDown={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onPointerDown={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onPointerDown={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onPointerDown={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onPointerDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
+                          {active && <><ResizeHandle position="nw" onStart={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onStart={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onStart={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onStart={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onPointerDown={(event) => startDrag(event, slot, "rotate")} onMouseDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
                         </div>
                       );
                     })}
@@ -1542,30 +1901,25 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
           ) : <div className="text-center text-zinc-600"><ImageIcon className="mx-auto mb-4" size={56} /><div className="font-display text-3xl uppercase">No product view</div></div>}
         </main>
 
-        <aside className="border border-white/10 bg-black/20 p-3 rounded-xl min-h-[680px] overflow-auto">
-          {activeSlot && activeArea ? (
-            <div className="space-y-4">
-              <div className="flex items-start justify-between gap-3"><div><div className="overline mb-1">Inspector</div><h3 className="font-display text-2xl uppercase">{activeSlot.text_layer ? "Text" : "Image"} Layer</h3><p className="text-xs text-zinc-500 mt-1">{activeArea.name} · {activeArea.width_mm || 0}×{activeArea.height_mm || 0}mm</p></div><button type="button" className="btn-secondary border-[#FF3B30] text-[#FF8A84] whitespace-nowrap" onClick={() => removeSlot(activeSlot.id)} title="Delete selected layer"><Trash2 size={16} /> Delete Layer</button></div>
-              {activeSlot.text_layer && <div className="border border-white/10 bg-black/30 rounded-xl p-3 space-y-3"><div className="font-bold text-sm">Text editor</div><label><span className="label">Text</span><textarea className="input-base min-h-[72px]" value={activeSlot.text_content || ""} onChange={(event) => updateTextLayer({ text_content: event.target.value })} /></label><div className="grid grid-cols-2 gap-2"><label><span className="label">Font</span><select className="input-base" value={activeSlot.text_font_family || "Roboto"} onChange={(event) => updateTextLayer({ text_font_family: event.target.value })}>{TEXT_FONT_OPTIONS.map((font) => <option key={font} value={font}>{font}</option>)}</select></label><label><span className="label">Weight</span><select className="input-base" value={String(activeSlot.text_font_weight || "700")} onChange={(event) => updateTextLayer({ text_font_weight: event.target.value })}><option value="400">Regular</option><option value="600">Semi-bold</option><option value="700">Bold</option><option value="900">Heavy</option></select></label><label><span className="label">Text render size</span><input className="input-base" type="text" inputMode="numeric" value={Number(activeSlot.text_font_size || 180)} onChange={(event) => updateTextLayer({ text_font_size: event.target.value })} onBlur={(event) => updateTextLayer({ text_font_size: clamp(event.target.value, TEXT_RENDER_MIN, TEXT_RENDER_MAX) })} /></label><label><span className="label">Colour</span><input className="input-base h-[42px]" type="color" value={activeSlot.text_color || "#111111"} onChange={(event) => updateTextLayer({ text_color: event.target.value })} /></label></div><p className="text-[11px] text-zinc-500">Use handles to resize text. Render size controls sharpness, not final product size.</p></div>}
-              {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingReplaceSlotIdRef.current = activeSlot.id; pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
-              <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} />
-              <ColourRestrictionBlock profile={selectedProfile} slot={activeSlot} onChange={(value) => setLayerStockedColour(activeSlot.id, value)} />
-              <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">
-                <div className="overline mb-2">Costing</div>
-                <div className="grid grid-cols-2 gap-y-1">
-                  <span>Profile</span><span className="text-right text-zinc-200">{selectedProfile ? profileLabel(selectedProfile) : "None"}</span>
-                  <span>Calculation</span><span className="text-right text-zinc-200">{activeSlot.calculation_type || selectedProfile?.calculation_type || "—"}</span>
-                  <span>Minimum</span><span className="text-right text-zinc-200">{money(activeSlot.minimum_print_cost || selectedProfile?.minimum_print_cost || 0)}</span>
-                  <span>Layer cost</span><span className="text-right text-[#34C759]">{money(selectedLayerCost)}</span>
-                </div>
-                {activeSlot.minimum_print_cost_applied && <p className="text-[#FFE08A] mt-2">Minimum print cost has been applied to this layer.</p>}
-              </div>
-              <div className="border-t border-white/10 pt-4"><div className="overline mb-2">Placement</div><p className="text-xs text-zinc-500 mb-3 flex items-center gap-2"><Move size={13} /> Drag the layer on the preview.</p><label className="flex items-center gap-2 text-xs text-zinc-300 mb-3"><input type="checkbox" checked={activeSlot.lock_aspect_ratio !== false} onChange={(event) => patchSlot(activeSlot.id, { lock_aspect_ratio: event.target.checked })} /> Lock aspect ratio</label><div className="grid grid-cols-2 gap-2"><NumericControl label="X %" value={activePlacement.x} onChange={(value) => patchPlacement(activeSlot.id, { x: value })} /><NumericControl label="Y %" value={activePlacement.y} onChange={(value) => patchPlacement(activeSlot.id, { y: value })} /><NumericControl label="W %" value={activePlacement.width} onChange={(value) => patchPlacement(activeSlot.id, { width: value })} /><NumericControl label="H %" value={activePlacement.height} onChange={(value) => patchPlacement(activeSlot.id, { height: value })} /><NumericControl label="Rotation" value={activePlacement.rotation} onChange={(value) => patchPlacement(activeSlot.id, { rotation: value })} /></div><div className="grid grid-cols-3 gap-2 mt-3"><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 0, y: 0, width: 100, height: 100, rotation: 0 })}>Fit</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, { x: 25, y: 25, width: 50, height: 50, rotation: 0 })}>Center</button><button type="button" className="btn-secondary" onClick={() => patchPlacement(activeSlot.id, defaultPlacement(activeArea))}>Reset</button></div></div>
-              {missingMethodCount > 0 && <div className="border border-[#FF3B30]/50 bg-[#FF3B30]/10 p-3 text-xs text-[#FFB4B0] rounded-lg">{missingMethodCount} layer(s) need manufacturing profiles.</div>}
-            </div>
-          ) : <div className="text-zinc-500 text-sm"><div className="overline mb-3">Inspector</div><p>Add an image or text layer to begin.</p></div>}
-        </aside>
+        {!creatorMode && (
+          <aside className="border border-white/10 bg-black/20 p-3 rounded-xl min-h-[680px] overflow-auto">
+            {creatorInspectorContent}
+          </aside>
+        )}
       </div>
+      {creatorMode && inspectorTarget && createPortal(
+        <div className="creator-layer-inspector-content">{creatorInspectorContent}</div>,
+        inspectorTarget
+      )}
+      {creatorMode && screens.length > 1 && (
+        <nav className="creator-artwork-view-tabs" aria-label="Product print views">
+          {screens.map((screen) => {
+            const active = screen.id === currentScreenId;
+            const count = slots.filter((slot) => slot.screen_id === screen.id || printAreas.find((area) => area.id === slot.print_area_id)?.screen_id === screen.id).length;
+            return <button key={screen.id} type="button" className={active ? "is-active" : ""} onClick={() => selectView(screen.id)}>{screenLabel(screen)}{count ? ` · ${count}` : ""}</button>;
+          })}
+        </nav>
+      )}
     </div>
   );
 }

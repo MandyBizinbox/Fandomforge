@@ -1,4 +1,4 @@
-"""Production rule API for Builder V2 manufacturing validation."""
+"""Production rule API for the unified manufacturing engine."""
 from __future__ import annotations
 
 import re
@@ -15,6 +15,14 @@ from production_method_profiles import list_production_method_print_profiles
 from production_rules_engine import apply_production_rules, clean_doc, public_rule
 from seed_production_operations import normalize_method_key
 from seed_production_rules import PRODUCTION_RULES_VERSION, seed_production_rules
+from unified_manufacturing_costing import (
+    UNIFIED_COSTING_ENGINE_VERSION,
+    canonical_profiles_for_method,
+    compatibility_cost_model,
+    method_with_unified_profiles,
+    migrate_unified_manufacturing_costing,
+    sync_canonical_print_option_projections,
+)
 
 
 production_rules_router = APIRouter(prefix="/production-rules")
@@ -62,6 +70,8 @@ class ProductionMethodUpdate(BaseModel):
     layer_behaviour: Optional[Dict[str, Any]] = None
     press_behaviour: Optional[Dict[str, Any]] = None
     cost_calculation_model: Optional[Dict[str, Any]] = None
+    costing_profiles: Optional[List[Dict[str, Any]]] = None
+    default_costing_profile_id: Optional[str] = None
     creator_restrictions: Optional[Dict[str, Any]] = None
     validation_rules: Optional[Dict[str, Any]] = None
     admin_notes: Optional[str] = None
@@ -107,32 +117,35 @@ class StockedColourUpdate(BaseModel):
 
 class LegacyPrintOptionCostingSeedRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
-
     dry_run: bool = False
     raw_cost_source: str = "print_option_fallback_to_method"
 
 
+class UnifiedCostingMigrationRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    dry_run: bool = True
+    strict: bool = True
+
+
 class ProductionValidationRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
-
     product: Dict[str, Any] = Field(default_factory=dict)
     template: Optional[Dict[str, Any]] = None
     publish: bool = False
 
 
 def _method_public_projection(doc: dict) -> dict:
-    row = public_rule(doc)
+    row = public_rule(method_with_unified_profiles(doc))
     row.setdefault("version", PRODUCTION_RULES_VERSION)
     return row
 
 
 @production_rules_router.get("/methods")
 async def list_methods(request: Request, active: Optional[bool] = True, user: Optional[User] = Depends(optional_user)):
-    db = request.app.state.db
     q: Dict[str, Any] = {}
     if active is not None:
         q["active"] = active
-    docs = await db.production_methods.find(q, {"_id": 0}).sort("display_name", 1).to_list(200)
+    docs = await request.app.state.db.production_methods.find(q, {"_id": 0}).sort("display_name", 1).to_list(200)
     return [_method_public_projection(doc) for doc in docs]
 
 
@@ -153,15 +166,36 @@ async def get_method(method_key: str, request: Request, user: Optional[User] = D
 @production_rules_router.patch("/methods/{method_key}")
 async def update_method(method_key: str, payload: ProductionMethodUpdate, request: Request, user: User = Depends(require_role("super_admin"))):
     method = normalize_method_key(method_key)
+    existing = await request.app.state.db.production_methods.find_one({"method_key": method}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Production method rule not found")
+
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
+
+    if "costing_profiles" in updates or "default_costing_profile_id" in updates:
+        candidate = {**existing, **updates, "method_key": method}
+        profiles = canonical_profiles_for_method(candidate)
+        default_profile = next((profile for profile in profiles if profile.get("is_default")), profiles[0] if profiles else None)
+        updates["costing_profiles"] = profiles
+        updates["default_costing_profile_id"] = default_profile.get("id") if default_profile else None
+        updates["cost_calculation_model"] = compatibility_cost_model(default_profile, method)
+        updates["costing_engine_version"] = UNIFIED_COSTING_ENGINE_VERSION
+
     updates["updated_at"] = now_iso()
-    result = await request.app.state.db.production_methods.update_one({"method_key": method}, {"$set": updates})
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Production method rule not found")
+    update_doc: Dict[str, Any] = {"$set": updates}
+    if "costing_profiles" in updates:
+        update_doc["$unset"] = {"legacy_print_option_costing_profiles": ""}
+    await request.app.state.db.production_methods.update_one({"method_key": method}, update_doc)
     doc = await request.app.state.db.production_methods.find_one({"method_key": method}, {"_id": 0})
-    return _method_public_projection(doc)
+    projection_sync = None
+    if "costing_profiles" in updates:
+        projection_sync = await sync_canonical_print_option_projections(request.app.state.db, doc)
+    response = _method_public_projection(doc)
+    if projection_sync is not None:
+        response["profile_projection_sync"] = projection_sync
+    return response
 
 
 @production_rules_router.get("/stocked-colours")
@@ -249,6 +283,36 @@ async def seed_legacy_print_option_costing_route(payload: LegacyPrintOptionCosti
         dry_run=payload.dry_run,
         raw_cost_source=payload.raw_cost_source,
     )
+    return {"status": "ok", "deprecated": True, **result}
+
+
+@production_rules_router.get("/unified-costing/status")
+async def unified_costing_status(request: Request, user: User = Depends(require_role("super_admin"))):
+    db = request.app.state.db
+    methods = await db.production_methods.find({}, {"_id": 0, "method_key": 1, "costing_engine_version": 1, "costing_profiles": 1}).to_list(200)
+    unified = [method for method in methods if method.get("costing_engine_version") == UNIFIED_COSTING_ENGINE_VERSION and isinstance(method.get("costing_profiles"), list)]
+    settings = await db.production_rule_settings.find_one({"id": "default"}, {"_id": 0, "unified_costing_engine_version": 1, "unified_costing_migration_completed_at": 1}) or {}
+    migration_complete = settings.get("unified_costing_engine_version") == UNIFIED_COSTING_ENGINE_VERSION
+    return {
+        "version": UNIFIED_COSTING_ENGINE_VERSION,
+        "methods_total": len(methods),
+        "methods_unified": len(unified),
+        "methods_canonical": bool(methods) and len(unified) == len(methods),
+        "migration_completed_at": settings.get("unified_costing_migration_completed_at"),
+        "complete": bool(methods) and len(unified) == len(methods) and migration_complete,
+    }
+
+
+@production_rules_router.post("/unified-costing/migrate")
+async def migrate_unified_costing(payload: UnifiedCostingMigrationRequest, request: Request, user: User = Depends(require_role("super_admin"))):
+    try:
+        result = await migrate_unified_manufacturing_costing(
+            request.app.state.db,
+            dry_run=payload.dry_run,
+            strict=payload.strict,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"status": "ok", **result}
 
 
@@ -259,7 +323,7 @@ async def validate_product(payload: ProductionValidationRequest, request: Reques
     template = payload.template
     if not template and product.get("template_id"):
         template = await db.product_templates.find_one({"id": product.get("template_id")}, {"_id": 0})
-    global_print_options = await db.print_options.find({}, {"_id": 0}).to_list(500)
+    global_print_options = await list_production_method_print_profiles(db, active=True)
     validated = await apply_production_rules(db, product, template=template, global_print_options=global_print_options, publishing=payload.publish)
     return {
         "status": validated.get("manufacturing_validation_status"),

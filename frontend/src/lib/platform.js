@@ -1,24 +1,31 @@
 import { useEffect, useState } from "react";
 import { assetUrl, http } from "./api";
-import { applyPlatformTheme } from "./theme";
+import { DEFAULT_THEME_PALETTES, applyPlatformTheme, mergeThemePalettes } from "./theme";
 
 export const DEFAULT_PLATFORM = {
-  platform_name: "Fandom Forge",
+  platform_name: "FandomForge",
   platform_tagline: "Merch made simple",
-  brand_alt_text: "Fandom Forge",
+  brand_alt_text: "FandomForge",
   logo_url: "",
   logo_primary_url: "",
   logo_compact_url: "",
   logo_light_url: "",
   logo_dark_url: "",
   favicon_url: "",
-  document_title: "Fandom Forge",
+  document_title: "FandomForge",
 
   primary_color: "#FF3B30",
   accent_color: "#FF7A1A",
 
-  theme_mode: "light",
-  background_color: "#FFFFFF",
+  // Storefront and admin choose a semantic palette independently.
+  storefront_theme_mode: "light",
+  admin_theme_mode: "dark",
+  allow_theme_toggle: false,
+  theme_palettes: DEFAULT_THEME_PALETTES,
+
+  // Legacy flat values remain compatibility fallbacks during migration.
+  theme_mode: "dark",
+  background_color: "#0A0A0A",
   page_text_color: "",
   surface_background_color: "",
   surface_text_color: "",
@@ -30,8 +37,8 @@ export const DEFAULT_PLATFORM = {
   input_text_color: "",
   input_border_color: "",
 
-  header_background_color: "#FFFFFF",
-  header_text_color: "#111111",
+  header_background_color: "#0A0A0A",
+  header_text_color: "#FFFFFF",
 
   button_primary_background_color: "#FF3B30",
   button_primary_text_color: "#FFFFFF",
@@ -41,8 +48,8 @@ export const DEFAULT_PLATFORM = {
   button_alternate_border_color: "",
   button_secondary_border_color: "",
 
-  support_email: "help@fandomforge.co.za",
-  public_contact_email: "help@fandomforge.co.za",
+  support_email: "",
+  public_contact_email: "",
   support_phone: "",
   support_whatsapp: "",
 
@@ -80,8 +87,6 @@ export const DEFAULT_PLATFORM = {
 
 let cachedPlatform = null;
 let platformRequest = null;
-let contactObserver = null;
-let currentContactPlatform = DEFAULT_PLATFORM;
 
 function applyPlatformDocumentBranding(platform = {}) {
   if (typeof document === "undefined") return;
@@ -99,89 +104,6 @@ function applyPlatformDocumentBranding(platform = {}) {
     }
     node.href = favicon;
   }
-}
-
-function whatsappHref(value = "") {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw)) return raw;
-
-  let digits = raw.replace(/\D/g, "");
-  if (!digits) return "";
-  if (digits.startsWith("0")) digits = `27${digits.slice(1)}`;
-  return `https://wa.me/${digits}`;
-}
-
-function replaceAnchorText(anchor, matcher, replacement) {
-  if (!anchor || !replacement) return;
-  anchor.childNodes.forEach((node) => {
-    if (node.nodeType !== Node.TEXT_NODE) return;
-    const value = String(node.nodeValue || "");
-    if (matcher.test(value)) node.nodeValue = value.replace(matcher, replacement);
-  });
-}
-
-const EMAIL_SELECTOR = 'a[href="mailto:info@theforgeza.co.za"], a[data-platform-contact="email"]';
-const WHATSAPP_SELECTOR = 'a[href="https://wa.me/27712116050"], a[data-platform-contact="whatsapp"]';
-
-function matchingAnchors(root, selector) {
-  if (!root || typeof root.querySelectorAll !== "function") return [];
-  const matches = [];
-  if (root.matches?.(selector)) matches.push(root);
-  root.querySelectorAll(selector).forEach((node) => matches.push(node));
-  return matches;
-}
-
-function applyPlatformContactDetails(platform = {}, root = document) {
-  if (typeof document === "undefined" || !root) return;
-
-  const supportEmail = String(
-    platform.public_contact_email || platform.support_email || DEFAULT_PLATFORM.support_email
-  ).trim();
-  const supportPhone = String(
-    platform.support_whatsapp || platform.public_contact_phone || platform.support_phone || ""
-  ).trim();
-  const supportWhatsappHref = whatsappHref(supportPhone);
-
-  if (supportEmail) {
-    matchingAnchors(root, EMAIL_SELECTOR).forEach((anchor) => {
-      anchor.setAttribute("href", `mailto:${supportEmail}`);
-      replaceAnchorText(anchor, /info@theforgeza\.co\.za/gi, supportEmail);
-    });
-  }
-
-  if (supportWhatsappHref) {
-    matchingAnchors(root, WHATSAPP_SELECTOR).forEach((anchor) => {
-      anchor.setAttribute("href", supportWhatsappHref);
-      if (supportPhone) {
-        replaceAnchorText(anchor, /WhatsApp\s+071\s+211\s+6050/gi, `WhatsApp ${supportPhone}`);
-      }
-    });
-  }
-}
-
-function ensurePlatformContactBridge(platform = {}) {
-  currentContactPlatform = platform;
-  applyPlatformContactDetails(platform);
-
-  if (typeof document === "undefined" || typeof MutationObserver === "undefined" || contactObserver) return;
-
-  const start = () => {
-    if (!document.body || contactObserver) return;
-    contactObserver = new MutationObserver((records) => {
-      records.forEach((record) => {
-        record.addedNodes.forEach((node) => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            applyPlatformContactDetails(currentContactPlatform, node);
-          }
-        });
-      });
-    });
-    contactObserver.observe(document.body, { childList: true, subtree: true });
-  };
-
-  if (document.body) start();
-  else window.setTimeout(start, 0);
 }
 
 export function mergePlatformConfig(value = {}) {
@@ -206,11 +128,11 @@ export function mergePlatformConfig(value = {}) {
     homepage: { ...DEFAULT_PLATFORM.homepage, ...(source.homepage || {}) },
     signup: { ...DEFAULT_PLATFORM.signup, ...(source.signup || {}) },
     policies: { ...DEFAULT_PLATFORM.policies, ...(source.policies || {}) },
+    theme_palettes: mergeThemePalettes(source.theme_palettes || DEFAULT_PLATFORM.theme_palettes),
   };
 
   applyPlatformTheme(merged);
   applyPlatformDocumentBranding(merged);
-  ensurePlatformContactBridge(merged);
   return merged;
 }
 
@@ -265,7 +187,6 @@ export function usePlatformConfig() {
   useEffect(() => {
     applyPlatformTheme(platform);
     applyPlatformDocumentBranding(platform);
-    ensurePlatformContactBridge(platform);
   }, [platform]);
 
   return { platform, loading };

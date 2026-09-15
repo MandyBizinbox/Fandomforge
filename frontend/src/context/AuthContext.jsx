@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { AUTH_EXPIRED_EVENT, http } from "../lib/api";
 import { clearAuthToken, getAuthToken, setAuthToken } from "../lib/authToken";
+import { establishAuthSession } from "../lib/authSession";
 
 const AuthCtx = createContext(null);
 
@@ -70,6 +71,8 @@ export function AuthProvider({ children }) {
     return response.data;
   }, []);
 
+  const adoptSession = useCallback((session) => establishAuthSession(session, setUser), []);
+
   const value = useMemo(() => ({
     user,
     loading,
@@ -78,7 +81,8 @@ export function AuthProvider({ children }) {
     logout,
     exchangeGoogleSession,
     refreshUser,
-  }), [user, loading, login, register, logout, exchangeGoogleSession, refreshUser]);
+    adoptSession,
+  }), [user, loading, login, register, logout, exchangeGoogleSession, refreshUser, adoptSession]);
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }

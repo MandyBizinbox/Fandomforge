@@ -1,9 +1,12 @@
 import React from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { Factory, LogOut } from "lucide-react";
+import { Factory, Grid2X2, LogOut } from "lucide-react";
 import NotificationBell from "./notifications/NotificationBell";
 import PlatformBrand from "./branding/PlatformBrand";
+import CreatorFirstRunChecklist from "./creator/CreatorFirstRunChecklist";
+import CreatorCatalogue from "./creator/CreatorCatalogue";
+import CreatorHome from "./creator/CreatorHome";
 
 function formatBadgeCount(value) {
   const count = Number(value || 0);
@@ -37,6 +40,40 @@ function withManufacturingRulesLink(links = [], testidPrefix = "dash", notificat
   return inserted ? output : [...links, manufacturingLink];
 }
 
+function creatorConsoleLinks(links = []) {
+  const byKey = new Map(
+    links
+      .filter((link) => link && link.type !== "section" && link.key)
+      .map((link) => [link.key, link])
+  );
+
+  const output = [];
+  const push = (key, overrides = {}) => {
+    const link = byKey.get(key);
+    if (!link) return;
+    output.push({ ...link, ...overrides });
+  };
+
+  push("overview", { label: "Dashboard" });
+  output.push({
+    to: "/creator?section=catalogue",
+    label: "Catalogue",
+    key: "catalogue",
+    icon: <Grid2X2 size={14} />,
+  });
+  push("products", { label: "My Products" });
+  push("orders");
+  push("settings");
+
+  const secondary = ["notifications", "earnings", "activity"].filter((key) => byKey.has(key));
+  if (secondary.length) {
+    output.push({ type: "section", label: "More" });
+    secondary.forEach((key) => push(key));
+  }
+
+  return output;
+}
+
 export default function DashboardLayout({
   title,
   links,
@@ -46,15 +83,24 @@ export default function DashboardLayout({
 }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const navLinks = React.useMemo(
-    () => withManufacturingRulesLink(links, testidPrefix, notificationPath),
-    [links, testidPrefix, notificationPath]
-  );
+  const location = useLocation();
+  const isCreatorDashboard = testidPrefix === "creator-dash";
+  const searchParams = React.useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const isCreatorCatalogue = isCreatorDashboard && searchParams.get("section") === "catalogue";
+
+  const navLinks = React.useMemo(() => {
+    const baseLinks = withManufacturingRulesLink(links, testidPrefix, notificationPath);
+    return isCreatorDashboard ? creatorConsoleLinks(baseLinks) : baseLinks;
+  }, [links, testidPrefix, notificationPath, isCreatorDashboard]);
+
+  const normalizedPath = String(location.pathname || "").replace(/\/+$/, "") || "/";
+  const isCreatorHome = isCreatorDashboard && normalizedPath === "/creator" && !isCreatorCatalogue;
+  const showCreatorFirstRunChecklist = isCreatorHome;
 
   return (
-    <div className={`min-h-screen admin-workspace ${testidPrefix === "creator-dash" ? "creator-workspace" : ""} flex bg-[var(--ff-page-bg)] text-[var(--ff-page-text)]`}>
+    <div className={`min-h-screen admin-workspace ${isCreatorDashboard ? "creator-workspace" : ""} flex bg-[var(--ff-page-bg)] text-[var(--ff-page-text)]`}>
       <aside
-        className="w-20 lg:w-64 admin-sidebar border-r border-[var(--ff-card-border)] bg-[var(--ff-card-bg)] text-[var(--ff-card-text)] flex flex-col min-h-screen sticky top-0"
+        className="w-20 lg:w-64 admin-sidebar border-r border-[var(--ff-card-border)] bg-[var(--ff-header-bg)] text-[var(--ff-header-text)] flex flex-col min-h-screen sticky top-0"
         data-testid={`${testidPrefix}-sidebar`}
       >
         <button
@@ -90,7 +136,12 @@ export default function DashboardLayout({
                 to={link.to}
                 end={link.end}
                 title={link.label}
-                className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""} ${Number(link.badgeCount || 0) > 0 ? "sidebar-link-attention" : ""}`}
+                className={({ isActive }) => {
+                  let active = isActive;
+                  if (isCreatorDashboard && link.key === "overview") active = isActive && !isCreatorCatalogue;
+                  if (isCreatorDashboard && link.key === "catalogue") active = isCreatorCatalogue;
+                  return `sidebar-link ${active ? "active" : ""} ${Number(link.badgeCount || 0) > 0 ? "sidebar-link-attention" : ""}`;
+                }}
                 data-testid={`${testidPrefix}-nav-${link.key}`}
               >
                 <span className="shrink-0">{link.icon}</span>
@@ -122,7 +173,7 @@ export default function DashboardLayout({
       <main className="flex-1 min-w-0" data-testid={`${testidPrefix}-main`}>
         <div className="admin-topbar sticky top-0 z-30 border-b border-[var(--ff-card-border)] bg-[var(--ff-header-bg)] text-[var(--ff-header-text)] backdrop-blur px-4 md:px-10 py-4 flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <div className="overline">{title}</div>
+            <div className="overline">{isCreatorCatalogue ? "Creator Catalogue" : title}</div>
             <div className="text-xs opacity-70 truncate">{user?.name || user?.email}</div>
           </div>
           {notificationEndpoint && (
@@ -133,8 +184,17 @@ export default function DashboardLayout({
             />
           )}
         </div>
-        <div className="p-4 md:p-10">
-          <Outlet />
+        <div className="p-4 md:p-8 lg:p-10">
+          {isCreatorCatalogue ? (
+            <CreatorCatalogue />
+          ) : isCreatorHome ? (
+            <>
+              {showCreatorFirstRunChecklist && <CreatorFirstRunChecklist />}
+              <CreatorHome />
+            </>
+          ) : (
+            <Outlet />
+          )}
         </div>
       </main>
     </div>
