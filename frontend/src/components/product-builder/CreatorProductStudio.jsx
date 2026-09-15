@@ -410,6 +410,8 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   useEffect(() => {
     if (loading || scopePrompted || form.artwork_groups.length) return;
     if (form.selected_template_variation_ids.length <= 1) return;
+    setDetailsOpen(false);
+    setLayersOpen(false);
     setScopeMatrixOpen(true);
     setScopePrompted(true);
   }, [loading, scopePrompted, form.artwork_groups.length, form.selected_template_variation_ids.length]);
