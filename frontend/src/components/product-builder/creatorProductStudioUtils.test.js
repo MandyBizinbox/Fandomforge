@@ -2,6 +2,8 @@ import {
   buildCreatorProductDraftFromTemplate,
   collectStudioAttributeOptions,
   creatorStudioBackPath,
+  creatorTemplateDescription,
+  creatorTemplateSpecs,
   deriveStudioVariationIds,
   inferStudioPricingAttribute,
   seedStudioSelections,
@@ -32,35 +34,47 @@ describe("creator product studio helpers", () => {
   test("hydrates attribute selections from saved variation ids", () => {
     expect(seedStudioSelections(variations, ["black-s", "black-m"])).toEqual({
       Colour: ["Black"],
-      Size: ["M", "S"],
-    });
+      Size: ["M", "S"] },
+    );
   });
 
   test("prefers size as the pricing scope", () => {
     expect(inferStudioPricingAttribute(variations)).toBe("Size");
   });
 
-  test("creates an independent store-product draft from the catalogue template", () => {
+  test("creates an independent creator product draft from a template", () => {
     const template = {
       id: "template-1",
       name: "Classic Tee",
-      description: "Catalogue description",
-      brand: "Blank Brand",
+      short_description: "A soft everyday tee.",
+      specs: "Material: Cotton\nGSM: 165",
       category: "T-Shirts",
+      brand: "FWRD",
     };
+
     const draft = buildCreatorProductDraftFromTemplate(template);
     draft.title = "My Club Tee";
-    draft.description = "My storefront copy";
 
     expect(template.name).toBe("Classic Tee");
-    expect(template.description).toBe("Catalogue description");
-    expect(draft).toMatchObject({
+    expect(draft).toEqual({
       template_id: "template-1",
       title: "My Club Tee",
-      description: "My storefront copy",
-      brand: "Blank Brand",
+      description: "A soft everyday tee.",
+      specs: "Material: Cotton\nGSM: 165",
       category: "T-Shirts",
+      brand: "FWRD",
     });
+  });
+
+  test("does not copy a specification block into the storefront description", () => {
+    const template = {
+      id: "mug-1",
+      name: "Inner Colour Mug",
+      description: "Key Features & Attributes\nCapacity: 11oz\nMaterial: Ceramic",
+    };
+
+    expect(creatorTemplateDescription(template)).toBe("");
+    expect(creatorTemplateSpecs(template)).toBe("Key Features & Attributes\nCapacity: 11oz\nMaterial: Ceramic");
   });
 
   test("returns directly to the originating catalogue product", () => {
