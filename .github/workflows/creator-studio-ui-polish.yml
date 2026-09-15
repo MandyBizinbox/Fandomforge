@@ -1,0 +1,250 @@
+name: Creator Studio UI Polish
+
+on:
+  push:
+    branches:
+      - feature/creator-builder-studio
+    paths:
+      - ".github/workflows/creator-studio-ui-polish.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/creator-builder-studio
+          fetch-depth: 0
+
+      - name: Patch creator studio UX
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          jsx_path = Path("frontend/src/components/product-builder/CreatorProductStudio.jsx")
+          css_path = Path("frontend/src/components/product-builder/creatorProductStudio.css")
+          jsx = jsx_path.read_text()
+          css = css_path.read_text()
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f"Expected block not found: {label}")
+              return text.replace(old, new, 1)
+
+          jsx = replace_once(
+              jsx,
+              '''import {\n  collectStudioAttributeOptions,''',
+              '''import {\n  buildCreatorProductDraftFromTemplate,\n  collectStudioAttributeOptions,''',
+              "studio helper import",
+          )
+
+          jsx = replace_once(
+              jsx,
+              '''  const [detailsOpen, setDetailsOpen] = useState(true);\n  const [templateInfoOpen, setTemplateInfoOpen] = useState(true);''',
+              '''  const [detailsOpen, setDetailsOpen] = useState(true);\n  const [scopeMatrixOpen, setScopeMatrixOpen] = useState(false);\n  const [scopePrompted, setScopePrompted] = useState(false);\n  const [templateInfoOpen, setTemplateInfoOpen] = useState(true);''',
+              "scope state",
+          )
+
+          jsx = replace_once(
+              jsx,
+              '''        if (isNew && selected) {\n          const initialIds = asArray(selected.default_selected_variation_ids || selected.default_variation_ids).map(String).filter(Boolean);\n          const enabled = getEnabledTemplateVariations(selected);\n          setSelectedValues(seedStudioSelections(enabled, initialIds));\n          setForm((current) => ({\n            ...current,\n            template_id: selected.id,\n            title: selected.name || selected.title || "",\n            description: selected.description || selected.short_description || "",\n            specs: getTemplateSpecs(selected),\n            category: selected.category || "",\n            brand: selected.brand || "",\n            selected_template_variation_ids: initialIds,\n          }));\n        }''',
+              '''        if (isNew && selected) {\n          const initialIds = asArray(selected.default_selected_variation_ids || selected.default_variation_ids).map(String).filter(Boolean);\n          const enabled = getEnabledTemplateVariations(selected);\n          const productDraft = buildCreatorProductDraftFromTemplate(selected);\n          setSelectedValues(seedStudioSelections(enabled, initialIds));\n          setForm((current) => ({\n            ...current,\n            ...productDraft,\n            specs: getTemplateSpecs(selected),\n            selected_template_variation_ids: initialIds,\n          }));\n        }''',
+              "new product draft",
+          )
+
+          jsx = replace_once(
+              jsx,
+              '''  const readyToSave = Boolean(form.title.trim())\n    && Boolean(form.template_id)\n    && hasSelectedVariations\n    && readyArtworkSlots.length > 0\n    && generatedMockups.length > 0\n    && effectiveSellingPrice > 0;\n\n  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));''',
+              '''  const readyToSave = Boolean(form.title.trim())\n    && Boolean(form.template_id)\n    && hasSelectedVariations\n    && readyArtworkSlots.length > 0\n    && generatedMockups.length > 0\n    && effectiveSellingPrice > 0;\n\n  useEffect(() => {\n    if (loading || scopePrompted || form.artwork_groups.length) return;\n    if (form.selected_template_variation_ids.length <= 1) return;\n    setScopeMatrixOpen(true);\n    setScopePrompted(true);\n  }, [loading, scopePrompted, form.artwork_groups.length, form.selected_template_variation_ids.length]);\n\n  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));''',
+              "scope prompt effect",
+          )
+
+          jsx = replace_once(
+              jsx,
+              '''      <div className="creator-studio-body">''',
+              '''      <div className={`creator-studio-body ${detailsOpen ? "has-details" : "details-collapsed"}`}>''',
+              "body collapse class",
+          )
+
+          jsx = replace_once(
+              jsx,
+              '''          <button type="button" className={detailsOpen ? "is-active" : ""} onClick={() => setDetailsOpen((value) => !value)} title="Product details"><Info size={19} /><span>Details</span></button>\n          <button type="button" className={workspace === "design" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("design"); }} title="Design"><Palette size={19} /><span>Design</span></button>''',
+              '''          <button type="button" className={detailsOpen ? "is-active" : ""} onClick={() => setDetailsOpen((value) => !value)} title="Store product details"><Info size={19} /><span>Details</span></button>\n          <button type="button" className={scopeMatrixOpen ? "is-active" : ""} onClick={() => setScopeMatrixOpen(true)} title="Artwork variation matrix"><SlidersHorizontal size={19} /><span>Scopes</span></button>\n          <button type="button" className={workspace === "design" && viewMode === "edit" ? "is-active" : ""} onClick={() => { setViewMode("edit"); setWorkspace("design"); }} title="Design"><Palette size={19} /><span>Design</span></button>''',
+              "scope nav button",
+          )
+
+          jsx = replace_once(
+              jsx,
+              '''            <StudioAccordion title="Product information" icon={Info} open={true} onToggle={() => {}} summary="Title, copy & storefront">\n              <StudioField label="Product title">\n                <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Product title" />\n              </StudioField>\n              <StudioField label="Storefront slug" hint="Optional — FandomForge can generate this if left blank.">\n                <input value={form.slug} onChange={(event) => update("slug", event.target.value)} placeholder="product-slug" />\n              </StudioField>\n              <StudioField label="Description">\n                <textarea rows={5} value={form.description} onChange={(event) => update("description", event.target.value)} />\n              </StudioField>\n              <StudioField label="Brand">\n                <input value={form.brand} onChange={(event) => update("brand", event.target.value)} />\n              </StudioField>\n              <StudioField label="Category">\n                <input value={form.category} onChange={(event) => update("category", event.target.value)} />\n              </StudioField>\n            </StudioAccordion>''',
+              '''            <StudioAccordion title="Store product information" icon={Info} open={true} onToggle={() => {}} summary="Your title & storefront copy">\n              <div className="creator-studio-product-note">These fields belong to the product in your store. The Catalogue template stays unchanged.</div>\n              <StudioField label="Store product title">\n                <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Product title" />\n              </StudioField>\n              <StudioField label="Storefront slug" hint="Optional — FandomForge can generate this if left blank.">\n                <input value={form.slug} onChange={(event) => update("slug", event.target.value)} placeholder="product-slug" />\n              </StudioField>\n              <StudioField label="Storefront description">\n                <textarea rows={5} value={form.description} onChange={(event) => update("description", event.target.value)} />\n              </StudioField>\n            </StudioAccordion>''',
+              "store product fields",
+          )
+
+          jsx = replace_once(
+              jsx,
+              '''                <div><strong>{selectedTemplate?.name || "Product"}</strong><span>Base from {money(getCreatorBlankPrice(selectedTemplate))}</span></div>\n              </div>\n              {form.specs && <div className="creator-studio-template-specs">{form.specs}</div>}''',
+              '''                <div><strong>{selectedTemplate?.name || "Product"}</strong><span>Base from {money(getCreatorBlankPrice(selectedTemplate))}</span></div>\n              </div>\n              <div className="creator-studio-template-meta">\n                {selectedTemplate?.brand && <span>Brand <strong>{selectedTemplate.brand}</strong></span>}\n                {selectedTemplate?.category && <span>Category <strong>{selectedTemplate.category}</strong></span>}\n              </div>\n              {form.specs && <div className="creator-studio-template-specs">{form.specs}</div>}''',
+              "template metadata",
+          )
+
+          jsx = replace_once(
+              jsx,
+              '''            <div className="creator-studio-workspace creator-studio-design-workspace">\n              <div className="creator-studio-workspace-heading"><span>Design</span><strong>Place artwork on the product</strong></div>\n              <div className="creator-studio-scope-bar">\n                <ArtworkScopeSelector\n                  selectedVariations={selectedVariations}\n                  hasTemplateVariations={hasVariations}\n                  groups={form.artwork_groups}\n                  onChange={setArtworkGroups}\n                />\n              </div>\n              <ScopedProductArtworkStudio\n                template={selectedTemplate}\n                printOptions={printOptions}\n                artworkGroups={form.artwork_groups}\n                onArtworkGroupsChange={setArtworkGroups}\n                selectedVariations={selectedVariations}\n                isAdmin={false}\n              />\n            </div>''',
+              '''            <div className="creator-studio-workspace creator-studio-design-workspace">\n              <div className="creator-studio-workspace-heading"><span>Design</span><strong>Place artwork on the product</strong></div>\n              {!form.artwork_groups.length ? (\n                <div className="creator-studio-scope-cta">\n                  <div><span>Artwork variations</span><strong>Choose how artwork should vary across the selected products</strong><p>The variation matrix now opens separately so it does not take over the design canvas.</p></div>\n                  <button type="button" className="btn-secondary" onClick={() => setScopeMatrixOpen(true)}>Open artwork scopes</button>\n                </div>\n              ) : (\n                <ScopedProductArtworkStudio\n                  template={selectedTemplate}\n                  printOptions={printOptions}\n                  artworkGroups={form.artwork_groups}\n                  onArtworkGroupsChange={setArtworkGroups}\n                  selectedVariations={selectedVariations}\n                  isAdmin={false}\n                />\n              )}\n            </div>''',
+              "design canvas scope removal",
+          )
+
+          jsx = replace_once(
+              jsx,
+              '''        </aside>\n      </div>\n    </div>\n  );\n}''',
+              '''        </aside>\n      </div>\n\n      {scopeMatrixOpen && (\n        <div className="creator-studio-modal-backdrop" onMouseDown={() => setScopeMatrixOpen(false)}>\n          <section className="creator-studio-scope-modal" role="dialog" aria-modal="true" aria-label="Artwork variation matrix" onMouseDown={(event) => event.stopPropagation()}>\n            <header className="creator-studio-scope-modal-head">\n              <div><span>Artwork setup</span><strong>How should the artwork vary?</strong><p>Choose one shared design, split artwork by an attribute, or target exact product variations.</p></div>\n              <button type="button" className="creator-studio-panel-close" onClick={() => setScopeMatrixOpen(false)}>×</button>\n            </header>\n            <div className="creator-studio-scope-modal-body">\n              <ArtworkScopeSelector\n                selectedVariations={selectedVariations}\n                hasTemplateVariations={hasVariations}\n                groups={form.artwork_groups}\n                onChange={setArtworkGroups}\n              />\n            </div>\n            <footer className="creator-studio-scope-modal-foot">\n              <span>{form.artwork_groups.length ? `${form.artwork_groups.length} artwork scope${form.artwork_groups.length === 1 ? "" : "s"} configured` : "Choose an artwork scope to continue"}</span>\n              <button type="button" className="btn-primary" onClick={() => setScopeMatrixOpen(false)}>Done</button>\n            </footer>\n          </section>\n        </div>\n      )}\n    </div>\n  );\n}''',
+              "scope modal",
+          )
+
+          css = replace_once(
+              css,
+              '''  background: var(--ff-page-bg);\n  color: var(--ff-card-text);''',
+              '''  background: var(--ff-page-bg);\n  color: var(--ff-page-text);''',
+              "root page text",
+          )
+
+          css = replace_once(
+              css,
+              '''  border-bottom: 1px solid var(--ff-card-border);\n  background: var(--ff-surface-bg);\n  flex: 0 0 auto;''',
+              '''  border-bottom: 1px solid var(--ff-card-border);\n  background: var(--ff-header-bg);\n  color: var(--ff-header-text);\n  flex: 0 0 auto;''',
+              "header theme",
+          )
+
+          css = replace_once(
+              css,
+              '''.creator-studio-topbar-mode {\n  display: inline-flex;\n  border: 1px solid var(--ff-card-border);\n  background: var(--ff-page-bg);\n}''',
+              '''.creator-studio-topbar-mode {\n  display: inline-flex;\n  border: 1px solid var(--ff-button-alternate-border);\n  background: var(--ff-button-alternate-bg);\n}''',
+              "topbar mode shell",
+          )
+
+          css = replace_once(
+              css,
+              '''  border-right: 1px solid var(--ff-card-border);\n  background: transparent;\n  color: var(--ff-muted-text);''',
+              '''  border-right: 1px solid var(--ff-button-alternate-border);\n  background: var(--ff-button-alternate-bg);\n  color: var(--ff-button-alternate-text);''',
+              "topbar mode button",
+          )
+
+          css = replace_once(
+              css,
+              '''.creator-studio-topbar-mode button.is-active {\n  background: var(--ff-card-text);\n  color: var(--ff-page-bg);\n}''',
+              '''.creator-studio-topbar-mode button.is-active {\n  background: var(--ff-button-primary-bg);\n  color: var(--ff-button-primary-text);\n}''',
+              "topbar active mode",
+          )
+
+          css = replace_once(
+              css,
+              '''.creator-studio-body {\n  min-height: 0;\n  flex: 1;\n  display: grid;\n  grid-template-columns: 72px minmax(0, 300px) minmax(420px, 1fr) minmax(300px, 350px);\n  overflow: hidden;\n}''',
+              '''.creator-studio-body {\n  min-height: 0;\n  flex: 1;\n  display: grid;\n  grid-template-columns: 72px minmax(0, 300px) minmax(420px, 1fr) minmax(300px, 350px);\n  overflow: hidden;\n}\n\n.creator-studio-body.details-collapsed {\n  grid-template-columns: 72px minmax(420px, 1fr) minmax(300px, 350px);\n}''',
+              "desktop collapsed grid",
+          )
+
+          css = replace_once(
+              css,
+              '''  background: var(--ff-surface-bg);\n  display: flex;\n  flex-direction: column;''',
+              '''  background: var(--ff-surface-bg);\n  color: var(--ff-surface-text);\n  display: flex;\n  flex-direction: column;''',
+              "rail theme",
+          )
+
+          css = replace_once(
+              css,
+              '''  overscroll-behavior: contain;\n  background: var(--ff-surface-bg);\n}''',
+              '''  overscroll-behavior: contain;\n  background: var(--ff-surface-bg);\n  color: var(--ff-surface-text);\n}''',
+              "side panels theme",
+          )
+
+          css = replace_once(
+              css,
+              '''  background: transparent;\n  color: var(--ff-card-text);\n  text-align: left;''',
+              '''  background: transparent;\n  color: var(--ff-surface-text);\n  text-align: left;''',
+              "accordion text",
+          )
+
+          css = replace_once(
+              css,
+              '''  border: 1px solid var(--ff-card-border);\n  background: var(--ff-page-bg);\n  color: var(--ff-card-text);''',
+              '''  border: 1px solid var(--ff-input-border);\n  background: var(--ff-input-bg);\n  color: var(--ff-input-text);''',
+              "studio inputs",
+          )
+
+          css = replace_once(
+              css,
+              '''.creator-studio-template-card span { color: var(--ff-muted-text); font-size: 0.68rem; }\n.creator-studio-template-specs''',
+              '''.creator-studio-template-card span { color: var(--ff-muted-text); font-size: 0.68rem; }\n.creator-studio-template-meta { display: grid; gap: 5px; margin-top: 10px; color: var(--ff-muted-text); font-size: 0.66rem; }\n.creator-studio-template-meta span { display: flex; justify-content: space-between; gap: 8px; }\n.creator-studio-template-meta strong { color: var(--ff-surface-text); font-weight: 700; }\n.creator-studio-product-note { margin: 10px 0 4px; padding: 10px; border: 1px solid var(--ff-card-border); background: var(--ff-card-bg); color: var(--ff-card-text); font-size: 0.7rem; line-height: 1.45; }\n.creator-studio-template-specs''',
+              "product/template notes",
+          )
+
+          css = replace_once(
+              css,
+              '''.creator-product-studio .creator-studio-canvas .card {\n  border-color: var(--ff-card-border);\n  background: var(--ff-surface-bg);\n  color: var(--ff-card-text);\n}''',
+              '''.creator-product-studio .creator-studio-canvas .card {\n  border-color: var(--ff-card-border);\n  background: var(--ff-card-bg);\n  color: var(--ff-card-text);\n}''',
+              "canvas cards",
+          )
+
+          css = replace_once(
+              css,
+              '''.creator-studio-scope-bar { margin-bottom: 14px; }''',
+              '''.creator-studio-scope-bar { margin-bottom: 14px; }\n\n.creator-studio-scope-cta {\n  min-height: 220px;\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 24px;\n  padding: 24px;\n  border: 1px solid var(--ff-card-border);\n  background: var(--ff-card-bg);\n  color: var(--ff-card-text);\n}\n.creator-studio-scope-cta > div { max-width: 640px; }\n.creator-studio-scope-cta span { color: var(--ff-primary); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 800; }\n.creator-studio-scope-cta strong { display: block; margin-top: 7px; font-size: 1.1rem; }\n.creator-studio-scope-cta p { margin: 7px 0 0; color: var(--ff-muted-text); font-size: 0.78rem; line-height: 1.5; }''',
+              "scope cta",
+          )
+
+          css = replace_once(
+              css,
+              '''  border: 1px solid var(--ff-card-border);\n  background: var(--ff-page-bg);\n  color: var(--ff-card-text);\n  font-size: 0.72rem;''',
+              '''  border: 1px solid var(--ff-input-border);\n  background: var(--ff-input-bg);\n  color: var(--ff-input-text);\n  font-size: 0.72rem;''',
+              "variant chips",
+          )
+
+          css = replace_once(
+              css,
+              '''.creator-studio-variant-chip.is-selected { border-color: var(--ff-primary); box-shadow: inset 0 0 0 1px var(--ff-primary); }''',
+              '''.creator-studio-variant-chip.is-selected { border-color: var(--ff-primary); background: color-mix(in srgb, var(--ff-primary) 10%, var(--ff-input-bg)); color: var(--ff-input-text); box-shadow: inset 0 0 0 1px var(--ff-primary); }''',
+              "selected variants",
+          )
+
+          css = replace_once(
+              css,
+              '''.creator-studio-price-mode button { min-height: 36px; border: 0; border-right: 1px solid var(--ff-card-border); background: transparent; color: var(--ff-muted-text); font-size: 0.68rem; font-weight: 700; cursor: pointer; }\n.creator-studio-price-mode button:last-child { border-right: 0; }\n.creator-studio-price-mode button.is-active { background: var(--ff-card-text); color: var(--ff-page-bg); }''',
+              '''.creator-studio-price-mode button { min-height: 36px; border: 0; border-right: 1px solid var(--ff-button-alternate-border); background: var(--ff-button-alternate-bg); color: var(--ff-button-alternate-text); font-size: 0.68rem; font-weight: 700; cursor: pointer; }\n.creator-studio-price-mode button:last-child { border-right: 0; }\n.creator-studio-price-mode button.is-active { background: var(--ff-button-primary-bg); color: var(--ff-button-primary-text); }''',
+              "pricing mode theme",
+          )
+
+          css = replace_once(
+              css,
+              '''  border: 1px solid var(--ff-card-border);\n  background: var(--ff-page-bg);\n}''',
+              '''  border: 1px solid var(--ff-input-border);\n  background: var(--ff-input-bg);\n  color: var(--ff-input-text);\n}''',
+              "money input theme",
+          )
+
+          css = replace_once(
+              css,
+              '''@media (max-width: 1260px) {\n  .creator-studio-body { grid-template-columns: 64px minmax(0, 260px) minmax(360px, 1fr) minmax(280px, 320px); }\n}''',
+              '''@media (max-width: 1260px) {\n  .creator-studio-body { grid-template-columns: 64px minmax(0, 260px) minmax(360px, 1fr) minmax(280px, 320px); }\n  .creator-studio-body.details-collapsed { grid-template-columns: 64px minmax(360px, 1fr) minmax(280px, 320px); }\n}''',
+              "responsive collapsed grid",
+          )
+
+          css += '''\n\n.creator-studio-modal-backdrop {\n  position: fixed;\n  inset: 64px 0 0;\n  z-index: 120;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  padding: 24px;\n  background: rgb(0 0 0 / 0.62);\n}\n\n.creator-studio-scope-modal {\n  width: min(1080px, calc(100vw - 48px));\n  max-height: calc(100vh - 112px);\n  display: flex;\n  flex-direction: column;\n  border: 1px solid var(--ff-card-border);\n  background: var(--ff-card-bg);\n  color: var(--ff-card-text);\n  box-shadow: 0 24px 70px rgb(0 0 0 / 0.34);\n}\n\n.creator-studio-scope-modal-head {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 18px;\n  padding: 18px 20px;\n  border-bottom: 1px solid var(--ff-card-border);\n}\n.creator-studio-scope-modal-head > div { min-width: 0; }\n.creator-studio-scope-modal-head span { color: var(--ff-primary); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 800; }\n.creator-studio-scope-modal-head strong { display: block; margin-top: 4px; font-size: 1.2rem; }\n.creator-studio-scope-modal-head p { margin: 5px 0 0; color: var(--ff-muted-text); font-size: 0.76rem; line-height: 1.45; }\n.creator-studio-scope-modal-body { overflow: auto; padding: 18px; background: var(--ff-page-bg); color: var(--ff-page-text); }\n.creator-studio-scope-modal-body .card { background: var(--ff-card-bg); color: var(--ff-card-text); border-color: var(--ff-card-border); }\n.creator-studio-scope-modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 18px; border-top: 1px solid var(--ff-card-border); background: var(--ff-surface-bg); color: var(--ff-surface-text); }\n.creator-studio-scope-modal-foot > span { color: var(--ff-muted-text); font-size: 0.7rem; }\n\n.creator-product-studio input,\n.creator-product-studio textarea,\n.creator-product-studio select {\n  background: var(--ff-input-bg);\n  color: var(--ff-input-text);\n  border-color: var(--ff-input-border);\n}\n.creator-product-studio input::placeholder,\n.creator-product-studio textarea::placeholder { color: var(--ff-muted-text); }\n\n@media (max-width: 760px) {\n  .creator-studio-modal-backdrop { inset: 64px 0 0; padding: 8px; }\n  .creator-studio-scope-modal { width: calc(100vw - 16px); max-height: calc(100vh - 80px); }\n  .creator-studio-scope-cta { flex-direction: column; align-items: stretch; }\n}\n'''
+
+          jsx_path.write_text(jsx)
+          css_path.write_text(css)
+          PY
+
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            echo "No patch required"
+            exit 0
+          fi
+          git config user.name "FandomForge CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/components/product-builder/CreatorProductStudio.jsx frontend/src/components/product-builder/creatorProductStudio.css
+          git commit -m "Polish creator studio panels and artwork scopes"
+          git push origin HEAD:feature/creator-builder-studio
