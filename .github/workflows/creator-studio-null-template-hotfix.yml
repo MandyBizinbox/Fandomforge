@@ -1,0 +1,64 @@
+name: Creator Studio Null Template Hotfix
+
+on:
+  push:
+    branches:
+      - feature/creator-builder-studio
+    paths:
+      - ".github/workflows/creator-studio-null-template-hotfix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/creator-builder-studio
+          fetch-depth: 0
+
+      - name: Patch initial Creator Studio render
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("frontend/src/components/product-builder/CreatorProductStudio.jsx")
+          text = path.read_text()
+          old = '''function templateImage(template = {}) {
+            return template.creator_catalogue_thumbnail_url
+              || template.primary_image
+              || template.product_image_url
+              || template.mockup_url
+              || asArray(template.mockup_images)[0]
+              || asArray(template.mockup_screens).find((screen) => screen?.image_url)?.image_url
+              || "";
+          }'''
+          new = '''function templateImage(template) {
+            const source = template || {};
+            return source.creator_catalogue_thumbnail_url
+              || source.primary_image
+              || source.product_image_url
+              || source.mockup_url
+              || asArray(source.mockup_images)[0]
+              || asArray(source.mockup_screens).find((screen) => screen?.image_url)?.image_url
+              || "";
+          }'''
+          if old not in text:
+              raise SystemExit("Expected Creator Studio templateImage block not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            echo "No patch required"
+            exit 0
+          fi
+          git config user.name "FandomForge CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/components/product-builder/CreatorProductStudio.jsx
+          git commit -m "Fix creator studio initial render"
+          git push origin HEAD:feature/creator-builder-studio
