@@ -1,0 +1,44 @@
+name: Fix Creator Mockups CSS Newlines
+
+on:
+  push:
+    branches:
+      - feature/creator-builder-studio
+    paths:
+      - ".github/workflows/fix-creator-mockups-css-newlines.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/creator-builder-studio
+          fetch-depth: 0
+      - name: Normalize appended CSS newlines
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/components/product-builder/creatorProductStudio.css')
+          css = path.read_text()
+          marker = '/* Mockups now behave like the compact left-side product tool drawers. */'
+          idx = css.find(marker)
+          if idx < 0:
+              raise SystemExit('Mockups CSS marker not found')
+          prefix = css[:idx]
+          suffix = css[idx:].replace('\\n', '\n')
+          prefix = prefix.rstrip('\\n')
+          path.write_text(prefix.rstrip() + '\n\n' + suffix.lstrip())
+          PY
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "FandomForge CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/components/product-builder/creatorProductStudio.css
+          git commit -m "Fix creator mockups drawer CSS newlines" || exit 0
+          git push origin HEAD:feature/creator-builder-studio
