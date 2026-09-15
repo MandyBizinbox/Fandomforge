@@ -53,6 +53,7 @@ on:
       - "backend/e2e_support.py"
       - "backend/platform_launch_policy_patch.py"
       - "backend/artwork_print_job_pricing.py"
+      - "backend/creator_product_review.py"
       - "backend/product_normalization_service.py"
       - "backend/generated_text_artwork.py"
       - "backend/product_artwork_costing.py"
@@ -81,6 +82,7 @@ on:
       - "backend/production_rules_engine.py"
       - "backend/launch_integrity/pricing.py"
       - "backend/tests/conftest.py"
+      - "backend/tests/test_creator_product_review_state.py"
       - "backend/tests/test_canonical_production_model_policy.py"
       - "backend/tests/test_canonical_e2e_gateway_routing.py"
       - "backend/tests/test_canonical_platform_policy_defaults.py"
@@ -154,6 +156,7 @@ jobs:
           theme.test.js
           authSession.test.js
           creatorCatalogue.test.js
+          creatorProductPublishing.test.js
           creatorProductStudioUtils.test.js
           variationProductionConfig.test.js
           variationProductionRouting.test.js
@@ -176,6 +179,7 @@ jobs:
           PYTHONPATH: .
         run: |
           pytest -q \
+            tests/test_creator_product_review_state.py \
             tests/test_product_normalization_service.py \
             tests/test_product_artwork_costing.py \
             tests/test_generated_text_artwork.py \
@@ -213,6 +217,7 @@ jobs:
           python -m py_compile
           platform_fee_pricing.py
           artwork_print_job_pricing.py
+          creator_product_review.py
           product_normalization_service.py
           generated_text_artwork.py
           product_artwork_costing.py
