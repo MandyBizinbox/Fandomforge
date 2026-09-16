@@ -34,6 +34,33 @@ describe('admin product system UI contract', () => {
     expect(source).toContain('data-testid="template-action-controls"');
   });
 
+  test('SuperAdmin and creator routes share the improved product studio', () => {
+    const wrapper = read('../../components/product-builder/ProductBuilder.jsx');
+    const studio = read('../../components/product-builder/CreatorProductStudio.jsx');
+
+    expect(wrapper).toContain('return <CreatorProductStudio {...props} />');
+    expect(wrapper).not.toContain('ProductBuilderV4');
+    expect(studio).toContain('mode = "creator"');
+    expect(studio).toContain('http.get(isAdmin ? "/admin/product-templates" : "/product-templates")');
+    expect(studio).toContain('await http.post("/admin/products", payload)');
+    expect(studio).toContain('await http.put(`/admin/products/${routeId}`, payload)');
+    expect(studio).toContain('isAdmin={isAdmin}');
+    expect(studio).toContain('creatorMode={!isAdmin}');
+  });
+
+  test('sellable products snapshot and storefront-render the new template detail fields', () => {
+    const studio = read('../../components/product-builder/CreatorProductStudio.jsx');
+    const storefront = read('../../pages/ProductDetail.jsx');
+
+    expect(studio).toContain('material_composition: form.material_composition');
+    expect(studio).toContain('care_instructions: form.care_instructions');
+    expect(studio).toContain('fit_notes: form.fit_notes');
+    expect(storefront).toContain('data-testid="product-template-details"');
+    expect(storefront).toContain('Material & composition');
+    expect(storefront).toContain('Care instructions');
+    expect(storefront).toContain('Fit & sizing');
+  });
+
   test('overview stat cells use themed card surfaces', () => {
     const source = read('./dashboard/AdminOverview.jsx');
     expect(source).toContain('bg-[var(--ff-card-bg)]');
