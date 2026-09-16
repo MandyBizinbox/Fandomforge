@@ -98,7 +98,6 @@ export default function AdminDashboard({ mode = "admin", basePath = "/admin", ti
         <Route path="product-templates/:id" element={<ProductTemplateStudioPage />} />
         <Route path="products" element={<Navigate to={`${basePath}/product-templates`} replace />} />
         <Route path="simple-products/new" element={<QuickProductCreator />} />
-        <Route path="products/new" element={<ProductBuilder mode="admin" backTo="/admin/products" />} />
         <Route path="products/:id" element={<ProductBuilder mode="admin" backTo="/admin/products" />} />
         <Route path="artwork-review" element={<ArtworkReviewAdmin />} />
         <Route path="categories" element={<Navigate to={`${basePath}/product-templates`} replace />} />
