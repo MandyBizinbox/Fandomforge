@@ -15,6 +15,34 @@ export const API = `${API_BASE}/api`;
 export const AUTH_EXPIRED_EVENT = "fandomforge:auth-expired";
 export const http = axios.create({ baseURL: API });
 
+export function apiErrorDetailText(detail, fallback = "Request failed") {
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  if (Array.isArray(detail)) {
+    const parts = detail.map((item) => {
+      if (typeof item === "string") return item;
+      if (!item || typeof item !== "object") return "";
+      const location = Array.isArray(item.loc) ? item.loc.join(".") : "";
+      const message = String(item.msg || item.message || item.error || "").trim();
+      return [location, message].filter(Boolean).join(": ");
+    }).filter(Boolean);
+    return parts.length ? parts.join("; ") : fallback;
+  }
+  if (detail && typeof detail === "object") {
+    const message = [detail.message, detail.detail, detail.reason]
+      .find((value) => typeof value === "string" && value.trim());
+    const error = typeof detail.error === "string" && detail.error.trim() ? detail.error.trim() : "";
+    if (message && error && error !== message) return `${message} ${error}`;
+    if (message) return message;
+    if (error) return error;
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
 http.interceptors.request.use((config) => {
   const token = getAuthToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -103,6 +131,11 @@ http.interceptors.response.use(async (response) => {
   if (entitlement && typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("fandomforge:entitlement-denied", { detail: entitlement }));
   }
+
+  if (error?.response?.data && detail !== undefined && typeof detail !== "string") {
+    error.response.data.detail = apiErrorDetailText(detail);
+  }
+
   return Promise.reject(error);
 });
 
