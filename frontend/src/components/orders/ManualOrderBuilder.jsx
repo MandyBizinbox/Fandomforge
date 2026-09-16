@@ -97,8 +97,22 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
         const sale = Number(product.selling_price || 0) * quantity;
         const printCost = Number(product.print_cost || product.estimated_print_cost || 0) * quantity;
         const commissionRate = Number(product.commission_rate || 0.15);
-        const commission = Number(product.estimated_commission || Number(product.selling_price || 0) * commissionRate) * quantity;
-        const creatorProfit = Number(product.estimated_creator_profit || (Number(product.selling_price || 0) - Number(product.print_cost || 0) - Number(product.selling_price || 0) * commissionRate)) * quantity;
+        const productionSubtotal = (
+          Number(product.estimated_blank_cost || product.creator_blank_price || 0)
+          + Number(product.estimated_print_cost || product.print_cost || 0)
+        );
+        const fallbackPlatformFee = productionSubtotal * commissionRate;
+        const commission = Number(
+          product.estimated_commission ?? fallbackPlatformFee
+        ) * quantity;
+        const creatorProfit = Number(
+          product.estimated_creator_profit
+          ?? (
+            Number(product.selling_price || 0)
+            - productionSubtotal
+            - fallbackPlatformFee
+          )
+        ) * quantity;
 
         summary.subtotal += sale;
         summary.printCost += printCost;
@@ -209,7 +223,7 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
   }
 
   if (loading) {
-    return <div className="card text-zinc-400">Loading manual order builder...</div>;
+    return <div className="ff-ui-card ff-ui-muted">Loading manual order builder...</div>;
   }
 
   return (
@@ -218,12 +232,12 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
         <div>
           <div className="overline mb-2">Manual Order</div>
           <h1 className="font-display text-5xl uppercase">Create Order</h1>
-          <p className="text-zinc-400 text-sm mt-3 max-w-3xl">
+          <p className="ff-ui-muted text-sm mt-3 max-w-3xl">
             Create a manual order from existing template-linked products. The order will still generate the production pack for printers.
           </p>
         </div>
 
-        <button type="button" onClick={() => navigate(backTo)} className="btn-secondary">
+        <button type="button" onClick={() => navigate(backTo)} className="ff-ui-button ff-ui-button--secondary">
           <ArrowLeft size={14} /> Back
         </button>
       </div>
@@ -231,12 +245,12 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
       <form onSubmit={save} className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
         <div className="space-y-6">
           {isAdmin && (
-            <div className="card">
+            <div className="ff-ui-card">
               <div className="overline mb-3">Creator Filter</div>
-              <label htmlFor="creator-filter" className="label">Show products for creator</label>
+              <label htmlFor="creator-filter" className="ff-ui-label">Show products for creator</label>
               <select
                 id="creator-filter"
-                className="input-base"
+                className="ff-ui-control"
                 value={selectedBandId}
                 onChange={(e) => setSelectedBandId(e.target.value)}
               >
@@ -245,19 +259,19 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
                   <option key={creator.id} value={creator.id}>{creator.name}</option>
                 ))}
               </select>
-              <p className="text-xs text-zinc-500 mt-2">
+              <p className="text-xs ff-ui-muted mt-2">
                 This filters the product picker only. The order items remain linked to the product's owning creator.
               </p>
             </div>
           )}
 
-          <div className="card">
+          <div className="ff-ui-card">
             <div className="flex items-center justify-between gap-4 mb-5">
               <div>
                 <div className="overline mb-1">Items</div>
                 <h2 className="font-display text-3xl uppercase">Products</h2>
               </div>
-              <button type="button" onClick={addLine} className="btn-secondary text-xs">
+              <button type="button" onClick={addLine} className="ff-ui-button ff-ui-button--secondary text-xs">
                 <Plus size={14} /> Add Line
               </button>
             </div>
@@ -269,11 +283,11 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
                 const variations = product?.variations || [];
 
                 return (
-                  <div key={index} className="border border-white/10 bg-black/30 p-4" data-testid={`manual-order-line-${index}`}>
+                  <div key={index} className="ff-ui-subpanel p-4" data-testid={`manual-order-line-${index}`}>
                     <div className="flex items-center justify-between mb-4">
                       <div className="overline">Line {index + 1}</div>
                       {lines.length > 1 && (
-                        <button type="button" onClick={() => removeLine(index)} className="text-xs uppercase tracking-widest text-[#FF3B30] font-bold">
+                        <button type="button" onClick={() => removeLine(index)} className="ff-ui-danger-text text-xs uppercase tracking-widest font-bold">
                           <Trash2 size={14} className="inline mr-1" /> Remove
                         </button>
                       )}
@@ -281,10 +295,10 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
 
                     <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_120px] gap-3">
                       <div>
-                        <label className="label" htmlFor={`product-${index}`}>Product</label>
+                        <label className="ff-ui-label" htmlFor={`product-${index}`}>Product</label>
                         <select
                           id={`product-${index}`}
-                          className="input-base"
+                          className="ff-ui-control"
                           value={line.product_id}
                           onChange={(e) => updateLine(index, { product_id: e.target.value, variation_id: "" })}
                         >
@@ -296,10 +310,10 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
                       </div>
 
                       <div>
-                        <label className="label" htmlFor={`variation-${index}`}>Variation</label>
+                        <label className="ff-ui-label" htmlFor={`variation-${index}`}>Variation</label>
                         <select
                           id={`variation-${index}`}
-                          className="input-base"
+                          className="ff-ui-control"
                           value={line.variation_id}
                           onChange={(e) => updateLine(index, { variation_id: e.target.value })}
                           disabled={!product}
@@ -312,10 +326,10 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
                       </div>
 
                       <div>
-                        <label className="label" htmlFor={`qty-${index}`}>Qty</label>
+                        <label className="ff-ui-label" htmlFor={`qty-${index}`}>Qty</label>
                         <input
                           id={`qty-${index}`}
-                          className="input-base"
+                          className="ff-ui-control"
                           type="number"
                           min="1"
                           value={line.quantity}
@@ -325,19 +339,19 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
                     </div>
 
                     {product && (
-                      <div className="mt-4 grid grid-cols-1 md:grid-cols-[72px_1fr] gap-3 text-xs text-zinc-400">
-                        <div className="w-[72px] h-[72px] border border-white/10 bg-black flex items-center justify-center overflow-hidden">
+                      <div className="mt-4 grid grid-cols-1 md:grid-cols-[72px_1fr] gap-3 text-xs ff-ui-muted">
+                        <div className="w-[72px] h-[72px] border border-[var(--ff-card-border)] bg-[var(--ff-surface-bg)] flex items-center justify-center overflow-hidden">
                           {product.mockup_images?.[0] ? (
                             <img src={assetUrl(product.mockup_images[0])} alt={product.title} className="w-full h-full object-cover" />
                           ) : (
-                            <span className="text-zinc-600">MF</span>
+                            <span className="ff-ui-muted">MF</span>
                           )}
                         </div>
                         <div className="grid sm:grid-cols-4 gap-3">
-                          <div><span className="text-zinc-500">Price</span><br /><span className="text-white">{money(product.selling_price)}</span></div>
-                          <div><span className="text-zinc-500">Print cost</span><br /><span className="text-white">{money(product.print_cost || product.estimated_print_cost)}</span></div>
-                          <div><span className="text-zinc-500">Template</span><br /><span className="text-white">{product.template_id ? "Linked" : "Legacy"}</span></div>
-                          <div><span className="text-zinc-500">Status</span><br /><span className="text-white">{product.published ? "Published" : "Draft"}</span></div>
+                          <div><span className="ff-ui-muted">Price</span><br /><span className="text-[var(--ff-card-text)]">{money(product.selling_price)}</span></div>
+                          <div><span className="ff-ui-muted">Print cost</span><br /><span className="text-[var(--ff-card-text)]">{money(product.print_cost || product.estimated_print_cost)}</span></div>
+                          <div><span className="ff-ui-muted">Template</span><br /><span className="text-[var(--ff-card-text)]">{product.template_id ? "Linked" : "Legacy"}</span></div>
+                          <div><span className="ff-ui-muted">Status</span><br /><span className="text-[var(--ff-card-text)]">{product.published ? "Published" : "Draft"}</span></div>
                         </div>
                       </div>
                     )}
@@ -347,50 +361,50 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
             </div>
           </div>
 
-          <div className="card">
+          <div className="ff-ui-card">
             <div className="overline mb-3">Customer / Shipping</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="label" htmlFor="manual-full-name">Full name</label>
-                <input id="manual-full-name" className="input-base" value={shippingAddress.full_name} onChange={(e) => updateAddress("full_name", e.target.value)} required />
+                <label className="ff-ui-label" htmlFor="manual-full-name">Full name</label>
+                <input id="manual-full-name" className="ff-ui-control" value={shippingAddress.full_name} onChange={(e) => updateAddress("full_name", e.target.value)} required />
               </div>
               <div>
-                <label className="label" htmlFor="manual-email">Email</label>
-                <input id="manual-email" className="input-base" type="email" value={shippingAddress.email} onChange={(e) => updateAddress("email", e.target.value)} required />
+                <label className="ff-ui-label" htmlFor="manual-email">Email</label>
+                <input id="manual-email" className="ff-ui-control" type="email" value={shippingAddress.email} onChange={(e) => updateAddress("email", e.target.value)} required />
               </div>
               <div>
-                <label className="label" htmlFor="manual-phone">Phone</label>
-                <input id="manual-phone" className="input-base" value={shippingAddress.phone} onChange={(e) => updateAddress("phone", e.target.value)} />
+                <label className="ff-ui-label" htmlFor="manual-phone">Phone</label>
+                <input id="manual-phone" className="ff-ui-control" value={shippingAddress.phone} onChange={(e) => updateAddress("phone", e.target.value)} />
               </div>
               <div>
-                <label className="label" htmlFor="manual-country">Country</label>
-                <input id="manual-country" className="input-base" value={shippingAddress.country} onChange={(e) => updateAddress("country", e.target.value)} />
+                <label className="ff-ui-label" htmlFor="manual-country">Country</label>
+                <input id="manual-country" className="ff-ui-control" value={shippingAddress.country} onChange={(e) => updateAddress("country", e.target.value)} />
               </div>
               <div className="md:col-span-2">
-                <label className="label" htmlFor="manual-line1">Address line 1</label>
-                <input id="manual-line1" className="input-base" value={shippingAddress.line1} onChange={(e) => updateAddress("line1", e.target.value)} required />
+                <label className="ff-ui-label" htmlFor="manual-line1">Address line 1</label>
+                <input id="manual-line1" className="ff-ui-control" value={shippingAddress.line1} onChange={(e) => updateAddress("line1", e.target.value)} required />
               </div>
               <div className="md:col-span-2">
-                <label className="label" htmlFor="manual-line2">Address line 2</label>
-                <input id="manual-line2" className="input-base" value={shippingAddress.line2} onChange={(e) => updateAddress("line2", e.target.value)} />
+                <label className="ff-ui-label" htmlFor="manual-line2">Address line 2</label>
+                <input id="manual-line2" className="ff-ui-control" value={shippingAddress.line2} onChange={(e) => updateAddress("line2", e.target.value)} />
               </div>
               <div>
-                <label className="label" htmlFor="manual-city">City</label>
-                <input id="manual-city" className="input-base" value={shippingAddress.city} onChange={(e) => updateAddress("city", e.target.value)} required />
+                <label className="ff-ui-label" htmlFor="manual-city">City</label>
+                <input id="manual-city" className="ff-ui-control" value={shippingAddress.city} onChange={(e) => updateAddress("city", e.target.value)} required />
               </div>
               <div>
-                <label className="label" htmlFor="manual-state">Province</label>
-                <input id="manual-state" className="input-base" value={shippingAddress.state} onChange={(e) => updateAddress("state", e.target.value)} />
+                <label className="ff-ui-label" htmlFor="manual-state">Province</label>
+                <input id="manual-state" className="ff-ui-control" value={shippingAddress.state} onChange={(e) => updateAddress("state", e.target.value)} />
               </div>
               <div>
-                <label className="label" htmlFor="manual-postal">Postal code</label>
-                <input id="manual-postal" className="input-base" value={shippingAddress.postal_code} onChange={(e) => updateAddress("postal_code", e.target.value)} required />
+                <label className="ff-ui-label" htmlFor="manual-postal">Postal code</label>
+                <input id="manual-postal" className="ff-ui-control" value={shippingAddress.postal_code} onChange={(e) => updateAddress("postal_code", e.target.value)} required />
               </div>
             </div>
           </div>
         </div>
 
-        <aside className="card h-fit sticky top-24">
+        <aside className="ff-ui-card h-fit sticky top-24">
           <div className="overline mb-3">Summary</div>
           <div className="space-y-3 text-sm">
             {lines.map((line, index) => {
@@ -399,26 +413,26 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
               const quantity = Number(line.quantity || 0);
               return (
                 <div key={index} className="flex justify-between gap-4">
-                  <span className="text-zinc-400">{product.title} × {quantity}</span>
+                  <span className="ff-ui-muted">{product.title} × {quantity}</span>
                   <span>{money(Number(product.selling_price || 0) * quantity)}</span>
                 </div>
               );
             })}
           </div>
 
-          <div className="border-t border-white/15 mt-5 pt-5 space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-zinc-400">Subtotal</span><span>{money(totals.subtotal)}</span></div>
-            <div className="flex justify-between"><span className="text-zinc-400">Est. print cost</span><span>{money(totals.printCost)}</span></div>
-            <div className="flex justify-between"><span className="text-zinc-400">Est. commission</span><span>{money(totals.commission)}</span></div>
-            <div className="flex justify-between"><span className="text-zinc-400">Est. creator profit</span><span className="text-[#34C759]">{money(totals.creatorProfit)}</span></div>
+          <div className="border-t border-[var(--ff-card-border)] mt-5 pt-5 space-y-2 text-sm">
+            <div className="flex justify-between"><span className="ff-ui-muted">Subtotal</span><span>{money(totals.subtotal)}</span></div>
+            <div className="flex justify-between"><span className="ff-ui-muted">Est. print cost</span><span>{money(totals.printCost)}</span></div>
+            <div className="flex justify-between"><span className="ff-ui-muted">Est. commission</span><span>{money(totals.commission)}</span></div>
+            <div className="flex justify-between"><span className="ff-ui-muted">Est. creator profit</span><span className="ff-ui-success-text">{money(totals.creatorProfit)}</span></div>
           </div>
 
-          <div className="border-t border-white/15 mt-5 pt-5 flex justify-between font-display text-2xl">
+          <div className="border-t border-[var(--ff-card-border)] mt-5 pt-5 flex justify-between font-display text-2xl">
             <span>Total</span>
             <span>{money(totals.subtotal)}</span>
           </div>
 
-          <label className="mt-5 flex items-start gap-3 text-sm text-zinc-300">
+          <label className="mt-5 flex items-start gap-3 text-sm text-[var(--ff-card-text)]">
             <input
               type="checkbox"
               checked={markPaid}
@@ -427,11 +441,11 @@ export default function ManualOrderBuilder({ mode = "admin", backTo = "/admin/or
             />
             <span>
               Mark as paid and send to production immediately.
-              {!isAdmin && <span className="block text-xs text-zinc-500 mt-1">Use this only for paid cash/EFT/manual orders.</span>}
+              {!isAdmin && <span className="block text-xs ff-ui-muted mt-1">Use this only for paid cash/EFT/manual orders.</span>}
             </span>
           </label>
 
-          <button type="submit" className="btn-primary w-full mt-6" disabled={saving || totals.subtotal <= 0}>
+          <button type="submit" className="ff-ui-button ff-ui-button--primary w-full mt-6" disabled={saving || totals.subtotal <= 0}>
             <Save size={14} /> {saving ? "Creating..." : "Create Manual Order"}
           </button>
         </aside>

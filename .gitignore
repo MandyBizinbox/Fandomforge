@@ -22,6 +22,8 @@ frontend/build-*/
 frontend/build.broken-*/
 frontend/build.white-screen-*/
 frontend/build.emergency-*/
+frontend/current
+frontend/releases/
 
 # Logs / runtime
 *.log

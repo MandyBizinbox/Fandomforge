@@ -171,7 +171,7 @@ export default function TemplateViewManager({
     <div className="flex gap-2">
       {!isSelectorOnly && (
         <label className="studio-file-button flex-1">
-          <Upload size={12} /> {uploadingId === screen.id ? "Uploading" : screen.image_url ? "Replace Image" : "Upload Image"}
+          <Upload size={12} /> {uploadingId === screen.id ? "Uploading" : screen.image_url ? "Replace image" : "Upload image"}
           <input type="file" className="hidden" accept="image/*" onChange={(e) => uploadScreen(screen.id, e.target.files?.[0])} />
         </label>
       )}
@@ -180,6 +180,7 @@ export default function TemplateViewManager({
         className="studio-danger-button"
         onClick={() => removeScreen(screen.id)}
         title={screenIsProtected(screen) ? "Deactivate protected view" : "Delete unused view"}
+        aria-label={screenIsProtected(screen) ? "Deactivate protected view" : "Delete unused view"}
       >
         <Trash2 size={13} />
       </button>
@@ -190,22 +191,22 @@ export default function TemplateViewManager({
     <div className="studio-panel h-full">
       <div className="studio-panel-header">
         <div>
-          <div className="overline mb-1">{isSelectorOnly ? "Base Views" : "Template Views"}</div>
-          <h2 className="font-display text-2xl uppercase">{isSelectorOnly ? "Choose View" : "Base Perspective Views"}</h2>
+          <div className="overline mb-1">Editor images</div>
+          <h2 className="font-display text-2xl uppercase">Product views</h2>
           <p className="text-xs text-zinc-500 mt-2 max-w-sm">
             {isSelectorOnly
-              ? "Select the base view you want to draw production print areas on. Admin users may delete unused views or deactivate protected views from here."
-              : "Upload one clean fallback image per view type: Front, Back, Side, Sleeve and Neck Label. Colour-specific images are added under Variations as overrides."}
+              ? "Select the product view whose printable boundary you want to edit."
+              : "Add the images creators will place artwork onto. Each view and its print areas are stored inside this production setup."}
           </p>
         </div>
         {!isSelectorOnly && (
-          <button type="button" className="btn-primary text-xs" onClick={() => addScreen("front")}><Plus size={14} /> Add Front</button>
+          <button type="button" className="btn-primary text-xs" onClick={() => addScreen("front")}><Plus size={14} /> Add view</button>
         )}
       </div>
 
       {!isSelectorOnly && (
         <div className="mb-4 border border-white/10 bg-black/20 rounded-xl p-3">
-          <div className="label mb-2">Quick add base views</div>
+          <div className="label mb-2">Quick add product views</div>
           <div className="flex flex-wrap gap-2">
             {quickViewOptions.map((option) => {
               const exists = activeScreens.some((screen) => (screen.view_key || screen.view) === option.value);
@@ -218,13 +219,13 @@ export default function TemplateViewManager({
                   disabled={exists}
                   title={exists ? `${option.label} already exists` : `Add ${option.label}`}
                 >
-                  <Plus size={13} /> {exists ? `${option.label} added` : `Add ${option.label}`}
+                  <Plus size={13} /> {exists ? `${option.label} added` : option.label}
                 </button>
               );
             })}
           </div>
           <p className="text-xs text-zinc-500 mt-3">
-            Add generic fallback views here first. Variation colour images will appear as overrides after these base views exist.
+            Upload the actual editor image for each view required by this product or variation.
           </p>
         </div>
       )}
@@ -250,13 +251,12 @@ export default function TemplateViewManager({
                 </button>
                 <div className="view-card-body">
                   <button type="button" className="text-left w-full" onClick={() => onSelectedScreenIdChange(screen.id)}>
-                    <div className="font-bold text-sm">{viewOption?.label || screen.name || "Base View"}</div>
-                    <div className="text-xs text-zinc-500 mt-1">{screen.name || "Fallback image"}</div>
+                    <div className="font-bold text-sm">{viewOption?.label || screen.name || "Product view"}</div>
+                    <div className="text-xs text-zinc-500 mt-1">{screen.name || "Editor image"}</div>
                     <div className="text-[10px] uppercase tracking-widest text-zinc-500 mt-2">
-                      {screen.image_url ? "Base image ready" : "No base image"}
+                      {screen.image_url ? "Editor image ready" : "No editor image"}
                     </div>
                   </button>
-                  <div className="mt-3">{renderViewActions(screen)}</div>
                 </div>
               </div>
             );
@@ -272,7 +272,7 @@ export default function TemplateViewManager({
                 )}
               </button>
               <div className="view-card-body">
-                <input className="input-base text-sm mb-2" value={screen.name || ""} onChange={(e) => updateScreen(screen.id, { name: e.target.value })} placeholder="Example: Front fallback" />
+                <input className="input-base text-sm mb-2" value={screen.name || ""} onChange={(e) => updateScreen(screen.id, { name: e.target.value })} placeholder="Example: Front" />
                 <select
                   className="input-base text-sm mb-2"
                   value={screen.view_key || screen.view || "front"}
@@ -296,11 +296,9 @@ export default function TemplateViewManager({
         {activeScreens.length === 0 && (
           <button type="button" className="dropzone" onClick={() => addScreen("front")}>
             <ImageIcon className="mx-auto mb-3 text-[#FF3B30]" />
-            <div className="font-bold uppercase tracking-widest text-xs">{isSelectorOnly ? "No base views yet" : "Add first base view"}</div>
+            <div className="font-bold tracking-wide text-sm">{isSelectorOnly ? "No product views yet" : "Add the first product view"}</div>
             <div className="text-xs text-zinc-500 mt-2">
-              {isSelectorOnly
-                ? "Go to Base Views first and add Front, Back, Side or Neck Label."
-                : "Create generic fallback views only. Example: Front, Back, Side, Neck Label."}
+              Add Front, Back, Side, Sleeve, Full Wrap or another view required for this production setup.
             </div>
           </button>
         )}
@@ -308,13 +306,13 @@ export default function TemplateViewManager({
 
       {archivedScreens.length > 0 && !isSelectorOnly && (
         <div className="mt-5 border border-white/10 bg-black/20 rounded-xl p-3">
-          <div className="label mb-2">Archived / deactivated views</div>
+          <div className="label mb-2">Archived product views</div>
           <div className="space-y-2">
             {archivedScreens.map((screen) => (
               <div key={screen.id} className="flex items-center justify-between gap-3 text-xs border border-white/10 rounded-lg p-2">
                 <div>
                   <div className="font-bold text-zinc-200">{screen.name || screen.view_key || "Archived view"}</div>
-                  <div className="text-zinc-500">Soft-deleted view. Restore only if it should be used again.</div>
+                  <div className="text-zinc-500">This view is inactive but retained for existing references.</div>
                 </div>
                 <button type="button" className="btn-secondary text-[10px]" onClick={() => restoreScreen(screen.id)}>
                   <RotateCcw size={12} /> Restore

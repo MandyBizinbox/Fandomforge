@@ -1,29 +1,19 @@
+@import "./styles/platform-foundation.css";
+
 /*
- * Platform-controlled visual overrides.
+ * Legacy platform-theme compatibility
+ * -----------------------------------
+ * Shared primitives now live in styles/platform-foundation.css and consume
+ * Platform Settings tokens directly. This file is intentionally limited to
+ * old hard-coded utility classes and legacy studio states that still need a
+ * compatibility bridge while those components are migrated.
  *
- * This file loads after the legacy stylesheet and makes the shared application
- * primitives consume the values managed in Instance Branding Settings. Status
- * colours remain semantic; brand, surfaces, text, inputs, headers and buttons
- * come from the platform theme.
+ * Delete selectors from this file as their owning components are refactored.
  */
 
-html,
-body,
-#root,
-.App,
-.page-shell,
-.admin-workspace {
-  background-color: var(--ff-page-bg) !important;
-  color: var(--ff-page-text) !important;
-}
-
-.brand-text {
-  color: var(--ff-primary) !important;
-}
-
-/* Compatibility for older JSX that embedded former brand colours directly in
- * Tailwind arbitrary-value utilities. Exact token selectors preserve opacity
- * variants instead of converting every translucent state into a solid block. */
+/* Older JSX embedded former instance brand colours directly in Tailwind
+ * arbitrary-value utilities. Keep those components theme-aware until they are
+ * migrated to semantic --ff-* tokens. */
 [class~="text-[#FF3B30]"],
 [class~="text-[#ff3b30]"] {
   color: var(--ff-primary) !important;
@@ -112,126 +102,12 @@ body,
   background-color: color-mix(in srgb, var(--ff-primary) 15%, transparent) !important;
 }
 
-.btn-primary {
-  background: var(--ff-button-primary-bg) !important;
-  color: var(--ff-button-primary-text) !important;
-  border-color: var(--ff-button-primary-border) !important;
-}
-
-.btn-primary:hover {
-  background: var(--ff-button-alternate-bg) !important;
-  color: var(--ff-button-alternate-text) !important;
-  border-color: var(--ff-button-alternate-border) !important;
-}
-
-.btn-secondary {
-  background: var(--ff-button-alternate-bg) !important;
-  color: var(--ff-button-alternate-text) !important;
-  border-color: var(--ff-button-alternate-border, var(--ff-button-secondary-idle-border)) !important;
-}
-
-.btn-secondary:hover {
-  background: var(--ff-button-primary-bg) !important;
-  color: var(--ff-button-primary-text) !important;
-  border-color: var(--ff-button-primary-border) !important;
-}
-
-.card,
-.admin-sidebar,
-.site-footer,
+/* Template Studio is still being decomposed. Its legacy classes are kept here
+ * temporarily so Platform Settings remains authoritative during that migration. */
 .studio-panel {
   background: var(--ff-card-bg) !important;
   color: var(--ff-card-text) !important;
   border-color: var(--ff-card-border) !important;
-}
-
-.admin-topbar {
-  background: var(--ff-header-bg) !important;
-  color: var(--ff-header-text) !important;
-  border-color: var(--ff-card-border) !important;
-}
-
-.input-base,
-input[type="text"],
-input[type="email"],
-input[type="password"],
-input[type="number"],
-input[type="tel"],
-input[type="url"],
-input[type="search"],
-input[type="date"],
-input[type="time"],
-textarea,
-select {
-  background-color: var(--ff-input-bg) !important;
-  color: var(--ff-input-text) !important;
-  border-color: var(--ff-input-border) !important;
-}
-
-.input-base:focus,
-input[type="text"]:focus,
-input[type="email"]:focus,
-input[type="password"]:focus,
-input[type="number"]:focus,
-input[type="tel"]:focus,
-input[type="url"]:focus,
-input[type="search"]:focus,
-input[type="date"]:focus,
-input[type="time"]:focus,
-textarea:focus,
-select:focus {
-  border-color: var(--ff-primary) !important;
-  outline-color: var(--ff-primary) !important;
-}
-
-.input-base::placeholder,
-input[type="text"]::placeholder,
-input[type="email"]::placeholder,
-input[type="password"]::placeholder,
-input[type="number"]::placeholder,
-input[type="tel"]::placeholder,
-input[type="url"]::placeholder,
-input[type="search"]::placeholder,
-textarea::placeholder {
-  color: var(--ff-muted-text) !important;
-  opacity: 0.75;
-}
-
-select option,
-select optgroup,
-.input-base option {
-  background-color: var(--ff-input-bg) !important;
-  color: var(--ff-input-text) !important;
-}
-
-input[type="checkbox"],
-input[type="radio"] {
-  accent-color: var(--ff-primary);
-}
-
-.overline,
-.label,
-.text-muted,
-.sidebar-link {
-  color: var(--ff-muted-text) !important;
-}
-
-.sidebar-link:hover,
-.sidebar-link.active {
-  color: var(--ff-card-text) !important;
-  background: color-mix(in srgb, var(--ff-primary) 10%, transparent) !important;
-}
-
-.sidebar-link.active {
-  border-left-color: var(--ff-primary) !important;
-}
-
-.card-interactive:hover,
-.dropzone:hover,
-.canvas-overlay.selected,
-.studio-tab:hover,
-.studio-tab.active {
-  border-color: var(--ff-primary) !important;
 }
 
 .studio-tab {
@@ -242,34 +118,13 @@ input[type="radio"] {
 
 .studio-tab:hover,
 .studio-tab.active {
+  border-color: var(--ff-primary) !important;
   background: color-mix(in srgb, var(--ff-primary) 12%, var(--ff-card-bg)) !important;
   color: var(--ff-card-text) !important;
 }
 
-.studio-subpanel,
-.table-brutal tr:hover td {
+.studio-subpanel {
   background: var(--ff-surface-bg) !important;
   color: var(--ff-surface-text) !important;
-}
-
-.table-brutal th,
-.table-brutal td,
-.dropzone,
-.studio-topbar,
-.studio-panel,
-.studio-subpanel {
   border-color: var(--ff-card-border) !important;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--ff-surface-bg);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--ff-card-border);
-  border-color: var(--ff-surface-bg);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--ff-primary);
 }
