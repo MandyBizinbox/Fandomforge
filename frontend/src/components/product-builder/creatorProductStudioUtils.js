@@ -114,33 +114,6 @@ function storefrontDetailValue(template, keys) {
     .find(Boolean) || "";
 }
 
-function appendStorefrontDetailSections(base, template) {
-  const sections = [
-    {
-      title: "Material & composition",
-      value: storefrontDetailValue(template, ["material_composition", "materials"]),
-    },
-    {
-      title: "Care instructions",
-      value: storefrontDetailValue(template, ["care_instructions", "care"]),
-    },
-    {
-      title: "Fit & sizing",
-      value: storefrontDetailValue(template, ["fit_notes", "sizing_notes", "fit_and_sizing"]),
-    },
-  ].filter((section) => section.value);
-
-  if (!sections.length) return String(base || "").trim();
-
-  const parts = [];
-  const baseText = String(base || "").trim();
-  if (baseText) parts.push(baseText);
-  sections.forEach((section) => {
-    parts.push(`**${section.title}**\n${section.value}`);
-  });
-  return parts.join("\n\n");
-}
-
 export function creatorTemplateSpecs(template = {}) {
   const explicit = template.specs
     ?? template.specifications
@@ -150,13 +123,9 @@ export function creatorTemplateSpecs(template = {}) {
     ?? "";
   const explicitText = stringifyTemplateField(explicit);
 
-  let baseSpecs = explicitText;
-  if (!baseSpecs) {
-    const description = String(template.description || "").trim();
-    baseSpecs = looksLikeSpecificationText(description) ? description : "";
-  }
-
-  return appendStorefrontDetailSections(baseSpecs, template);
+  if (explicitText) return explicitText;
+  const description = String(template.description || "").trim();
+  return looksLikeSpecificationText(description) ? description : "";
 }
 
 export function creatorTemplateDescription(template = {}) {
@@ -179,6 +148,9 @@ export function buildCreatorProductDraftFromTemplate(template = {}) {
     title: template.creator_default_title || template.name || template.title || "",
     description: creatorTemplateDescription(template),
     specs: creatorTemplateSpecs(template),
+    material_composition: storefrontDetailValue(template, ["material_composition", "materials"]),
+    care_instructions: storefrontDetailValue(template, ["care_instructions", "care"]),
+    fit_notes: storefrontDetailValue(template, ["fit_notes", "sizing_notes", "fit_and_sizing"]),
     category: template.category || "",
     brand: template.brand || "",
   };

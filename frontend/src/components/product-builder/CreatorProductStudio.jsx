@@ -52,6 +52,7 @@ import {
   buildCreatorProductDraftFromTemplate,
   collectStudioAttributeOptions,
   creatorStudioBackPath,
+  creatorTemplateSpecs,
   deriveStudioVariationIds,
   inferStudioPricingAttribute,
   normaliseStudioValue,
@@ -64,18 +65,6 @@ import "./creatorProductStudio.css";
 
 const EMPTY_ARTWORK = { original_url: "", file_name: "", mime_type: "", status: "pending_review" };
 const EMPTY_PLACEMENT = { x: 0, y: 0, width: 0, height: 0, rotation: 0 };
-
-function getTemplateSpecs(template) {
-  if (!template) return "";
-  const value = template.specs ?? template.specifications ?? template.product_specs ?? template.features ?? template.specification_text ?? "";
-  if (Array.isArray(value)) {
-    return value.map((item) => typeof item === "string" ? item : `${item.label || item.name || "Spec"}: ${item.value ?? ""}`).join("\n");
-  }
-  if (value && typeof value === "object") {
-    return Object.entries(value).map(([key, item]) => `${key}: ${typeof item === "object" ? JSON.stringify(item) : item}`).join("\n");
-  }
-  return String(value || "");
-}
 
 function resolveExistingVariationIds(existing, template) {
   const persisted = asArray(existing?.selected_template_variation_ids).map(String).filter(Boolean);
@@ -181,11 +170,13 @@ function ReadinessItem({ done, children }) {
   return <div className={`creator-studio-ready-row ${done ? "is-done" : ""}`}><span>{done && <Check size={11} />}</span>{children}</div>;
 }
 
-export default function CreatorProductStudio({ backTo = "/creator/products" }) {
+export default function CreatorProductStudio({ mode = "creator", backTo }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { id: routeId } = useParams();
+  const isAdmin = mode === "admin";
   const isNew = !routeId || routeId === "new";
+  const resolvedBackTo = backTo || (isAdmin ? "/admin/products" : "/creator/products");
   const catalogueTemplateId = useMemo(() => (
     isNew ? new URLSearchParams(location.search).get("template") || "" : ""
   ), [isNew, location.search]);
@@ -196,6 +187,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   const [publishing, setPublishing] = useState(false);
   const [product, setProduct] = useState(null);
   const [templates, setTemplates] = useState([]);
+  const [creators, setCreators] = useState([]);
   const [printOptions, setPrintOptions] = useState([]);
   const [creatorAccount, setCreatorAccount] = useState(null);
   const [workspace, setWorkspace] = useState("design");
@@ -213,14 +205,19 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [selectedValues, setSelectedValues] = useState({});
   const [form, setForm] = useState({
+    band_id: "",
     template_id: "",
     title: "",
     slug: "",
     description: "",
     specs: "",
+    material_composition: "",
+    care_instructions: "",
+    fit_notes: "",
     category: "",
     brand: "",
     active: true,
+    published: false,
     selected_template_variation_ids: [],
     variation_price_overrides: {},
     variation_pricing_mode: "by_attribute",
@@ -240,7 +237,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   useEffect(() => {
     let mounted = true;
     async function load() {
-      if (isNew && !catalogueTemplateId) {
+      if (!isAdmin && isNew && !catalogueTemplateId) {
         navigate("/creator?section=catalogue", { replace: true });
         return;
       }
@@ -248,25 +245,29 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
       setLoading(true);
       try {
         const requests = [
-          http.get("/product-templates"),
+          http.get(isAdmin ? "/admin/product-templates" : "/product-templates"),
           http.get("/print-options"),
-          http.get("/creators/me"),
+          isAdmin ? http.get("/admin/creators") : http.get("/creators/me"),
         ];
-        if (!isNew) requests.push(http.get(`/products/${routeId}`));
+        if (!isNew) requests.push(http.get(isAdmin ? `/admin/products/${routeId}` : `/products/${routeId}`));
         const responses = await Promise.all(requests);
         if (!mounted) return;
 
         const loadedTemplates = asArray(responses[0].data);
         const loadedPrintOptions = asArray(responses[1].data);
-        const creator = responses[2].data || null;
+        const thirdResponse = responses[2].data;
+        const creator = isAdmin ? null : thirdResponse || null;
+        const loadedCreators = isAdmin ? asArray(thirdResponse) : [];
         const launchReady = loadedTemplates.filter((template) => selectableTemplate(template, loadedPrintOptions));
         let templatesForStudio = launchReady;
         let selected = null;
         let existing = null;
 
         if (isNew) {
-          selected = launchReady.find((template) => String(template.id) === String(catalogueTemplateId)) || null;
-          if (!selected) {
+          selected = catalogueTemplateId
+            ? launchReady.find((template) => String(template.id) === String(catalogueTemplateId)) || null
+            : null;
+          if (!isAdmin && !selected) {
             toast.error("That catalogue product is no longer available.");
             navigate("/creator?section=catalogue", { replace: true });
             return;
@@ -282,6 +283,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
         setTemplates(templatesForStudio);
         setPrintOptions(loadedPrintOptions);
         setCreatorAccount(creator);
+        setCreators(loadedCreators);
 
         if (isNew && selected) {
           const initialIds = asArray(selected.default_selected_variation_ids || selected.default_variation_ids).map(String).filter(Boolean);
@@ -315,18 +317,24 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
           const existingPriceValues = Object.values(existingVariationPrices).map(Number).filter((value) => Number.isFinite(value) && value > 0);
           const inferredUniformPricing = existingPriceValues.length > 0 && new Set(existingPriceValues.map((value) => value.toFixed(2))).size === 1;
           const enabled = getEnabledTemplateVariations(existingTemplate);
+          const templateDraft = buildCreatorProductDraftFromTemplate(existingTemplate || {});
 
           setProduct(existing);
           setSelectedValues(seedStudioSelections(enabled, existingVariationIds));
           setForm({
+            band_id: existing.band_id || "",
             template_id: existing.template_id || "",
             title: existing.title || "",
             slug: existing.slug || "",
-            description: existing.description || "",
-            specs: existing.specs || getTemplateSpecs(existingTemplate),
+            description: existing.description || templateDraft.description || "",
+            specs: existing.specs || templateDraft.specs || "",
+            material_composition: existing.material_composition || templateDraft.material_composition || "",
+            care_instructions: existing.care_instructions || templateDraft.care_instructions || "",
+            fit_notes: existing.fit_notes || templateDraft.fit_notes || "",
             category: existing.category || existingTemplate?.category || "",
             brand: existing.brand || existingTemplate?.brand || "",
             active: existing.active !== false,
+            published: Boolean(existing.published),
             selected_template_variation_ids: existingVariationIds,
             variation_price_overrides: existingVariationPrices,
             variation_pricing_mode: existing.variation_pricing_mode || (inferredUniformPricing ? "uniform" : "by_attribute"),
@@ -345,7 +353,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
     }
     load();
     return () => { mounted = false; };
-  }, [catalogueTemplateId, isNew, navigate, routeId]);
+  }, [catalogueTemplateId, isAdmin, isNew, navigate, routeId]);
 
   const selectedTemplate = useMemo(
     () => templates.find((template) => String(template.id) === String(form.template_id)) || null,
@@ -372,7 +380,11 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
     () => getUniquePrintCostFromGroups(form.artwork_groups, printOptions, selectedTemplate),
     [form.artwork_groups, printOptions, selectedTemplate]
   );
-  const commissionSource = useMemo(() => creatorAccount?.id ? creatorAccount : product, [creatorAccount, product]);
+  const assignedCreator = useMemo(
+    () => isAdmin ? creators.find((creator) => String(creator.id) === String(form.band_id)) || null : creatorAccount,
+    [creatorAccount, creators, form.band_id, isAdmin]
+  );
+  const commissionSource = useMemo(() => assignedCreator?.id ? assignedCreator : product, [assignedCreator, product]);
   const commissionRate = useMemo(() => resolveCreatorCommissionRate(commissionSource), [commissionSource]);
   const effectiveSellingPrice = useMemo(() => {
     if (form.variation_pricing_mode === "uniform") return Number(form.selling_price || 0);
@@ -404,6 +416,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   const hasSelectedVariations = !hasVariations || form.selected_template_variation_ids.length > 0;
   const readyToSave = Boolean(form.title.trim())
     && Boolean(form.template_id)
+    && (!isAdmin || Boolean(form.band_id))
     && hasSelectedVariations
     && readyArtworkSlots.length > 0
     && generatedMockups.length > 0
@@ -431,6 +444,57 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   }, [activeArtworkGroupId, form.artwork_groups]);
 
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  const chooseAdminTemplate = (templateId) => {
+    if (!isAdmin || !isNew) return;
+    const selected = templates.find((template) => String(template.id) === String(templateId)) || null;
+    if (!selected) {
+      setSelectedValues({});
+      setForm((current) => ({
+        ...current,
+        template_id: "",
+        title: "",
+        description: "",
+        specs: "",
+        material_composition: "",
+        care_instructions: "",
+        fit_notes: "",
+        category: "",
+        brand: "",
+        selected_template_variation_ids: [],
+        variation_price_overrides: {},
+        selling_price: 0,
+        artwork_groups: [],
+        mockup_images: [],
+        mockup_image_url: "",
+        primary_mockup_image_url: "",
+      }));
+      return;
+    }
+
+    const initialIds = asArray(selected.default_selected_variation_ids || selected.default_variation_ids).map(String).filter(Boolean);
+    const enabled = getEnabledTemplateVariations(selected);
+    const draft = buildCreatorProductDraftFromTemplate(selected);
+    setSelectedValues(seedStudioSelections(enabled, initialIds));
+    setForm((current) => ({
+      ...current,
+      ...draft,
+      band_id: current.band_id,
+      slug: "",
+      published: current.published,
+      selected_template_variation_ids: initialIds,
+      variation_price_overrides: {},
+      variation_pricing_mode: "by_attribute",
+      selling_price: 0,
+      artwork_groups: [],
+      mockup_images: [],
+      mockup_image_url: "",
+      primary_mockup_image_url: "",
+    }));
+    setActiveArtworkGroupId("");
+    setActiveArtworkSlotId("");
+    setScopePrompted(false);
+  };
 
   const toggleAttributeValue = (key, value) => {
     const next = { ...selectedValues, [key]: studioArray(selectedValues[key]) };
@@ -475,7 +539,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
           original_url: primary.original_url,
           file_name: primary.file_name || "artwork",
           mime_type: primary.mime_type || "",
-          status: primary.status || "pending_review",
+          status: primary.status || (isAdmin ? "approved" : "pending_review"),
         } : EMPTY_ARTWORK,
         placement: primary?.placement || EMPTY_PLACEMENT,
       };
@@ -508,8 +572,8 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
     }));
   };
 
-  const setPricingMode = (mode) => {
-    if (mode === "uniform") {
+  const setPricingMode = (nextMode) => {
+    if (nextMode === "uniform") {
       const currentPrice = Number(
         form.selling_price || Object.values(scopedPriceMap).map(Number).find((value) => value > 0) || 0
       );
@@ -564,11 +628,15 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
       : selectedGallery;
 
     return {
+      ...(isAdmin ? { band_id: form.band_id } : {}),
       template_id: form.template_id,
       title: form.title.trim(),
       slug: form.slug.trim(),
       description: form.description || "",
       specs: form.specs || "",
+      material_composition: form.material_composition || "",
+      care_instructions: form.care_instructions || "",
+      fit_notes: form.fit_notes || "",
       category: form.category || selectedTemplate?.category || "",
       brand: form.brand || "",
       active: form.active !== false,
@@ -582,10 +650,12 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
       attribute_ids: asArray(selectedTemplate?.attribute_ids),
       spec_attributes: {},
       customization_enabled: false,
-      published: false,
+      published: isAdmin ? Boolean(form.published) : false,
       publish_on_approval: false,
-      review_submission_status: "draft",
-      review_submitted_at: null,
+      ...(!isAdmin ? {
+        review_submission_status: "draft",
+        review_submitted_at: null,
+      } : {}),
       selected_template_variation_ids: form.selected_template_variation_ids,
       selected_print_area_id: primary?.print_area_id || "",
       selected_print_option_id: primary?.print_option_id || "",
@@ -593,7 +663,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
         original_url: primary.original_url,
         file_name: primary.file_name || "artwork",
         mime_type: primary.mime_type || "",
-        status: primary.status || "pending_review",
+        status: primary.status || (isAdmin ? "approved" : "pending_review"),
       } : EMPTY_ARTWORK,
       artworks: flattenArtworkGroups(form.artwork_groups),
       artwork_groups: form.artwork_groups,
@@ -608,8 +678,9 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   };
 
   const validateDraft = () => {
+    if (isAdmin && !form.band_id) return "Choose the creator who owns this product.";
     if (!form.title.trim()) return "Add a product title in Product details.";
-    if (!form.template_id) return "Choose a product from the Catalogue.";
+    if (!form.template_id) return isAdmin ? "Choose a Catalogue template." : "Choose a product from the Catalogue.";
     return null;
   };
 
@@ -631,23 +702,33 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
     }
     setSaving(true);
     try {
-      const payload = {
-        ...buildPayload(),
-        review_submission_status: "draft",
-        review_submitted_at: null,
-        published: false,
-      };
-      const response = isNew
-        ? await http.post("/products", payload)
-        : await http.patch(`/products/${routeId}`, payload);
+      const payload = isAdmin
+        ? buildPayload()
+        : {
+            ...buildPayload(),
+            review_submission_status: "draft",
+            review_submitted_at: null,
+            published: false,
+          };
+      const response = isAdmin
+        ? (isNew
+            ? await http.post("/admin/products", payload)
+            : await http.put(`/admin/products/${routeId}`, payload))
+        : (isNew
+            ? await http.post("/products", payload)
+            : await http.patch(`/products/${routeId}`, payload));
       const saved = response.data;
       setProduct(saved);
-      emitCreatorProductsReadyRefresh();
-      if (!quiet) toast.success(isNew ? "Draft created" : "Draft saved");
-      if (redirect) navigate("/creator/products", { replace: true });
+      if (!isAdmin) emitCreatorProductsReadyRefresh();
+      if (!quiet) toast.success(isAdmin ? (isNew ? "Product created" : "Product saved") : (isNew ? "Draft created" : "Draft saved"));
+      if (isAdmin && isNew) {
+        navigate(`/admin/products/${saved.id}`, { replace: true });
+      } else if (!isAdmin && redirect) {
+        navigate("/creator/products", { replace: true });
+      }
       return saved;
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Could not save draft");
+      toast.error(error.response?.data?.detail || (isAdmin ? "Could not save product" : "Could not save draft"));
       return null;
     } finally {
       setSaving(false);
@@ -655,10 +736,11 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   };
 
   const saveDraft = async () => {
-    await persistDraft({ redirect: true });
+    await persistDraft({ redirect: !isAdmin });
   };
 
   const sendForReview = async () => {
+    if (isAdmin) return;
     const error = validateReview();
     if (error) {
       toast.error(error);
@@ -681,6 +763,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   };
 
   const publish = async () => {
+    if (isAdmin) return;
     if (!product?.id) {
       await persistDraft({ redirect: true });
       return;
@@ -702,24 +785,30 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
     }
   };
 
-  const backPath = isNew && catalogueTemplateId ? creatorStudioBackPath(catalogueTemplateId) : backTo;
+  const backPath = isAdmin
+    ? resolvedBackTo
+    : isNew && catalogueTemplateId
+      ? creatorStudioBackPath(catalogueTemplateId)
+      : resolvedBackTo;
   const selectedImage = form.primary_mockup_image_url || form.mockup_image_url || templateImage(selectedTemplate);
-  const published = isCreatorProductPublished(product || {});
+  const published = isAdmin ? Boolean(form.published) : isCreatorProductPublished(product || {});
   const reviewSubmissionStatus = product?.review_submission_status || "draft";
-  const reviewPending = reviewSubmissionStatus === "submitted" && product?.artwork_review_status === "pending_review";
-  const reviewRejected = product?.artwork_review_status === "rejected";
-  const reviewApproved = product?.artwork_review_status === "approved";
-  const reviewStatusLabel = published
-    ? "Live"
-    : reviewPending
-      ? "In review"
-      : reviewRejected
-        ? "Changes requested"
-        : reviewApproved
-          ? "Approved"
-          : readyToSave
-            ? "Ready for review"
-            : "Draft";
+  const reviewPending = !isAdmin && reviewSubmissionStatus === "submitted" && product?.artwork_review_status === "pending_review";
+  const reviewRejected = !isAdmin && product?.artwork_review_status === "rejected";
+  const reviewApproved = !isAdmin && product?.artwork_review_status === "approved";
+  const reviewStatusLabel = isAdmin
+    ? (published ? "Live" : "Admin draft")
+    : published
+      ? "Live"
+      : reviewPending
+        ? "In review"
+        : reviewRejected
+          ? "Changes requested"
+          : reviewApproved
+            ? "Approved"
+            : readyToSave
+              ? "Ready for review"
+              : "Draft";
   const priceValues = pricingAttribute
     ? [...new Set(selectedVariations.map((variation) => String(getAttributeValue(variation, pricingAttribute) || "")).filter(Boolean))]
     : [];
@@ -729,13 +818,13 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
   }
 
   return (
-    <div className="creator-product-studio" data-testid="creator-product-studio">
+    <div className="creator-product-studio" data-testid={isAdmin ? "admin-product-studio" : "creator-product-studio"}>
       <header className="creator-studio-topbar">
         <button type="button" className="creator-studio-icon-button" onClick={() => navigate(backPath)} aria-label="Back">
           <ArrowLeft size={18} />
         </button>
         <div className="creator-studio-topbar-product">
-          <span>{isNew ? "Create product" : "Edit product"}</span>
+          <span>{isAdmin ? (isNew ? "Create admin product" : "Edit admin product") : (isNew ? "Create product" : "Edit product")}</span>
           <strong>{form.title || selectedTemplate?.name || "Untitled product"}</strong>
         </div>
         <div className="creator-studio-topbar-mode" role="tablist" aria-label="Studio mode">
@@ -744,7 +833,11 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
         </div>
         <div className="creator-studio-topbar-actions">
           <span className={`creator-studio-save-state ${readyToSave && !reviewPending ? "is-ready" : ""}`}>{reviewStatusLabel}</span>
-          {!reviewPending && (
+          {isAdmin ? (
+            <button type="button" className="btn-primary creator-studio-save" onClick={saveDraft} disabled={saving}>
+              <Save size={14} /> {saving ? "Saving…" : "Save product"}
+            </button>
+          ) : !reviewPending ? (
             <>
               <button type="button" className="btn-secondary creator-studio-save creator-studio-save-draft" onClick={saveDraft} disabled={saving || submittingReview}>
                 <Save size={14} /> {saving ? "Saving…" : "Save draft"}
@@ -753,8 +846,9 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
                 <Sparkles size={14} /> {submittingReview ? "Sending…" : reviewRejected ? "Resubmit for review" : "Send for review"}
               </button>
             </>
+          ) : (
+            <span className="creator-studio-review-lock">Editing locked while review is pending</span>
           )}
-          {reviewPending && <span className="creator-studio-review-lock">Editing locked while review is pending</span>}
         </div>
       </header>
 
@@ -774,8 +868,32 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
               <button type="button" className="creator-studio-panel-close" onClick={() => setDetailsOpen(false)}>×</button>
             </div>
 
-            <StudioAccordion title="Store product information" icon={Info} open={true} onToggle={() => {}} summary="Your title & storefront copy">
-              <div className="creator-studio-product-note">These fields belong to the product in your store. The Catalogue template stays unchanged.</div>
+            {isAdmin && (
+              <StudioAccordion title="Admin product setup" icon={Package} open={true} onToggle={() => {}} summary={form.band_id && form.template_id ? "Assigned" : "Choose owner & template"}>
+                <div className="creator-studio-product-note">SuperAdmin uses the same production Studio as creators, with direct ownership and storefront controls.</div>
+                <StudioField label="Creator" hint={product?.band_id ? "Creator ownership is locked after the product is created." : "Choose the storefront that will own this product."}>
+                  <select value={form.band_id} onChange={(event) => update("band_id", event.target.value)} disabled={Boolean(product?.band_id)}>
+                    <option value="">Select creator</option>
+                    {creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.name}</option>)}
+                  </select>
+                </StudioField>
+                <StudioField label="Catalogue template" hint={isNew ? "Choose the production template this sellable product is built from." : "Template ownership is locked after creation."}>
+                  <select value={form.template_id} onChange={(event) => chooseAdminTemplate(event.target.value)} disabled={!isNew}>
+                    <option value="">Select template</option>
+                    {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                  </select>
+                </StudioField>
+                <StudioField label="Storefront status">
+                  <select value={form.published ? "published" : "draft"} onChange={(event) => update("published", event.target.value === "published")}>
+                    <option value="draft">Draft / hidden</option>
+                    <option value="published">Published / live</option>
+                  </select>
+                </StudioField>
+              </StudioAccordion>
+            )}
+
+            <StudioAccordion title="Store product information" icon={Info} open={true} onToggle={() => {}} summary="Title & storefront copy">
+              <div className="creator-studio-product-note">These fields belong to this sellable product. The Catalogue template stays unchanged.</div>
               <StudioField label="Store product title">
                 <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Product title" />
               </StudioField>
@@ -785,23 +903,38 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
               <StudioField label="Storefront description">
                 <textarea rows={5} value={form.description} onChange={(event) => update("description", event.target.value)} />
               </StudioField>
-              <StudioField label="Product specs" hint="Copied from the Catalogue template as a separate editable field.">
-                <textarea rows={6} value={form.specs} onChange={(event) => update("specs", event.target.value)} placeholder="Material, dimensions, care or product specifications" />
+              <StudioField label="Specifications & features" hint="Copied from the Catalogue template as an editable product snapshot.">
+                <textarea rows={6} value={form.specs} onChange={(event) => update("specs", event.target.value)} placeholder="Capacity, dimensions, features or product specifications" />
+              </StudioField>
+              <StudioField label="Material / composition">
+                <textarea rows={3} value={form.material_composition} onChange={(event) => update("material_composition", event.target.value)} placeholder="Ceramic, 100% cotton, polyester blend…" />
+              </StudioField>
+              <StudioField label="Care instructions">
+                <textarea rows={3} value={form.care_instructions} onChange={(event) => update("care_instructions", event.target.value)} placeholder="Washing, handling or care instructions" />
+              </StudioField>
+              <StudioField label="Fit / sizing notes">
+                <textarea rows={3} value={form.fit_notes} onChange={(event) => update("fit_notes", event.target.value)} placeholder="Fit, sizing or capacity guidance" />
               </StudioField>
             </StudioAccordion>
 
             <StudioAccordion title="Template information" icon={Package} open={templateInfoOpen} onToggle={() => setTemplateInfoOpen((value) => !value)} summary={selectedTemplate?.name || "Catalogue product"}>
-              <div className="creator-studio-template-card">
-                <div className="creator-studio-template-image">
-                  {templateImage(selectedTemplate) ? <img src={assetUrl(templateImage(selectedTemplate))} alt={selectedTemplate?.name || "Product"} /> : <Package size={26} />}
-                </div>
-                <div><strong>{selectedTemplate?.name || "Product"}</strong><span>Base from {money(getCreatorBlankPrice(selectedTemplate))}</span></div>
-              </div>
-              <div className="creator-studio-template-meta">
-                {selectedTemplate?.brand && <span>Brand <strong>{selectedTemplate.brand}</strong></span>}
-                {selectedTemplate?.category && <span>Category <strong>{selectedTemplate.category}</strong></span>}
-              </div>
-              {getTemplateSpecs(selectedTemplate) && <div className="creator-studio-template-specs">{getTemplateSpecs(selectedTemplate)}</div>}
+              {selectedTemplate ? (
+                <>
+                  <div className="creator-studio-template-card">
+                    <div className="creator-studio-template-image">
+                      {templateImage(selectedTemplate) ? <img src={assetUrl(templateImage(selectedTemplate))} alt={selectedTemplate?.name || "Product"} /> : <Package size={26} />}
+                    </div>
+                    <div><strong>{selectedTemplate?.name || "Product"}</strong><span>Base from {money(getCreatorBlankPrice(selectedTemplate))}</span></div>
+                  </div>
+                  <div className="creator-studio-template-meta">
+                    {selectedTemplate?.brand && <span>Brand <strong>{selectedTemplate.brand}</strong></span>}
+                    {selectedTemplate?.category && <span>Category <strong>{selectedTemplate.category}</strong></span>}
+                  </div>
+                  {creatorTemplateSpecs(selectedTemplate) && <div className="creator-studio-template-specs">{creatorTemplateSpecs(selectedTemplate)}</div>}
+                </>
+              ) : (
+                <div className="creator-studio-note">Choose a Catalogue template above to load production information.</div>
+              )}
             </StudioAccordion>
           </aside>
         )}
@@ -879,7 +1012,14 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
         )}
 
         <main className="creator-studio-canvas">
-          {viewMode === "preview" ? (
+          {!selectedTemplate ? (
+            <div className="creator-studio-empty-canvas">
+              <div className="creator-studio-empty-product"><Package size={58} /></div>
+              <span>Choose a product</span>
+              <h2>Select a Catalogue template in Details</h2>
+              <p>{isAdmin ? "Assign a creator and choose the production template to start the SuperAdmin product Studio." : "Return to the Catalogue and choose a product to start designing."}</p>
+            </div>
+          ) : viewMode === "preview" ? (
             <div className="creator-studio-preview">
               <div className="creator-studio-preview-image">
                 {selectedImage ? <img src={assetUrl(selectedImage)} alt={form.title || "Product preview"} /> : <ImageIcon size={46} />}
@@ -926,7 +1066,7 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
               <div className="creator-studio-workspace-heading"><span>Design</span><strong>Place artwork on the product</strong></div>
               {!form.artwork_groups.length ? (
                 <div className="creator-studio-scope-cta">
-                  <div><span>Artwork variations</span><strong>Choose how artwork should vary across the selected products</strong><p>The variation matrix now opens separately so it does not take over the design canvas.</p></div>
+                  <div><span>Artwork variations</span><strong>Choose how artwork should vary across the selected products</strong><p>The variation matrix opens separately so it does not take over the design canvas.</p></div>
                   <button type="button" className="btn-secondary" onClick={() => { setScopeMatrixOpen(true); setDetailsOpen(false); setLayersOpen(false); }}>Open artwork scopes</button>
                 </div>
               ) : (
@@ -936,8 +1076,8 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
                   artworkGroups={form.artwork_groups}
                   onArtworkGroupsChange={setArtworkGroups}
                   selectedVariations={selectedVariations}
-                  isAdmin={false}
-                  creatorMode={true}
+                  isAdmin={isAdmin}
+                  creatorMode={!isAdmin}
                   activeGroupId={activeArtworkGroupId}
                   onActiveGroupChange={setActiveArtworkGroupId}
                   activeSlotId={activeArtworkSlotId}
@@ -952,14 +1092,16 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
               </div>
               <span>Choose variants</span>
               <h2>Select the colours and sizes you want to sell</h2>
-              <p>Your product is already chosen from the Catalogue. Variant choices live in the panel on the right — no template step needed.</p>
+              <p>Variant choices live in the panel on the right. Your production template is already loaded.</p>
             </div>
           )}
         </main>
 
         <aside className="creator-studio-right-panel">
-          <StudioAccordion title="Variants" icon={SlidersHorizontal} open={variantsOpen} onToggle={() => setVariantsOpen((value) => !value)} summary={hasVariations ? `${form.selected_template_variation_ids.length} selected` : "Standard product"}>
-            {!hasVariations ? (
+          <StudioAccordion title="Variants" icon={SlidersHorizontal} open={variantsOpen} onToggle={() => setVariantsOpen((value) => !value)} summary={!selectedTemplate ? "Choose template" : hasVariations ? `${form.selected_template_variation_ids.length} selected` : "Standard product"}>
+            {!selectedTemplate ? (
+              <div className="creator-studio-note">Choose a Catalogue template first.</div>
+            ) : !hasVariations ? (
               <div className="creator-studio-note">This product has no selectable variants.</div>
             ) : (
               <div className="creator-studio-variant-groups">
@@ -994,52 +1136,60 @@ export default function CreatorProductStudio({ backTo = "/creator/products" }) {
           </StudioAccordion>
 
           <StudioAccordion title="Pricing" icon={DollarSign} open={pricingOpen} onToggle={() => setPricingOpen((value) => !value)} summary={effectiveSellingPrice > 0 ? money(effectiveSellingPrice) : "Set price"}>
-            <div className="creator-studio-price-mode">
-              <button type="button" className={form.variation_pricing_mode !== "uniform" ? "is-active" : ""} onClick={() => setPricingMode("by_attribute")}>By {pricingAttribute || "variant"}</button>
-              <button type="button" className={form.variation_pricing_mode === "uniform" ? "is-active" : ""} onClick={() => setPricingMode("uniform")}>Same price</button>
-            </div>
-            {form.variation_pricing_mode === "uniform" ? (
-              <StudioField label="Selling price">
-                <div className="creator-studio-money-input"><span>R</span><input type="number" min="0" step="0.01" value={form.selling_price || ""} onChange={(event) => setUniformPrice(event.target.value)} placeholder="0.00" /></div>
-              </StudioField>
-            ) : priceValues.length ? (
-              <div className="creator-studio-price-list">
-                {priceValues.map((value) => (
-                  <div key={value} className="creator-studio-price-row">
-                    <span>{value}</span>
-                    <div className="creator-studio-money-input"><span>R</span><input type="number" min="0" step="0.01" value={scopedPriceMap[value] ?? ""} onChange={(event) => setScopedPrice(value, event.target.value)} placeholder="0.00" /></div>
-                  </div>
-                ))}
-              </div>
+            {!selectedTemplate ? (
+              <div className="creator-studio-note">Choose a Catalogue template first.</div>
             ) : (
-              <div className="creator-studio-note">Choose variants first to set scoped pricing.</div>
+              <>
+                <div className="creator-studio-price-mode">
+                  <button type="button" className={form.variation_pricing_mode !== "uniform" ? "is-active" : ""} onClick={() => setPricingMode("by_attribute")}>By {pricingAttribute || "variant"}</button>
+                  <button type="button" className={form.variation_pricing_mode === "uniform" ? "is-active" : ""} onClick={() => setPricingMode("uniform")}>Same price</button>
+                </div>
+                {form.variation_pricing_mode === "uniform" ? (
+                  <StudioField label="Selling price">
+                    <div className="creator-studio-money-input"><span>R</span><input type="number" min="0" step="0.01" value={form.selling_price || ""} onChange={(event) => setUniformPrice(event.target.value)} placeholder="0.00" /></div>
+                  </StudioField>
+                ) : priceValues.length ? (
+                  <div className="creator-studio-price-list">
+                    {priceValues.map((value) => (
+                      <div key={value} className="creator-studio-price-row">
+                        <span>{value}</span>
+                        <div className="creator-studio-money-input"><span>R</span><input type="number" min="0" step="0.01" value={scopedPriceMap[value] ?? ""} onChange={(event) => setScopedPrice(value, event.target.value)} placeholder="0.00" /></div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="creator-studio-note">Choose variants first to set scoped pricing.</div>
+                )}
+                <div className="creator-studio-cost-grid">
+                  <div><span>Base</span><strong>{money(pricing.blank)}</strong></div>
+                  <div><span>Artwork printing</span><strong>{money(pricing.print)}</strong></div>
+                  <div><span>Production</span><strong>{money(pricing.production)}</strong></div>
+                  <div><span>{isAdmin ? "Creator amount" : "Your amount"}</span><strong className={pricing.profit >= 0 ? "is-positive" : "is-negative"}>{money(pricing.profit)}</strong></div>
+                </div>
+              </>
             )}
-            <div className="creator-studio-cost-grid">
-              <div><span>Base</span><strong>{money(pricing.blank)}</strong></div>
-              <div><span>Artwork printing</span><strong>{money(pricing.print)}</strong></div>
-              <div><span>Production</span><strong>{money(pricing.production)}</strong></div>
-              <div><span>Your amount</span><strong className={pricing.profit >= 0 ? "is-positive" : "is-negative"}>{money(pricing.profit)}</strong></div>
-            </div>
           </StudioAccordion>
 
           <StudioAccordion title="Product readiness" icon={Sparkles} open={readinessOpen} onToggle={() => setReadinessOpen((value) => !value)} summary={readyToSave ? "Ready" : "In progress"}>
             <div className="creator-studio-readiness">
+              {isAdmin && <ReadinessItem done={Boolean(form.band_id)}>Creator assigned</ReadinessItem>}
+              <ReadinessItem done={Boolean(form.template_id)}>Template selected</ReadinessItem>
               <ReadinessItem done={Boolean(form.title.trim())}>Product title</ReadinessItem>
               <ReadinessItem done={hasSelectedVariations}>Variants selected</ReadinessItem>
               <ReadinessItem done={readyArtworkSlots.length > 0}>Artwork + print method</ReadinessItem>
               <ReadinessItem done={generatedMockups.length > 0}>Mockup generated</ReadinessItem>
               <ReadinessItem done={effectiveSellingPrice > 0}>Selling price</ReadinessItem>
             </div>
-            {product?.id && !published && (
+            {!isAdmin && product?.id && !published && (
               <button type="button" className="btn-secondary creator-studio-publish" disabled={publishing || !canPublishCreatorProduct(product)} onClick={publish}>
                 {publishing ? "Publishing…" : "Publish product"}
               </button>
             )}
             {published && <div className="creator-studio-live-note"><Check size={13} /> Product is live</div>}
+            {isAdmin && !published && <div className="creator-studio-note">Set Storefront status to Published, then Save product when this product should go live.</div>}
           </StudioAccordion>
         </aside>
       </div>
-
     </div>
   );
 }

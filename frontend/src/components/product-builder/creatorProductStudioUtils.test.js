@@ -61,12 +61,15 @@ describe("creator product studio helpers", () => {
       title: "My Club Tee",
       description: "A soft everyday tee.",
       specs: "Material: Cotton\nGSM: 165",
+      material_composition: "",
+      care_instructions: "",
+      fit_notes: "",
       category: "T-Shirts",
       brand: "FWRD",
     });
   });
 
-  test("copies admin storefront defaults into the creator product snapshot", () => {
+  test("copies admin storefront defaults into first-class creator product snapshot fields", () => {
     const template = {
       id: "template-storefront",
       name: "Admin Template Name",
@@ -84,12 +87,10 @@ describe("creator product studio helpers", () => {
       template_id: "template-storefront",
       title: "Premium Everyday Tee",
       description: "Soft, durable and ready for your artwork.",
-      specs: [
-        "165gsm combed cotton\nSide-seamed construction",
-        "**Material & composition**\n100% combed cotton",
-        "**Care instructions**\nMachine wash cold\nDo not iron directly on print",
-        "**Fit & sizing**\nRegular unisex fit",
-      ].join("\n\n"),
+      specs: "165gsm combed cotton\nSide-seamed construction",
+      material_composition: "100% combed cotton",
+      care_instructions: "Machine wash cold\nDo not iron directly on print",
+      fit_notes: "Regular unisex fit",
       category: "T-Shirts",
       brand: "FWRD",
     });

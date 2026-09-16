@@ -300,6 +300,8 @@ export default function ProductDetail() {
                     </div>
                   )}
 
+                  <ProductInformationCards product={product} />
+
                   {Object.keys(product.spec_attributes || {}).length > 0 && (
                     <div className="card mt-8" data-testid="product-specs">
                       <div className="overline mb-3">Product specifications</div>
@@ -323,6 +325,27 @@ export default function ProductDetail() {
           )}
         </div>
       </main>
+    </div>
+  );
+}
+
+function ProductInformationCards({ product }) {
+  const sections = [
+    { key: "material", title: "Material & composition", value: product.material_composition || product.materials || "" },
+    { key: "care", title: "Care instructions", value: product.care_instructions || product.care || "" },
+    { key: "fit", title: "Fit & sizing", value: product.fit_notes || product.sizing_notes || product.fit_and_sizing || "" },
+  ].filter((section) => String(section.value || "").trim());
+
+  if (!sections.length) return null;
+
+  return (
+    <div className="grid sm:grid-cols-2 gap-3 mt-8" data-testid="product-template-details">
+      {sections.map((section) => (
+        <section key={section.key} className="card text-sm">
+          <div className="overline mb-3">{section.title}</div>
+          <FormattedText text={section.value} className="text-[var(--ff-muted-text)] leading-relaxed" />
+        </section>
+      ))}
     </div>
   );
 }
