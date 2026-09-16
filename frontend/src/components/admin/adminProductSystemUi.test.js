@@ -48,6 +48,23 @@ describe('admin product system UI contract', () => {
     expect(studio).toContain('creatorMode={!isAdmin}');
   });
 
+  test('admin new-product save stays on one route instance when new becomes a real id', () => {
+    const dashboard = read('../../pages/AdminDashboard.jsx');
+    const route = read('../../routes/AdminDashboardRoute.jsx');
+
+    expect(dashboard).toContain('<Route path="products/:id" element={<ProductBuilder mode="admin" backTo="/admin/products" />} />');
+    expect(dashboard).not.toContain('path="products/new"');
+    expect(route).not.toContain('adminDashboardKey');
+    expect(route).not.toContain('<AdminDashboard key=');
+    expect(route).toContain('return <AdminDashboard />');
+  });
+
+  test('structured API failures are converted to render-safe text before UI toasts consume them', () => {
+    const api = read('../../lib/api.js');
+    expect(api).toContain('export function apiErrorDetailText');
+    expect(api).toContain('error.response.data.detail = apiErrorDetailText(detail)');
+  });
+
   test('sellable products snapshot and storefront-render the new template detail fields', () => {
     const studio = read('../../components/product-builder/CreatorProductStudio.jsx');
     const storefront = read('../../pages/ProductDetail.jsx');

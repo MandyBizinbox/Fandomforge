@@ -6,13 +6,6 @@ import AdminProductSystemRoute from "./AdminProductSystemRoute";
 import AdminPlatformSettingsRoute from "./AdminPlatformSettingsRoute";
 import "../components/product-builder/productBuilderStudioViewport.css";
 
-function adminDashboardKey(pathname) {
-  const path = String(pathname || "").replace(/\/+$/, "");
-  return /^\/admin\/products\/(?:new|[^/]+)$/.test(path)
-    ? path
-    : "admin-dashboard";
-}
-
 function isTemplateStudioPath(pathname) {
   return /^\/admin\/product-templates\/(?:new|[^/]+)(?:\/[^/]+)?\/?$/.test(String(pathname || ""));
 }
@@ -48,5 +41,5 @@ export default function AdminDashboardRoute() {
     return <AdminPlatformSettingsRoute />;
   }
 
-  return <AdminDashboard key={adminDashboardKey(location.pathname)} />;
+  return <AdminDashboard />;
 }
