@@ -104,6 +104,43 @@ function stringifyTemplateField(value) {
   return String(value || "").trim();
 }
 
+function looksLikeSpecificationText(value) {
+  return /(^|\n)\s*(key features|features|attributes|specifications?)\b|(^|\n)\s*(material|capacity|fabric(?: weight)?|gsm|size|dimensions?)\s*:/i.test(String(value || "").trim());
+}
+
+function storefrontDetailValue(template, keys) {
+  return keys
+    .map((key) => stringifyTemplateField(template?.[key]))
+    .find(Boolean) || "";
+}
+
+function appendStorefrontDetailSections(base, template) {
+  const sections = [
+    {
+      title: "Material & composition",
+      value: storefrontDetailValue(template, ["material_composition", "materials"]),
+    },
+    {
+      title: "Care instructions",
+      value: storefrontDetailValue(template, ["care_instructions", "care"]),
+    },
+    {
+      title: "Fit & sizing",
+      value: storefrontDetailValue(template, ["fit_notes", "sizing_notes", "fit_and_sizing"]),
+    },
+  ].filter((section) => section.value);
+
+  if (!sections.length) return String(base || "").trim();
+
+  const parts = [];
+  const baseText = String(base || "").trim();
+  if (baseText) parts.push(baseText);
+  sections.forEach((section) => {
+    parts.push(`**${section.title}**\n${section.value}`);
+  });
+  return parts.join("\n\n");
+}
+
 export function creatorTemplateSpecs(template = {}) {
   const explicit = template.specs
     ?? template.specifications
@@ -112,11 +149,14 @@ export function creatorTemplateSpecs(template = {}) {
     ?? template.specification_text
     ?? "";
   const explicitText = stringifyTemplateField(explicit);
-  if (explicitText) return explicitText;
 
-  const description = String(template.description || "").trim();
-  const looksLikeSpecs = /(^|\n)\s*(key features|features|attributes|specifications?)\b|(^|\n)\s*(material|capacity|fabric(?: weight)?|gsm|size|dimensions?)\s*:/i.test(description);
-  return looksLikeSpecs ? description : "";
+  let baseSpecs = explicitText;
+  if (!baseSpecs) {
+    const description = String(template.description || "").trim();
+    baseSpecs = looksLikeSpecificationText(description) ? description : "";
+  }
+
+  return appendStorefrontDetailSections(baseSpecs, template);
 }
 
 export function creatorTemplateDescription(template = {}) {
@@ -129,9 +169,8 @@ export function creatorTemplateDescription(template = {}) {
   if (explicit) return explicit;
 
   const description = String(template.description || "").trim();
-  if (!description) return "";
-  const specs = creatorTemplateSpecs(template);
-  return specs && normaliseStudioValue(specs) === normaliseStudioValue(description) ? "" : description;
+  if (!description || looksLikeSpecificationText(description)) return "";
+  return description;
 }
 
 export function buildCreatorProductDraftFromTemplate(template = {}) {

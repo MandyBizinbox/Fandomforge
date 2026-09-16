@@ -66,6 +66,35 @@ describe("creator product studio helpers", () => {
     });
   });
 
+  test("copies admin storefront defaults into the creator product snapshot", () => {
+    const template = {
+      id: "template-storefront",
+      name: "Admin Template Name",
+      creator_default_title: "Premium Everyday Tee",
+      creator_default_description: "Soft, durable and ready for your artwork.",
+      specs: "165gsm combed cotton\nSide-seamed construction",
+      material_composition: "100% combed cotton",
+      care_instructions: "Machine wash cold\nDo not iron directly on print",
+      fit_notes: "Regular unisex fit",
+      category: "T-Shirts",
+      brand: "FWRD",
+    };
+
+    expect(buildCreatorProductDraftFromTemplate(template)).toEqual({
+      template_id: "template-storefront",
+      title: "Premium Everyday Tee",
+      description: "Soft, durable and ready for your artwork.",
+      specs: [
+        "165gsm combed cotton\nSide-seamed construction",
+        "**Material & composition**\n100% combed cotton",
+        "**Care instructions**\nMachine wash cold\nDo not iron directly on print",
+        "**Fit & sizing**\nRegular unisex fit",
+      ].join("\n\n"),
+      category: "T-Shirts",
+      brand: "FWRD",
+    });
+  });
+
   test("does not copy a specification block into the storefront description", () => {
     const template = {
       id: "mug-1",

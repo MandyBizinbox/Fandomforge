@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { Archive, Trash2 } from "lucide-react";
+import { Archive, ShoppingBag, Trash2 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { http } from "../../lib/api";
+import ProductTemplateStorefrontDefaultsModal from "./ProductTemplateStorefrontDefaultsModal";
 
 function countLabel(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -13,6 +14,7 @@ export default function ProductTemplateLifecycleActions() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [storefrontOpen, setStorefrontOpen] = useState(false);
 
   if (!id || id === "new") return null;
 
@@ -73,17 +75,32 @@ export default function ProductTemplateLifecycleActions() {
   };
 
   return (
-    <div className="fixed right-6 top-24 z-[70]">
-      <button
-        type="button"
-        onClick={removeTemplate}
-        disabled={busy}
-        className="btn-secondary border-red-500/50 text-red-300 bg-black/90 shadow-xl"
-        title="Delete template, or archive it automatically when products already use it"
-      >
-        {busy ? <Archive size={14} /> : <Trash2 size={14} />}
-        {busy ? "Checking…" : "Delete template"}
-      </button>
-    </div>
+    <>
+      <div className="fixed right-6 top-24 z-[70] flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setStorefrontOpen(true)}
+          className="btn-secondary bg-black/90 shadow-xl"
+          title="Edit the customer-facing defaults copied into creator products"
+        >
+          <ShoppingBag size={14} /> Storefront defaults
+        </button>
+        <button
+          type="button"
+          onClick={removeTemplate}
+          disabled={busy}
+          className="btn-secondary border-red-500/50 text-red-300 bg-black/90 shadow-xl"
+          title="Delete template, or archive it automatically when products already use it"
+        >
+          {busy ? <Archive size={14} /> : <Trash2 size={14} />}
+          {busy ? "Checking…" : "Delete template"}
+        </button>
+      </div>
+      <ProductTemplateStorefrontDefaultsModal
+        templateId={id}
+        open={storefrontOpen}
+        onClose={() => setStorefrontOpen(false)}
+      />
+    </>
   );
 }
