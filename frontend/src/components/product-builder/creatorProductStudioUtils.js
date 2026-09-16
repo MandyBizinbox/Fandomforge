@@ -104,6 +104,10 @@ function stringifyTemplateField(value) {
   return String(value || "").trim();
 }
 
+function looksLikeSpecificationText(value) {
+  return /(^|\n)\s*(key features|features|attributes|specifications?)\b|(^|\n)\s*(material|capacity|fabric(?: weight)?|gsm|size|dimensions?)\s*:/i.test(String(value || "").trim());
+}
+
 function storefrontDetailValue(template, keys) {
   return keys
     .map((key) => stringifyTemplateField(template?.[key]))
@@ -149,8 +153,7 @@ export function creatorTemplateSpecs(template = {}) {
   let baseSpecs = explicitText;
   if (!baseSpecs) {
     const description = String(template.description || "").trim();
-    const looksLikeSpecs = /(^|\n)\s*(key features|features|attributes|specifications?)\b|(^|\n)\s*(material|capacity|fabric(?: weight)?|gsm|size|dimensions?)\s*:/i.test(description);
-    baseSpecs = looksLikeSpecs ? description : "";
+    baseSpecs = looksLikeSpecificationText(description) ? description : "";
   }
 
   return appendStorefrontDetailSections(baseSpecs, template);
@@ -166,9 +169,8 @@ export function creatorTemplateDescription(template = {}) {
   if (explicit) return explicit;
 
   const description = String(template.description || "").trim();
-  if (!description) return "";
-  const specs = creatorTemplateSpecs(template);
-  return specs && normaliseStudioValue(specs) === normaliseStudioValue(description) ? "" : description;
+  if (!description || looksLikeSpecificationText(description)) return "";
+  return description;
 }
 
 export function buildCreatorProductDraftFromTemplate(template = {}) {
