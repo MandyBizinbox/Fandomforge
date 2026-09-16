@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { NavLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Check, Copy, ImagePlus, Save, Wand2 } from "lucide-react";
+import { Archive, ArrowLeft, Check, Copy, ImagePlus, Save, Trash2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { assetUrl, http } from "../../lib/api";
 import ProductionConfigurationEditor from "./ProductionConfigurationEditor";
@@ -76,6 +76,45 @@ function variationConfigurationsEqual(variations, template) {
   if (rows.length < 2) return true;
   const serialised = rows.map((variation) => comparableConfiguration(variation, template));
   return serialised.every((value) => value === serialised[0]);
+}
+
+function countLabel(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function looksLikeSpecificationText(value) {
+  return /(^|\n)\s*(key features|features|attributes|specifications?)\b|(^|\n)\s*(material|capacity|fabric(?: weight)?|gsm|size|dimensions?)\s*:/i.test(String(value || "").trim());
+}
+
+function firstTemplateText(template, keys) {
+  return keys
+    .map((key) => String(template?.[key] || "").trim())
+    .find(Boolean) || "";
+}
+
+function storefrontFieldsFromTemplate(template = {}) {
+  const legacyDescription = String(template.description || "").trim();
+  const legacyLooksLikeSpecs = looksLikeSpecificationText(legacyDescription);
+
+  return {
+    creator_default_title: String(template.creator_default_title || "").trim(),
+    creator_default_description: firstTemplateText(template, [
+      "creator_default_description",
+      "storefront_description",
+      "marketing_description",
+      "short_description",
+    ]) || (!legacyLooksLikeSpecs ? legacyDescription : ""),
+    specs: firstTemplateText(template, [
+      "specs",
+      "specifications",
+      "product_specs",
+      "features",
+      "specification_text",
+    ]) || (legacyLooksLikeSpecs ? legacyDescription : ""),
+    material_composition: firstTemplateText(template, ["material_composition", "materials"]),
+    care_instructions: firstTemplateText(template, ["care_instructions", "care"]),
+    fit_notes: firstTemplateText(template, ["fit_notes", "sizing_notes", "fit_and_sizing"]),
+  };
 }
 
 function SizeGuideEditor({ value, onChange }) {
@@ -165,6 +204,7 @@ export default function ProductTemplateStudioV3Page() {
   const [productTypes, setProductTypes] = useState([]);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [structureMode, setStructureMode] = useState("single");
   const [setupMode, setSetupMode] = useState("shared");
   const [sharedConfig, setSharedConfig] = useState(blankProductionConfiguration());
@@ -212,6 +252,8 @@ export default function ProductTemplateStudioV3Page() {
         const creatorPrice = creatorPriceFor(platformCost, data.creator_blank_price);
         const next = {
           ...data,
+          ...storefrontFieldsFromTemplate(data),
+          description: "",
           platform_blank_cost: platformCost,
           base_blank_cost: platformCost,
           base_price: platformCost,
@@ -475,6 +517,7 @@ export default function ProductTemplateStudioV3Page() {
     try {
       let payload = {
         ...template,
+        description: "",
         slug: template.slug || slugify(template.name),
         platform_blank_cost: Number(template.platform_blank_cost || 0),
         creator_blank_price: Number(template.creator_blank_price || creatorPriceFor(template.platform_blank_cost)),
@@ -511,7 +554,7 @@ export default function ProductTemplateStudioV3Page() {
         ? await http.post("/admin/product-templates", payload)
         : await http.patch(`/admin/product-templates/${id}`, payload);
       const saved = { ...blankTemplate, ...response.data };
-      setTemplate(saved);
+      setTemplate({ ...saved, ...storefrontFieldsFromTemplate(saved), description: "" });
       setStructureMode(
         activeVariations(saved).length ? "variable" : "single"
       );
@@ -537,6 +580,62 @@ export default function ProductTemplateStudioV3Page() {
     }
   };
 
+  const removeTemplate = async () => {
+    if (isNew || deleting) return;
+    setDeleting(true);
+
+    try {
+      const impactResponse = await http.get(`/admin/product-templates/${id}/delete-impact`);
+      const impact = impactResponse.data || {};
+      const templateName = impact.template_name || template.name || "this template";
+      const linkedProducts = Number(impact.linked_products || 0);
+      const sellableProducts = Number(impact.sellable_products || 0);
+      const unpublishedProducts = Number(impact.unpublished_products || 0);
+
+      let message;
+      if (impact.will_archive) {
+        const parts = [countLabel(linkedProducts, "linked product")];
+        if (sellableProducts > 0) parts.push(countLabel(sellableProducts, "sellable product"));
+        if (unpublishedProducts > 0) parts.push(countLabel(unpublishedProducts, "draft/unpublished product"));
+
+        message = [
+          `Template “${templateName}” cannot be permanently deleted because it is already used by ${parts.join(", ")}.`,
+          "",
+          "It will be moved to Archived instead. Existing products and historical order data will continue to reference it safely.",
+          "",
+          "Archive this template?",
+        ].join("\n");
+      } else {
+        message = [
+          `Permanently delete template “${templateName}”?`,
+          "",
+          "No products currently use this template, so it can be safely removed.",
+          "",
+          "This cannot be undone.",
+        ].join("\n");
+      }
+
+      if (!window.confirm(message)) return;
+
+      const response = await http.delete(`/admin/product-templates/${id}`);
+      const result = response.data || {};
+
+      if (result.status === "archived") {
+        toast.success(`Template archived because ${countLabel(result.linked_products || linkedProducts, "product")} still use it.`);
+      } else {
+        toast.success("Template permanently deleted");
+      }
+
+      navigate("/admin/product-templates");
+    } catch (error) {
+      const detail = error?.response?.data?.detail;
+      const message = typeof detail === "string" ? detail : detail?.message;
+      toast.error(message || "Could not remove product template");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loading) return <div className="v3-card">Loading product template…</div>;
 
   return (
@@ -550,13 +649,19 @@ export default function ProductTemplateStudioV3Page() {
             <p>{variableProduct ? `${variations.length || "No"} production-owned variation${variations.length === 1 ? "" : "s"}` : "Single product production configuration"}</p>
           </div>
         </div>
-        <div className="v3-save-row">
+        <div className="v3-save-row" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
           <select value={template.status || "draft"} onChange={(event) => updateTemplate({ status: event.target.value })}>
             <option value="draft">Draft</option>
             <option value="active">Active</option>
             <option value="archived">Archived</option>
           </select>
-          <button type="button" className="v3-button v3-button-primary" disabled={saving} onClick={save}><Save size={16} /> {saving ? "Saving…" : "Save template"}</button>
+          <button type="button" className="v3-button v3-button-primary" disabled={saving || deleting} onClick={save}><Save size={16} /> {saving ? "Saving…" : "Save template"}</button>
+          {!isNew && (
+            <button type="button" className="v3-button v3-inline-danger" disabled={saving || deleting} onClick={removeTemplate} title="Delete template, or archive it automatically when products already use it">
+              {deleting ? <Archive size={15} /> : <Trash2 size={15} />}
+              {deleting ? "Checking…" : "Delete template"}
+            </button>
+          )}
         </div>
       </header>
 
@@ -600,8 +705,26 @@ export default function ProductTemplateStudioV3Page() {
               <div className="v3-metric"><span>Blank margin</span><strong>{marginFor(template.platform_blank_cost, template.creator_blank_price).toFixed(2)}%</strong></div>
               <label><span>Supplier name</span><input value={template.supplier_name || ""} onChange={(event) => updateTemplate({ supplier_name: event.target.value })} /></label>
               <label><span>Supplier URL</span><input value={template.supplier_url || ""} onChange={(event) => updateTemplate({ supplier_url: event.target.value })} /></label>
-              <label className="v3-span-two"><span>Description</span><textarea rows={5} value={template.description || ""} onChange={(event) => updateTemplate({ description: event.target.value })} /></label>
               <label className="v3-span-two"><span>Supplier notes</span><textarea rows={3} value={template.supplier_notes || ""} onChange={(event) => updateTemplate({ supplier_notes: event.target.value })} /></label>
+            </div>
+
+            <div className="v3-structure-selector" style={{ marginTop: "1.35rem", marginBottom: 0 }}>
+              <div className="v3-section-heading">
+                <div>
+                  <div className="overline">Storefront details</div>
+                  <h3>Creator-facing product defaults</h3>
+                  <p>These fields are copied into each new creator product made from this blank. Creators can edit their copy; existing creator products are never overwritten when this template changes.</p>
+                </div>
+              </div>
+
+              <div className="v3-form-grid v3-form-grid-two">
+                <label className="v3-span-two"><span>Default creator product title</span><input value={template.creator_default_title || ""} onChange={(event) => updateTemplate({ creator_default_title: event.target.value })} placeholder={template.name || "Leave blank to use the template name"} /></label>
+                <label className="v3-span-two"><span>Storefront description</span><textarea rows={4} value={template.creator_default_description || ""} onChange={(event) => updateTemplate({ creator_default_description: event.target.value })} placeholder="Customer-facing description for the finished product." /></label>
+                <label className="v3-span-two"><span>Specifications & features</span><textarea rows={5} value={template.specs || ""} onChange={(event) => updateTemplate({ specs: event.target.value })} placeholder={"Capacity: 11oz\nMaterial: Ceramic\nFinish: Colour-changing coating"} /></label>
+                <label><span>Material / composition</span><textarea rows={3} value={template.material_composition || ""} onChange={(event) => updateTemplate({ material_composition: event.target.value })} placeholder="100% ceramic" /></label>
+                <label><span>Fit / sizing notes</span><textarea rows={3} value={template.fit_notes || ""} onChange={(event) => updateTemplate({ fit_notes: event.target.value })} placeholder="Sizing or fit guidance where applicable" /></label>
+                <label className="v3-span-two"><span>Care instructions</span><textarea rows={3} value={template.care_instructions || ""} onChange={(event) => updateTemplate({ care_instructions: event.target.value })} placeholder={"Hand wash recommended\nDo not use abrasive cleaners"} /></label>
+              </div>
             </div>
           </section>
 
