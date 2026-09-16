@@ -76,6 +76,11 @@ function isAuthenticationRequest(error) {
   ].some((path) => url.includes(path));
 }
 
+function isAdminProductRequest(error) {
+  const url = String(error?.config?.url || "");
+  return url === "/admin/products" || url.startsWith("/admin/products/");
+}
+
 async function loadProductionMethodProfiles() {
   const token = getAuthToken();
   const response = await axios.get(`${API}/production-rules/print-option-profiles`, {
@@ -132,7 +137,7 @@ http.interceptors.response.use(async (response) => {
     window.dispatchEvent(new CustomEvent("fandomforge:entitlement-denied", { detail: entitlement }));
   }
 
-  if (error?.response?.data && detail !== undefined && typeof detail !== "string") {
+  if (isAdminProductRequest(error) && error?.response?.data && detail !== undefined && typeof detail !== "string") {
     error.response.data.detail = apiErrorDetailText(detail);
   }
 
