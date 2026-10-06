@@ -45,7 +45,9 @@ describe('admin product system UI contract', () => {
     expect(studio).toContain('await http.post("/admin/products", payload)');
     expect(studio).toContain('await http.put(`/admin/products/${routeId}`, payload)');
     expect(studio).toContain('isAdmin={isAdmin}');
-    expect(studio).toContain('creatorMode={!isAdmin}');
+    expect(studio).toMatch(/isAdmin=\{isAdmin\}\s+creatorMode\s/);
+    const artwork = read('../../components/product-builder/ProductArtworkStudioBase.jsx');
+    expect(artwork).toContain('(!creatorMode || isAdmin)');
   });
 
   test('admin new-product save stays on one route instance when new becomes a real id', () => {
