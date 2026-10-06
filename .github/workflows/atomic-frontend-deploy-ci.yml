@@ -3,6 +3,7 @@ name: Atomic Frontend Deploy CI
 on:
   push:
     branches:
+      - main
       - feature/template-production-routing-v3
     paths:
       - "ops/deploy_frontend_atomic.sh"
@@ -13,6 +14,7 @@ on:
       - ".github/workflows/atomic-frontend-deploy-ci.yml"
   pull_request:
     branches:
+      - main
       - feature/template-production-routing-v3
     paths:
       - "ops/deploy_frontend_atomic.sh"

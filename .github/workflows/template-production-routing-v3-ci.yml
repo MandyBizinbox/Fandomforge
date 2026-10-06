@@ -3,6 +3,7 @@ name: Template Production Routing V3 CI
 on:
   push:
     branches:
+      - main
       - feature/template-production-routing-v3
       - refactor/unified-manufacturing-costing-engine
       - feature/profile-stocked-colours
@@ -20,6 +21,7 @@ on:
       - fix/profile-copy-missing-color-view-warning
   pull_request:
     branches:
+      - main
       - feature/template-production-routing-v3
     paths:
       - "frontend/src/components/template-studio/**"
@@ -78,6 +80,10 @@ on:
       - "backend/unified_manufacturing_costing.py"
       - "backend/routes_production_rules.py"
       - "backend/routes_main.py"
+      - "backend/payment_confirmation.py"
+      - "backend/tests/test_payment_confirmation.py"
+      - "backend/tests/test_legacy_payment_webhook.py"
+      - "backend/tests/test_payfast_gateway.py"
       - "backend/server.py"
       - "backend/production_rules_engine.py"
       - "backend/launch_integrity/pricing.py"
@@ -179,6 +185,9 @@ jobs:
           PYTHONPATH: .
         run: |
           pytest -q \
+            tests/test_payment_confirmation.py \
+            tests/test_legacy_payment_webhook.py \
+            tests/test_payfast_gateway.py \
             tests/test_creator_product_review_state.py \
             tests/test_product_normalization_service.py \
             tests/test_product_artwork_costing.py \
@@ -244,6 +253,7 @@ jobs:
           routes_production_rules.py
           models.py
           routes_main.py
+          payment_confirmation.py
           server.py
           production_rules_engine.py
           launch_integrity/pricing.py
