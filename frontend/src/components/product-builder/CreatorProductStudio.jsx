@@ -1077,7 +1077,7 @@ export default function CreatorProductStudio({ mode = "creator", backTo }) {
                   onArtworkGroupsChange={setArtworkGroups}
                   selectedVariations={selectedVariations}
                   isAdmin={isAdmin}
-                  creatorMode={!isAdmin}
+                  creatorMode
                   activeGroupId={activeArtworkGroupId}
                   onActiveGroupChange={setActiveArtworkGroupId}
                   activeSlotId={activeArtworkSlotId}
