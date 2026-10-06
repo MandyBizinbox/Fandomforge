@@ -26,6 +26,7 @@ from platform_fee_pricing import (
 from artwork_print_job_pricing import aggregate_artwork_print_jobs
 from product_normalization_service import (
     normalize_builder_product_payload,
+    strip_server_owned_product_fields,
     copy_production_snapshot,
     product_save_http_exception,
 )
@@ -9901,10 +9902,9 @@ async def _admin_create_product_core(
         allow_admin_publish=True,
     )
 
-    # Ownership is supplied explicitly to Product below. The template normalizer
-    # may preserve legacy ownership fields, so remove any reintroduced band_id
-    # before constructing Product to avoid passing band_id twice via **data.
-    data.pop("band_id", None)
+    # Startup normalization wrappers can reintroduce ownership and audit fields.
+    # The create route supplies these explicitly and remains authoritative.
+    data = strip_server_owned_product_fields(data)
 
     if not assigned_printer_id:
         default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})
