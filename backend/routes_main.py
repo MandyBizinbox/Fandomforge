@@ -26,6 +26,7 @@ from platform_fee_pricing import (
 from artwork_print_job_pricing import aggregate_artwork_print_jobs
 from product_normalization_service import (
     normalize_builder_product_payload,
+    strip_server_owned_product_fields,
     copy_production_snapshot,
     product_save_http_exception,
 )
@@ -2539,9 +2540,13 @@ class SubscriptionBillingSettingsUpdate(BaseModel):
 
 
 async def _mark_order_paid_from_payment(db, payment: dict, provider_payload: Optional[dict] = None) -> Optional[dict]:
+    from payment_confirmation import validate_payment_confirmation
     if not payment or not payment.get("order_id"):
+        if payment:
+            validate_payment_confirmation(payment, None, provider_payload)
         return None
     order = await db.orders.find_one({"id": payment["order_id"]}, {"_id": 0})
+    validate_payment_confirmation(payment, order, provider_payload)
     if not order:
         return None
     if order.get("payment_status") == "paid":
@@ -6811,33 +6816,12 @@ platform_billing_router = APIRouter(prefix="/platform-billing")
 
 @payments_router.post("/webhook")
 async def payment_webhook(request: Request):
-    form = await request.form()
-    payload = dict(form) if form else await request.json()
-    provider_name = request.query_params.get("provider", "mock")
-    provider = get_provider(provider_name)
-
-    if not provider.verify_webhook(payload):
-        raise HTTPException(status_code=403, detail="Invalid signature")
-
-    ref = payload.get("m_payment_id") or payload.get("reference")
-    db = request.app.state.db
-    pay = await db.payments.find_one({"provider_reference": ref}, {"_id": 0})
-
-    if not pay:
-        raise HTTPException(status_code=404, detail="Payment not found")
-
-    status = "completed" if (payload.get("payment_status") or "").upper() == "COMPLETE" else "failed"
-    now = datetime.now(timezone.utc).isoformat()
-
-    await db.payments.update_one(
-        {"id": pay["id"]},
-        {"$set": {"status": status, "completed_at": now if status == "completed" else None}},
-    )
-
-    if pay.get("order_id") and status == "completed":
-        await _mark_order_paid_from_payment(db, pay, payload)
-
-    return {"ok": True}
+    # This historical endpoint used to default to an unauthenticated mock
+    # provider. Retain the PayFast URL but use the canonical signed ITN path.
+    provider_name = str(request.query_params.get("provider") or "").strip().lower()
+    if provider_name != "payfast":
+        raise HTTPException(status_code=410, detail="Legacy mock payment callbacks are disabled.")
+    return await gateway_payment_webhook("payfast", request)
 
 
 @payments_router.post("/webhooks/{gateway_key}")
@@ -6880,6 +6864,13 @@ async def gateway_payment_webhook(gateway_key: str, request: Request):
 
         if not payment:
             return {"ok": True, "processed": False, "status": "payment_not_found"}
+
+        if str(payment.get("provider") or "").lower() != gateway_key:
+            raise HTTPException(status_code=409, detail="Payment provider does not match the webhook.")
+        if result.get("paid") and gateway_key == "payfast":
+            from payment_confirmation import validate_payment_confirmation
+            order = await db.orders.find_one({"id": payment.get("order_id")}, {"_id": 0})
+            validate_payment_confirmation(payment, order, payload)
 
         now = datetime.now(timezone.utc).isoformat()
         if result.get("paid"):
@@ -9901,10 +9892,9 @@ async def _admin_create_product_core(
         allow_admin_publish=True,
     )
 
-    # Ownership is supplied explicitly to Product below. The template normalizer
-    # may preserve legacy ownership fields, so remove any reintroduced band_id
-    # before constructing Product to avoid passing band_id twice via **data.
-    data.pop("band_id", None)
+    # Startup normalization wrappers can reintroduce ownership and audit fields.
+    # The create route supplies these explicitly and remains authoritative.
+    data = strip_server_owned_product_fields(data)
 
     if not assigned_printer_id:
         default_printer = await db.printers.find_one({"status": "active"}, {"_id": 0})
