@@ -1684,7 +1684,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
               {!activeSlot.text_layer && <button type="button" className="btn-secondary w-full" onClick={() => { pendingReplaceSlotIdRef.current = activeSlot.id; pendingUploadAreaRef.current = activeArea; fileInputRef.current?.click(); }}><ImageIcon size={14} /> Replace image</button>}
               <ArtworkPrintSizeBlock area={activeArea} placement={activePlacement} slot={activeSlot} />
               <ColourRestrictionBlock profile={selectedProfile} slot={activeSlot} onChange={(value) => setLayerStockedColour(activeSlot.id, value)} />
-              {!creatorMode && (
+              {(!creatorMode || isAdmin) && (
               <div className="border border-white/10 bg-black/30 rounded-xl p-3 text-xs text-zinc-400">
                 <div className="overline mb-2">Costing</div>
                 <div className="grid grid-cols-2 gap-y-1">
