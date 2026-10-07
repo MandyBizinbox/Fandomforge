@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { http } from "../../lib/api";
+import { http, apiErrorDetailText } from "../../lib/api";
 import { toast } from "sonner";
-import { Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { DEFAULT_MANAGER_PERMISSIONS, MembershipManager, Pill, SectionHeader, UserForm, UsersTable, emptyUserForm } from "./access/UserAccessPanels";
 
 export default function UserAccessAdmin() {
@@ -14,6 +14,7 @@ export default function UserAccessAdmin() {
   const [form, setForm] = useState(emptyUserForm());
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
 
   const load = () => {
     http.get("/admin/access/overview").then((r) => setOverview(r.data)).catch(() => {});
@@ -32,6 +33,7 @@ export default function UserAccessAdmin() {
   const managerUsers = filteredUsers.filter((u) => u.role === "manager");
 
   const edit = (u) => {
+    setFormOpen(true);
     setEditingId(u.id);
     setForm({
       name: u.name || "",
@@ -45,6 +47,7 @@ export default function UserAccessAdmin() {
   };
 
   const resetForm = () => {
+    setFormOpen(false);
     setEditingId(null);
     setForm(emptyUserForm());
   };
@@ -61,7 +64,7 @@ export default function UserAccessAdmin() {
       resetForm();
       load();
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Could not save user");
+      toast.error(apiErrorDetailText(e.response?.data?.detail, "Could not save user"));
     } finally {
       setSaving(false);
     }
@@ -100,14 +103,19 @@ export default function UserAccessAdmin() {
 
       <div className="flex flex-wrap gap-2 mb-6">
         {tabs.map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)} className={`ff-admin-section-link ${tab === key ? "is-active" : ""}`}>{label}</button>
+          <button key={key} onClick={() => { resetForm(); setTab(key); }} className={`ff-admin-section-link ${tab === key ? "is-active" : ""}`}>{label}</button>
         ))}
       </div>
 
       {(tab === "users" || tab === "managers") && (
         <div className="space-y-6">
-          <UserForm form={form} setForm={setForm} onSubmit={save} saving={saving} editing={!!editingId} />
-          {editingId && <button className="text-xs uppercase tracking-widest ff-admin-muted" onClick={resetForm}>Cancel edit</button>}
+          <div className="flex justify-end">
+            <button type="button" className="ff-admin-button ff-admin-button--primary" disabled={saving} onClick={() => { resetForm(); setFormOpen(true); }}><Plus size={14} /> New User</button>
+          </div>
+          {formOpen && <>
+            <UserForm form={form} setForm={setForm} onSubmit={save} saving={saving} editing={!!editingId} />
+            <button type="button" disabled={saving} className="ff-admin-button ff-admin-button--secondary" onClick={resetForm}>Cancel</button>
+          </>}
 
           <div className="ff-admin-card flex items-center gap-3">
             <Search size={16} className="ff-admin-muted" />
