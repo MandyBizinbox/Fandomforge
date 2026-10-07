@@ -29,10 +29,10 @@ import {
 import "./templateStudioV3.css";
 
 const SECTION_LABELS = {
-  product: "Product",
+  product: "Product details",
   production: "Production studio",
   variations: "Variations",
-  gallery: "Gallery & mockups",
+  gallery: "Gallery",
   "size-guide": "Size guide",
 };
 
