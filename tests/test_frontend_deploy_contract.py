@@ -9,6 +9,14 @@ GITIGNORE = ROOT / ".gitignore"
 
 
 class FrontendDeployContractTests(unittest.TestCase):
+    def test_release_permissions_and_symlink_cache(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("umask 022", source)
+        self.assertIn('find "$RELEASE_DIR" -type d -exec chmod 755 {} +', source)
+        self.assertIn('find "$RELEASE_DIR" -type f -exec chmod 644 {} +', source)
+        self.assertLess(source.index('find "$RELEASE_DIR" -type d'), source.index('mv -Tf "$TMP_LINK" "$CURRENT_LINK"', source.index('RELEASE_DIR="')))
+        self.assertIn("open_file_cache off;", NGINX.read_text())
+
     def test_shell_syntax(self):
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
 
