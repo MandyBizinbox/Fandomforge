@@ -116,6 +116,9 @@ export default function AttributeProductionProfileEditor({
     productionValues[0] || ""
   );
 
+  const [imageProfileFilter, setImageProfileFilter] = useState("");
+  const [productionProfileFilter, setProductionProfileFilter] = useState("");
+
   useEffect(() => {
     if (!imageAttribute && defaultImageAttribute) {
       setImageAttribute(defaultImageAttribute);
@@ -252,6 +255,14 @@ export default function AttributeProductionProfileEditor({
     (row) => row.complete
   ).length;
 
+  const filteredImageValues = imageValues.filter((value) =>
+    String(value).toLowerCase().includes(imageProfileFilter.trim().toLowerCase())
+  );
+
+  const filteredProductionValues = productionValues.filter((value) =>
+    String(value).toLowerCase().includes(productionProfileFilter.trim().toLowerCase())
+  );
+
   return (
     <div className="v3-attribute-profile-editor">
       <section className="v3-card">
@@ -339,8 +350,9 @@ export default function AttributeProductionProfileEditor({
               </div>
             </div>
 
+            <label className="v3-search-field"><span>Find image profile</span><input value={imageProfileFilter} onChange={(event) => setImageProfileFilter(event.target.value)} placeholder={`Search ${imageAttribute || "image"} values…`} /></label>
             <div className="v3-profile-tabs">
-              {imageValues.map((value) => {
+              {filteredImageValues.map((value) => {
                 const config = getAttributeProfileConfiguration(
                   template.attribute_image_profiles,
                   value
@@ -398,8 +410,9 @@ export default function AttributeProductionProfileEditor({
               </div>
             </div>
 
+            <label className="v3-search-field"><span>Find production profile</span><input value={productionProfileFilter} onChange={(event) => setProductionProfileFilter(event.target.value)} placeholder={`Search ${productionAttribute || "production"} values…`} /></label>
             <div className="v3-profile-tabs">
-              {productionValues.map((value) => {
+              {filteredProductionValues.map((value) => {
                 const config = getAttributeProfileConfiguration(
                   template.attribute_production_profiles,
                   value
