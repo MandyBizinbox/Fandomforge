@@ -456,7 +456,6 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
           },
         ]}
       />
-      </div>
     </div>
   );
 }
