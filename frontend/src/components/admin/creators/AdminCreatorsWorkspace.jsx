@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { Plus, Save } from "lucide-react";
 import { toast } from "sonner";
-import { http, assetUrl } from "../../../lib/api";
+import { http, assetUrl, apiErrorDetailText } from "../../../lib/api";
 import StatusBadge from "../../StatusBadge";
 import UserAccessAdmin from "../UserAccessAdmin";
 import ArtworkReviewAdmin from "../ArtworkReviewAdmin";
@@ -111,7 +111,7 @@ function AssetUploadField({ label, value, onChange, subdir = "account-assets" })
   );
 }
 
-function BandsAdmin({ view = "list", creatorId = null, basePath = "/admin" }) {
+export function BandsAdmin({ view = "list", creatorId = null, basePath = "/admin" }) {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [users, setUsers] = useState([]);
@@ -134,6 +134,10 @@ function BandsAdmin({ view = "list", creatorId = null, basePath = "/admin" }) {
     setEditingId(null);
     setForm(emptyCreatorForm);
   };
+
+  useEffect(() => {
+    if (view === "new") reset();
+  }, [view]);
 
   const goToList = () => navigate(`${basePath}/creators/accounts`);
 
@@ -219,10 +223,15 @@ function BandsAdmin({ view = "list", creatorId = null, basePath = "/admin" }) {
         await http.post("/admin/creators", payload());
         toast.success("Creator created");
       }
+      // Routes can reuse this component when returning to the list. Refresh
+      // rows here rather than relying on its mount-only loader.
+      const savedRows = await http.get("/admin/creators").catch(() => null);
+      if (savedRows) setRows(Array.isArray(savedRows.data) ? savedRows.data : []);
+      else toast.error("Creator saved, but the list could not refresh. Reload the page.");
       reset();
       goToList();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Could not save creator");
+      toast.error(apiErrorDetailText(error.response?.data?.detail, "Could not save creator"));
     } finally {
       setSaving(false);
     }
