@@ -692,39 +692,59 @@ export default function ProductTemplateStudioV3Page() {
               </div>
             </div>
 
-            <div className="v3-form-grid v3-form-grid-two">
-              <label className="v3-span-two"><span>Product type blueprint</span><select value={template.product_type_id || ""} onChange={(event) => applyBlueprint(event.target.value)}><option value="">Select product type</option>{productTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
-              <label><span>Template name</span><input value={template.name || ""} onChange={(event) => updateTemplate({ name: event.target.value, slug: template.slug || slugify(event.target.value) })} /></label>
-              <label><span>Slug</span><input value={template.slug || ""} onChange={(event) => updateTemplate({ slug: event.target.value })} /></label>
-              <label><span>Category</span><select value={template.category_id || ""} onChange={(event) => { const category = categories.find((item) => item.id === event.target.value); updateTemplate({ category_id: event.target.value, category: category?.slug || category?.name || "" }); }}><option value="">Select category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
-              <label><span>Brand</span><input value={template.brand || ""} onChange={(event) => updateTemplate({ brand: event.target.value })} /></label>
-              <label><span>Blank SKU / code</span><input value={template.blank_sku || ""} onChange={(event) => updateTemplate({ blank_sku: event.target.value })} /></label>
-              <label><span>Platform blank cost</span><input type="number" step="0.01" value={template.platform_blank_cost || 0} onChange={(event) => { const cost = Number(event.target.value || 0); const creator = creatorPriceFor(cost); updateTemplate({ platform_blank_cost: cost, base_blank_cost: cost, base_price: cost, creator_blank_price: creator, platform_blank_profit: profitFor(cost, creator), platform_blank_margin_percent: marginFor(cost, creator) }); }} /></label>
-              <label><span>Creator blank price</span><input type="number" step="0.01" value={template.creator_blank_price || 0} onChange={(event) => { const creator = Number(event.target.value || 0); updateTemplate({ creator_blank_price: creator, platform_blank_profit: profitFor(template.platform_blank_cost, creator), platform_blank_margin_percent: marginFor(template.platform_blank_cost, creator) }); }} /></label>
-              <div className="v3-metric"><span>Platform profit</span><strong>{money(profitFor(template.platform_blank_cost, template.creator_blank_price))}</strong></div>
-              <div className="v3-metric"><span>Blank margin</span><strong>{marginFor(template.platform_blank_cost, template.creator_blank_price).toFixed(2)}%</strong></div>
-              <label><span>Supplier name</span><input value={template.supplier_name || ""} onChange={(event) => updateTemplate({ supplier_name: event.target.value })} /></label>
-              <label><span>Supplier URL</span><input value={template.supplier_url || ""} onChange={(event) => updateTemplate({ supplier_url: event.target.value })} /></label>
-              <label className="v3-span-two"><span>Supplier notes</span><textarea rows={3} value={template.supplier_notes || ""} onChange={(event) => updateTemplate({ supplier_notes: event.target.value })} /></label>
-            </div>
-
-            <div className="v3-structure-selector" style={{ marginTop: "1.35rem", marginBottom: 0 }}>
-              <div className="v3-section-heading">
-                <div>
-                  <div className="overline">Storefront details</div>
-                  <h3>Creator-facing product defaults</h3>
-                  <p>These fields are copied into each new creator product made from this blank. Creators can edit their copy; existing creator products are never overwritten when this template changes.</p>
+            <div className="v3-product-groups">
+              <section className="v3-subsection">
+                <div className="v3-subsection-heading">
+                  <div>
+                    <div className="overline">Basics</div>
+                    <h3>Product identity</h3>
+                  </div>
                 </div>
-              </div>
+                <div className="v3-form-grid v3-form-grid-two">
+                  <label className="v3-span-two"><span>Product type blueprint</span><select value={template.product_type_id || ""} onChange={(event) => applyBlueprint(event.target.value)}><option value="">Select product type</option>{productTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
+                  <label><span>Template name</span><input value={template.name || ""} onChange={(event) => updateTemplate({ name: event.target.value, slug: template.slug || slugify(event.target.value) })} /></label>
+                  <label><span>Slug</span><input value={template.slug || ""} onChange={(event) => updateTemplate({ slug: event.target.value })} /></label>
+                  <label><span>Category</span><select value={template.category_id || ""} onChange={(event) => { const category = categories.find((item) => item.id === event.target.value); updateTemplate({ category_id: event.target.value, category: category?.slug || category?.name || "" }); }}><option value="">Select category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+                  <label><span>Brand</span><input value={template.brand || ""} onChange={(event) => updateTemplate({ brand: event.target.value })} /></label>
+                  <label><span>Blank SKU / code</span><input value={template.blank_sku || ""} onChange={(event) => updateTemplate({ blank_sku: event.target.value })} /></label>
+                </div>
+              </section>
 
-              <div className="v3-form-grid v3-form-grid-two">
-                <label className="v3-span-two"><span>Default creator product title</span><input value={template.creator_default_title || ""} onChange={(event) => updateTemplate({ creator_default_title: event.target.value })} placeholder={template.name || "Leave blank to use the template name"} /></label>
-                <label className="v3-span-two"><span>Storefront description</span><textarea rows={4} value={template.creator_default_description || ""} onChange={(event) => updateTemplate({ creator_default_description: event.target.value })} placeholder="Customer-facing description for the finished product." /></label>
-                <label className="v3-span-two"><span>Specifications & features</span><textarea rows={5} value={template.specs || ""} onChange={(event) => updateTemplate({ specs: event.target.value })} placeholder={"Capacity: 11oz\nMaterial: Ceramic\nFinish: Colour-changing coating"} /></label>
-                <label><span>Material / composition</span><textarea rows={3} value={template.material_composition || ""} onChange={(event) => updateTemplate({ material_composition: event.target.value })} placeholder="100% ceramic" /></label>
-                <label><span>Fit / sizing notes</span><textarea rows={3} value={template.fit_notes || ""} onChange={(event) => updateTemplate({ fit_notes: event.target.value })} placeholder="Sizing or fit guidance where applicable" /></label>
-                <label className="v3-span-two"><span>Care instructions</span><textarea rows={3} value={template.care_instructions || ""} onChange={(event) => updateTemplate({ care_instructions: event.target.value })} placeholder={"Hand wash recommended\nDo not use abrasive cleaners"} /></label>
-              </div>
+              <section className="v3-subsection">
+                <div className="v3-subsection-heading">
+                  <div>
+                    <div className="overline">Pricing & supplier</div>
+                    <h3>Blank cost and sourcing</h3>
+                  </div>
+                </div>
+                <div className="v3-form-grid v3-form-grid-two">
+                  <label><span>Platform blank cost</span><input type="number" step="0.01" value={template.platform_blank_cost || 0} onChange={(event) => { const cost = Number(event.target.value || 0); const creator = creatorPriceFor(cost); updateTemplate({ platform_blank_cost: cost, base_blank_cost: cost, base_price: cost, creator_blank_price: creator, platform_blank_profit: profitFor(cost, creator), platform_blank_margin_percent: marginFor(cost, creator) }); }} /></label>
+                  <label><span>Creator blank price</span><input type="number" step="0.01" value={template.creator_blank_price || 0} onChange={(event) => { const creator = Number(event.target.value || 0); updateTemplate({ creator_blank_price: creator, platform_blank_profit: profitFor(template.platform_blank_cost, creator), platform_blank_margin_percent: marginFor(template.platform_blank_cost, creator) }); }} /></label>
+                  <div className="v3-metric"><span>Platform profit</span><strong>{money(profitFor(template.platform_blank_cost, template.creator_blank_price))}</strong></div>
+                  <div className="v3-metric"><span>Blank margin</span><strong>{marginFor(template.platform_blank_cost, template.creator_blank_price).toFixed(2)}%</strong></div>
+                  <label><span>Supplier name</span><input value={template.supplier_name || ""} onChange={(event) => updateTemplate({ supplier_name: event.target.value })} /></label>
+                  <label><span>Supplier URL</span><input value={template.supplier_url || ""} onChange={(event) => updateTemplate({ supplier_url: event.target.value })} /></label>
+                  <label className="v3-span-two"><span>Supplier notes</span><textarea rows={3} value={template.supplier_notes || ""} onChange={(event) => updateTemplate({ supplier_notes: event.target.value })} /></label>
+                </div>
+              </section>
+
+              <section className="v3-subsection">
+                <div className="v3-subsection-heading">
+                  <div>
+                    <div className="overline">Storefront defaults</div>
+                    <h3>Creator-facing product copy</h3>
+                    <p>Copied into each new creator product made from this blank. Existing creator products are never overwritten when the template changes.</p>
+                  </div>
+                </div>
+                <div className="v3-form-grid v3-form-grid-two">
+                  <label className="v3-span-two"><span>Default creator product title</span><input value={template.creator_default_title || ""} onChange={(event) => updateTemplate({ creator_default_title: event.target.value })} placeholder={template.name || "Leave blank to use the template name"} /></label>
+                  <label className="v3-span-two"><span>Storefront description</span><textarea rows={4} value={template.creator_default_description || ""} onChange={(event) => updateTemplate({ creator_default_description: event.target.value })} placeholder="Customer-facing description for the finished product." /></label>
+                  <label className="v3-span-two"><span>Specifications & features</span><textarea rows={5} value={template.specs || ""} onChange={(event) => updateTemplate({ specs: event.target.value })} placeholder={"Capacity: 11oz\nMaterial: Ceramic\nFinish: Colour-changing coating"} /></label>
+                  <label><span>Material / composition</span><textarea rows={3} value={template.material_composition || ""} onChange={(event) => updateTemplate({ material_composition: event.target.value })} placeholder="100% ceramic" /></label>
+                  <label><span>Fit / sizing notes</span><textarea rows={3} value={template.fit_notes || ""} onChange={(event) => updateTemplate({ fit_notes: event.target.value })} placeholder="Sizing or fit guidance where applicable" /></label>
+                  <label className="v3-span-two"><span>Care instructions</span><textarea rows={3} value={template.care_instructions || ""} onChange={(event) => updateTemplate({ care_instructions: event.target.value })} placeholder={"Hand wash recommended\nDo not use abrasive cleaners"} /></label>
+                </div>
+              </section>
             </div>
           </section>
 
