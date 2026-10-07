@@ -19,7 +19,12 @@ export default function WorkspaceTabs({
   const selectTab = (id, focus = false) => {
     setActiveTab(id);
     if (focus) {
-      window.requestAnimationFrame(() => tabRefs.current[id]?.focus());
+      const focusSelectedTab = () => tabRefs.current[id]?.focus();
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(focusSelectedTab);
+      } else {
+        focusSelectedTab();
+      }
     }
   };
 
