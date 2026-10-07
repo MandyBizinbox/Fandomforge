@@ -205,3 +205,29 @@
     grid-column: auto;
   }
 }
+
+
+.template-studio-v3 .v3-search-field {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.7rem;
+}
+
+.template-studio-v3 .v3-search-field > span {
+  color: var(--v3-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.template-studio-v3 .v3-variation-list .v3-search-field {
+  position: sticky;
+  top: 88px;
+  z-index: 2;
+  margin-bottom: 0.25rem;
+  padding: 0.55rem;
+  border: 1px solid var(--v3-border);
+  border-radius: 0.5rem;
+  background: var(--v3-surface);
+}
