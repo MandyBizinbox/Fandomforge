@@ -210,6 +210,7 @@ export default function ProductTemplateStudioV3Page() {
   const [sharedConfig, setSharedConfig] = useState(blankProductionConfiguration());
   const [selectedVariationId, setSelectedVariationId] = useState("");
   const [copyTargets, setCopyTargets] = useState([]);
+  const [variationFilter, setVariationFilter] = useState("");
 
   const variations = activeVariations(template);
   const variableProduct = structureMode === "variable";
@@ -942,7 +943,8 @@ export default function ProductTemplateStudioV3Page() {
               ) : (
                 <div className="v3-individual-layout">
                   <aside className="v3-variation-list">
-                    {variations.map((variation) => {
+                    <label className="v3-search-field"><span>Find variation</span><input value={variationFilter} onChange={(event) => setVariationFilter(event.target.value)} placeholder="Search colour, size, SKU…" /></label>
+                    {variations.filter((variation) => `${getVariationLabel(variation)} ${variation.sku || ""} ${variation.supplier_sku || ""}`.toLowerCase().includes(variationFilter.trim().toLowerCase())).map((variation) => {
                       const summary = variationProductionSummary(variation, template);
                       return (
                         <button
