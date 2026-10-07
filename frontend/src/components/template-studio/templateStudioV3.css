@@ -1109,3 +1109,212 @@ html[data-theme-bg-tone="dark"] .template-studio-v3 {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* SuperAdmin template CRUD workspace cleanup */
+.workspace-tabs {
+  min-width: 0;
+}
+
+.workspace-tabs__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.8rem;
+  padding: 0.3rem;
+  border: 1px solid var(--v3-border);
+  border-radius: 0.55rem;
+  background: var(--v3-surface-subtle);
+}
+
+.workspace-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 36px;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--v3-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.workspace-tabs__tab:hover,
+.workspace-tabs__tab.active {
+  border-color: color-mix(in srgb, var(--v3-primary) 35%, var(--v3-border));
+  background: color-mix(in srgb, var(--v3-primary) 10%, var(--v3-surface));
+  color: var(--v3-text);
+}
+
+.workspace-tabs__tab:focus-visible {
+  outline: 2px solid var(--v3-primary);
+  outline-offset: 2px;
+}
+
+.workspace-tabs__badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--v3-primary);
+  color: var(--v3-primary-contrast);
+  font-size: 0.62rem;
+}
+
+.workspace-tabs__panel[hidden] {
+  display: none !important;
+}
+
+.v3-inspector-tabs .workspace-tabs__list {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.v3-product-groups {
+  display: grid;
+  gap: 1rem;
+}
+
+.v3-subsection {
+  padding: 1rem;
+  border: 1px solid var(--v3-border);
+  border-radius: 0.55rem;
+  background: var(--v3-surface-subtle);
+}
+
+.v3-subsection-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--v3-border);
+}
+
+.v3-subsection-heading h3 {
+  margin: 0.18rem 0 0;
+  color: var(--v3-text);
+  font-size: 1rem;
+}
+
+.v3-subsection-heading p {
+  margin: 0.35rem 0 0;
+  max-width: 760px;
+  color: var(--v3-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.v3-variation-table {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.v3-variation-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) repeat(4, minmax(130px, 1fr));
+  gap: 0.65rem;
+  align-items: end;
+  padding: 0.75rem;
+  border: 1px solid var(--v3-border);
+  border-radius: 0.5rem;
+  background: var(--v3-surface-subtle);
+}
+
+.v3-variation-row-title {
+  align-self: center;
+}
+
+.v3-variation-row-title strong,
+.v3-variation-row-title span {
+  display: block;
+}
+
+.v3-variation-row-title span {
+  margin-top: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.v3-variation-row-title .ready {
+  color: var(--v3-success);
+}
+
+.v3-variation-row-title .incomplete {
+  color: var(--v3-warning);
+}
+
+.v3-on-demand {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.v3-on-demand > summary {
+  padding: 0.9rem 1rem;
+  color: var(--v3-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.v3-on-demand[open] > summary {
+  border-bottom: 1px solid var(--v3-border);
+  background: var(--v3-surface-subtle);
+  color: var(--v3-text);
+}
+
+.v3-on-demand-body {
+  padding: 1rem;
+}
+
+.template-studio-v3 .v3-production-grid {
+  align-items: start;
+  min-height: 0;
+}
+
+.template-studio-v3 .v3-production-grid > .studio-panel {
+  align-self: start;
+  max-height: min(76vh, 860px);
+}
+
+.template-studio-v3 .v3-production-grid > .studio-panel:last-child {
+  overflow-y: auto;
+}
+
+@media (max-width: 1280px) {
+  .v3-variation-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .v3-variation-row-title {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-tabs__list {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-tabs__tab {
+    justify-content: space-between;
+  }
+
+  .v3-variation-row {
+    grid-template-columns: 1fr;
+  }
+
+  .v3-variation-row-title {
+    grid-column: auto;
+  }
+}
