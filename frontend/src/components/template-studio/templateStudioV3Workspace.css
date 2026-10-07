@@ -231,3 +231,36 @@
   border-radius: 0.5rem;
   background: var(--v3-surface);
 }
+
+
+.template-studio-v3 .v3-page-header {
+  gap: 0.85rem;
+  margin-bottom: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.template-studio-v3 .v3-page-header h1 {
+  margin: 0.15rem 0;
+  font-size: clamp(1.2rem, 2vw, 1.55rem);
+  line-height: 1.15;
+}
+
+.template-studio-v3 .v3-page-header p {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.template-studio-v3 .v3-route-nav {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  margin-bottom: 1rem;
+}
+
+.template-studio-v3 .v3-production-grid > .studio-panel:first-child {
+  overflow-y: auto;
+}
+
+@media (max-width: 640px) {
+  .template-studio-v3 .v3-route-nav {
+    grid-template-columns: 1fr;
+  }
+}
