@@ -66,6 +66,7 @@ export default function AttributeProductionProfileEditor({
   attributes,
   printOptions,
   onChange,
+  onProductionModeChange = null,
 }) {
   const availableAttributes = useMemo(
     () => selectedAttributes(attributes, template),
@@ -356,6 +357,13 @@ export default function AttributeProductionProfileEditor({
               </p>
             </div>
           </div>
+          {onProductionModeChange && (
+            <div className="v3-inline-mode-switch">
+              <button type="button" onClick={() => onProductionModeChange("shared")}>Shared</button>
+              <button type="button" className="active">Attribute-owned</button>
+              <button type="button" onClick={() => onProductionModeChange("individual")}>Individual</button>
+            </div>
+          )}
           {ownershipConfiguration}
         </section>
       ) : (
@@ -376,6 +384,13 @@ export default function AttributeProductionProfileEditor({
                 </summary>
                 <div className="v3-command-popover-panel">
                   <div className="overline">Production ownership</div>
+                  {onProductionModeChange && (
+                    <div className="v3-inline-mode-switch">
+                      <button type="button" onClick={() => onProductionModeChange("shared")}>Shared</button>
+                      <button type="button" className="active">Attribute-owned</button>
+                      <button type="button" onClick={() => onProductionModeChange("individual")}>Individual</button>
+                    </div>
+                  )}
                   {ownershipConfiguration}
                 </div>
               </details>
