@@ -47,6 +47,7 @@ export default function ProductionConfigurationEditor({
   onCopyRequested = null,
   copyLabel = "Copy this setup",
   mode = "complete",
+  onScreensChange = null,
 }) {
   const configuration = useMemo(
     () => normaliseProductionConfiguration(value),
@@ -249,7 +250,11 @@ export default function ProductionConfigurationEditor({
         <div className="v3-production-grid v3-production-grid-images">
           <TemplateViewManager
             screens={configuration.screens}
-            onScreensChange={(screens) => commit({ screens })}
+            onScreensChange={(screens) => (
+              onScreensChange
+                ? onScreensChange(screens)
+                : commit({ screens })
+            )}
             selectedScreenId={selectedScreen?.id || selectedScreenId}
             onSelectedScreenIdChange={setSelectedScreenId}
           />
@@ -258,7 +263,11 @@ export default function ProductionConfigurationEditor({
         <div className="v3-production-grid">
           <TemplateViewManager
             screens={configuration.screens}
-            onScreensChange={(screens) => commit({ screens })}
+            onScreensChange={(screens) => (
+              onScreensChange
+                ? onScreensChange(screens)
+                : commit({ screens })
+            )}
             selectedScreenId={selectedScreen?.id || selectedScreenId}
             onSelectedScreenIdChange={(screenId) => {
               setSelectedScreenId(screenId);
