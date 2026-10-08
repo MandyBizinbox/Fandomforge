@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# Public static builds must remain readable under restrictive login umasks.
+umask 022
 
 ROOT="${FANDOMFORGE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 FRONTEND_DIR="${FANDOMFORGE_FRONTEND_DIR:-$ROOT/frontend}"
@@ -127,6 +129,8 @@ echo "Building $GIT_SHA into $RELEASE_DIR"
   CI=false BUILD_PATH="$RELEASE_DIR" npm run build
 )
 
+find "$RELEASE_DIR" -type d -exec chmod 755 {} +
+find "$RELEASE_DIR" -type f -exec chmod 644 {} +
 validate_build "$RELEASE_DIR"
 printf '%s\n' "$GIT_SHA" > "$RELEASE_DIR/DEPLOYED_GIT_SHA"
 
