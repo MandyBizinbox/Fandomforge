@@ -640,7 +640,7 @@ export default function ProductTemplateStudioV3Page() {
   if (loading) return <div className="v3-card">Loading product template…</div>;
 
   return (
-    <div className="template-studio-v3" data-testid="product-template-studio-v3">
+    <div className={currentSection === "production" ? "template-studio-v3 v3-production-page" : "template-studio-v3"} data-testid="product-template-studio-v3">
       <header className="v3-page-header">
         <div className="v3-title-row">
           <NavLink to="/admin/product-templates" className="v3-back"><ArrowLeft size={16} /> Back</NavLink>
@@ -878,44 +878,52 @@ export default function ProductTemplateStudioV3Page() {
             </section>
           ) : (
             <>
-              <section className="v3-card v3-decision-card">
-                <div className="v3-section-heading">
+              <details className="v3-production-mode-picker">
+                <summary>
                   <div>
-                    <div className="overline">Production ownership</div>
-                    <h2>How should these variations share production setup?</h2>
-                    <p>Choose the ownership model first. The detailed editor below only shows the controls needed for that model.</p>
+                    <span>Production mode</span>
+                    <strong>
+                      {setupMode === "shared"
+                        ? "Shared setup"
+                        : setupMode === "attribute"
+                          ? "Attribute-owned"
+                          : "Individual"}
+                    </strong>
+                  </div>
+                  <span>Change</span>
+                </summary>
+                <div className="v3-production-mode-picker-body">
+                  <div className="v3-decision-grid">
+                    <button
+                      type="button"
+                      className={setupMode === "shared" ? "active" : ""}
+                      onClick={() => {
+                        setSetupMode("shared");
+                        setSharedConfig(getVariationProductionConfiguration(selectedVariation || variations[0], template));
+                        updateTemplate({ variation_inheritance: { ...(template.variation_inheritance || {}), mode: "shared" } });
+                      }}
+                    >
+                      <strong>Shared setup</strong>
+                      <span>Configure once, then apply the complete setup to every variation.</span>
+                    </button>
+                    <button type="button" className={setupMode === "attribute" ? "active" : ""} onClick={() => setSetupMode("attribute")}>
+                      <strong>Attribute-owned</strong>
+                      <span>One attribute owns images while another owns geometry and manufacturing rules.</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={setupMode === "individual" ? "active" : ""}
+                      onClick={() => {
+                        setSetupMode("individual");
+                        updateTemplate({ variation_inheritance: { ...(template.variation_inheritance || {}), mode: "individual" } });
+                      }}
+                    >
+                      <strong>Individual</strong>
+                      <span>Each variation keeps an independent production record.</span>
+                    </button>
                   </div>
                 </div>
-                <div className="v3-decision-grid">
-                  <button
-                    type="button"
-                    className={setupMode === "shared" ? "active" : ""}
-                    onClick={() => {
-                      setSetupMode("shared");
-                      setSharedConfig(getVariationProductionConfiguration(selectedVariation || variations[0], template));
-                      updateTemplate({ variation_inheritance: { ...(template.variation_inheritance || {}), mode: "shared" } });
-                    }}
-                  >
-                    <strong>Shared setup</strong>
-                    <span>Configure once, then apply the complete setup to every variation.</span>
-                  </button>
-                  <button type="button" className={setupMode === "attribute" ? "active" : ""} onClick={() => setSetupMode("attribute")}>
-                    <strong>Attribute-owned</strong>
-                    <span>Let one attribute own images and another own print geometry and manufacturing rules.</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={setupMode === "individual" ? "active" : ""}
-                    onClick={() => {
-                      setSetupMode("individual");
-                      updateTemplate({ variation_inheritance: { ...(template.variation_inheritance || {}), mode: "individual" } });
-                    }}
-                  >
-                    <strong>Individual</strong>
-                    <span>Each variation keeps an independent production record.</span>
-                  </button>
-                </div>
-              </section>
+              </details>
 
               {setupMode === "shared" ? (
                 <>
