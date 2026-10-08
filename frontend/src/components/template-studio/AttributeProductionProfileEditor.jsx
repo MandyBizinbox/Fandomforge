@@ -205,6 +205,30 @@ export default function AttributeProductionProfileEditor({
     productionConfiguration
   );
 
+  const updateImageScreens = (screens) => {
+    if (!selectedImageValue) return;
+
+    const imageKey = attributeProfileKey(selectedImageValue);
+    const nextImageConfiguration = normaliseProductionConfiguration({
+      screens,
+      print_areas: [],
+      print_option_ids: [],
+      print_options: [],
+    });
+
+    onChange({
+      attribute_image_profiles: {
+        ...(template.attribute_image_profiles || {}),
+        [imageKey]: {
+          ...(template.attribute_image_profiles?.[imageKey] || {}),
+          attribute_value: selectedImageValue,
+          configuration: nextImageConfiguration,
+          updated_at: new Date().toISOString(),
+        },
+      },
+    });
+  };
+
   const updateComposedWorkspace = (configuration) => {
     if (!selectedImageValue || !selectedProductionValue) return;
 
@@ -455,6 +479,7 @@ export default function AttributeProductionProfileEditor({
                     mode="composed"
                     value={composedConfiguration}
                     onChange={updateComposedWorkspace}
+                    onScreensChange={updateImageScreens}
                     printOptions={printOptions}
                     title={
                       String(selectedProductionValue)
