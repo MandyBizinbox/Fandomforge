@@ -94,6 +94,7 @@ export default function PrintAreaCanvas({
   onPrintAreasChange,
   selectedAreaId,
   onSelectedAreaIdChange,
+  compact = false,
 }) {
   const canvasRef = useRef(null);
   const [mode, setMode] = useState("select");
@@ -313,46 +314,108 @@ export default function PrintAreaCanvas({
 
   return (
     <div className="studio-panel h-full">
-      <div className="studio-panel-header">
-        <div>
-          <div className="overline mb-1">Printable boundaries</div>
-          <h2 className="font-display text-2xl uppercase">Print areas</h2>
-          <p className="text-xs text-zinc-500 mt-2 max-w-md">
-            Draw the exact printable boundary for the selected product view. Geometry, physical size and manufacturing rules are saved with this production setup.
-          </p>
+      {compact ? (
+        <div className="v3-compact-canvas-bar">
+          <div className="v3-compact-canvas-title">
+            <strong>{screen?.name || "Print areas"}</strong>
+            <span>{screenAreas.length} area{screenAreas.length === 1 ? "" : "s"}</span>
+          </div>
+
+          <div className="v3-compact-canvas-actions">
+            <select
+              className="input-base text-xs"
+              value=""
+              aria-label="Add print area"
+              onChange={(event) => {
+                const value = event.target.value;
+                if (!value) return;
+                if (value === "__rectangle") addDefaultArea();
+                else if (value === "__circle") addDefaultArea("custom", "circle");
+                else addDefaultArea(value);
+              }}
+            >
+              <option value="">+ Add area</option>
+              <option value="__rectangle">Custom rectangle</option>
+              <option value="__circle">Custom circle</option>
+              {PRINT_AREA_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              className={mode === "draw" ? "btn-primary text-xs" : "btn-secondary text-xs"}
+              onClick={() => setMode(mode === "draw" ? "select" : "draw")}
+              title="Draw a custom print area"
+            >
+              <Plus size={13} /> Draw
+            </button>
+
+            <button
+              type="button"
+              className="btn-secondary text-xs"
+              onClick={duplicateSelected}
+              disabled={!selectedAreaId}
+              title="Duplicate selected print area"
+              aria-label="Duplicate selected print area"
+            >
+              <Copy size={13} />
+            </button>
+
+            <button
+              type="button"
+              className="studio-danger-button"
+              onClick={deleteSelected}
+              disabled={!selectedAreaId}
+              aria-label="Delete selected print area"
+              title="Delete selected print area"
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={mode === "draw" ? "btn-primary text-xs" : "btn-secondary text-xs"}
-            onClick={() => setMode(mode === "draw" ? "select" : "draw")}
-          >
-            <Plus size={13} /> Draw area
-          </button>
-          <select
-            className="input-base text-xs max-w-[220px]"
-            value=""
-            onChange={(event) => event.target.value && addDefaultArea(event.target.value)}
-          >
-            <option value="">Add standard area</option>
-            {PRINT_AREA_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-          <button type="button" className="btn-secondary text-xs" onClick={() => addDefaultArea()}>
-            Add rectangle
-          </button>
-          <button type="button" className="btn-secondary text-xs" onClick={() => addDefaultArea("custom", "circle")}>
-            <Circle size={13} /> Add circle
-          </button>
-          <button type="button" className="btn-secondary text-xs" onClick={duplicateSelected} disabled={!selectedAreaId}>
-            <Copy size={13} /> Duplicate
-          </button>
-          <button type="button" className="studio-danger-button" onClick={deleteSelected} disabled={!selectedAreaId} aria-label="Delete selected print area">
-            <Trash2 size={13} />
-          </button>
+      ) : (
+        <div className="studio-panel-header">
+          <div>
+            <div className="overline mb-1">Printable boundaries</div>
+            <h2 className="font-display text-2xl uppercase">Print areas</h2>
+            <p className="text-xs text-zinc-500 mt-2 max-w-md">
+              Draw the exact printable boundary for the selected product view. Geometry, physical size and manufacturing rules are saved with this production setup.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={mode === "draw" ? "btn-primary text-xs" : "btn-secondary text-xs"}
+              onClick={() => setMode(mode === "draw" ? "select" : "draw")}
+            >
+              <Plus size={13} /> Draw area
+            </button>
+            <select
+              className="input-base text-xs max-w-[220px]"
+              value=""
+              onChange={(event) => event.target.value && addDefaultArea(event.target.value)}
+            >
+              <option value="">Add standard area</option>
+              {PRINT_AREA_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <button type="button" className="btn-secondary text-xs" onClick={() => addDefaultArea()}>
+              Add rectangle
+            </button>
+            <button type="button" className="btn-secondary text-xs" onClick={() => addDefaultArea("custom", "circle")}>
+              <Circle size={13} /> Add circle
+            </button>
+            <button type="button" className="btn-secondary text-xs" onClick={duplicateSelected} disabled={!selectedAreaId}>
+              <Copy size={13} /> Duplicate
+            </button>
+            <button type="button" className="studio-danger-button" onClick={deleteSelected} disabled={!selectedAreaId} aria-label="Delete selected print area">
+              <Trash2 size={13} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {!screen ? (
         <div className="dropzone h-[520px] flex items-center justify-center text-zinc-500">
