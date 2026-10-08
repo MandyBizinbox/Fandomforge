@@ -878,6 +878,7 @@ export default function ProductTemplateStudioV3Page() {
             </section>
           ) : (
             <>
+              {setupMode !== "attribute" && (
               <details className="v3-production-mode-picker">
                 <summary>
                   <div>
@@ -924,6 +925,7 @@ export default function ProductTemplateStudioV3Page() {
                   </div>
                 </div>
               </details>
+              )}
 
               {setupMode === "shared" ? (
                 <>
@@ -947,6 +949,22 @@ export default function ProductTemplateStudioV3Page() {
                   attributes={attributes}
                   printOptions={printOptions}
                   onChange={updateTemplate}
+                  onProductionModeChange={(nextMode) => {
+                    if (nextMode === "shared") {
+                      setSetupMode("shared");
+                      setSharedConfig(getVariationProductionConfiguration(selectedVariation || variations[0], template));
+                      updateTemplate({ variation_inheritance: { ...(template.variation_inheritance || {}), mode: "shared" } });
+                      return;
+                    }
+
+                    if (nextMode === "individual") {
+                      setSetupMode("individual");
+                      updateTemplate({ variation_inheritance: { ...(template.variation_inheritance || {}), mode: "individual" } });
+                      return;
+                    }
+
+                    setSetupMode("attribute");
+                  }}
                 />
               ) : (
                 <div className="v3-individual-layout">
