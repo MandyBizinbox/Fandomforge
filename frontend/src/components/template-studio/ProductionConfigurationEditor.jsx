@@ -197,18 +197,12 @@ export default function ProductionConfigurationEditor({
               {selectedRules.size} rules
             </span>
           </div>
-          <div
-            className={
-              complete
-                ? "v3-compact-ready ready"
-                : "v3-compact-ready incomplete"
-            }
-          >
-            {complete
-              ? <CheckCircle2 size={14} />
-              : <CircleAlert size={14} />}
-            {complete ? readyLabel : "Incomplete"}
-          </div>
+          {!complete && (
+            <div className="v3-compact-ready incomplete">
+              <CircleAlert size={14} />
+              Incomplete
+            </div>
+          )}
         </div>
       ) : (
         <>
