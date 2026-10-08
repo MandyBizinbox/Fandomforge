@@ -80,19 +80,30 @@ describe('admin product system UI contract', () => {
     expect(storefront).toContain('Fit & sizing');
   });
 
-  test('template production studio uses compact chrome, composed views and a cm size matrix', () => {
+  test('template production studio uses editor-first chrome, composed views and a cm size matrix', () => {
     const route = read('../../routes/AdminTemplateStudioRoute.jsx');
     const layout = read('../../components/DashboardLayout.jsx');
+    const page = read('../../components/template-studio/ProductTemplateStudioV3Page.jsx');
     const attributeEditor = read('../../components/template-studio/AttributeProductionProfileEditor.jsx');
+    const productionEditor = read('../../components/template-studio/ProductionConfigurationEditor.jsx');
+    const views = read('../../components/template-studio/TemplateViewManager.jsx');
+    const canvas = read('../../components/template-studio/PrintAreaCanvas.jsx');
     const matrix = read('../../components/template-studio/PrintSizeMatrix.jsx');
 
     expect(route).toContain('workspaceMode="studio"');
     expect(layout).toContain('workspaceMode = "default"');
     expect(layout).toContain('studio-workspace-shell');
+    expect(page).toContain('v3-production-page');
+    expect(page).toContain('v3-production-mode-picker');
     expect(attributeEditor).toContain('mode="composed"');
-    expect(attributeEditor).toContain('label: "Print size matrix"');
-    expect(attributeEditor).toContain('Image profile ·');
-    expect(attributeEditor).toContain('Production profile ·');
+    expect(attributeEditor).toContain('headerContent={(');
+    expect(attributeEditor).toContain('label: "Size matrix"');
+    expect(attributeEditor).toContain('v3-command-select');
+    expect(attributeEditor).toContain('v3-command-status');
+    expect(productionEditor).toContain('compactWorkspace = mode === "composed"');
+    expect(productionEditor).toContain('v3-production-editor-bar');
+    expect(views).toContain('v3-view-card-compact');
+    expect(canvas).toContain('v3-compact-canvas-bar');
     expect(matrix).toContain('Physical output dimensions');
     expect(matrix).toContain('parsed * 10');
     expect(matrix).toContain('width_mm');
