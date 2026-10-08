@@ -5,6 +5,7 @@ export default function WorkspaceTabs({
   initialTab,
   ariaLabel = "Workspace tabs",
   className = "",
+  headerContent = null,
 }) {
   const firstEnabled = tabs.find((tab) => tab && tab.disabled !== true)?.id || "";
   const [activeTab, setActiveTab] = useState(initialTab || firstEnabled);
@@ -45,7 +46,11 @@ export default function WorkspaceTabs({
 
   return (
     <div className={["workspace-tabs", className].filter(Boolean).join(" ")}>
-      <div className="workspace-tabs__list" role="tablist" aria-label={ariaLabel}>
+      <div className={headerContent ? "workspace-tabs__header" : ""}>
+        {headerContent && (
+          <div className="workspace-tabs__header-content">{headerContent}</div>
+        )}
+        <div className="workspace-tabs__list" role="tablist" aria-label={ariaLabel}>
         {tabs.map((tab) => {
           const selected = activeTab === tab.id;
           const tabId = `${baseId}-tab-${tab.id}`;
@@ -72,6 +77,7 @@ export default function WorkspaceTabs({
             </button>
           );
         })}
+        </div>
       </div>
 
       <div className="workspace-tabs__panels">
