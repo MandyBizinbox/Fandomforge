@@ -103,6 +103,8 @@ export default function ProductionConfigurationEditor({
     )
   );
 
+  const compactWorkspace = mode === "composed";
+
   const complete = (
     mode === "images"
       ? productionImageConfigurationComplete(configuration)
@@ -183,72 +185,100 @@ export default function ProductionConfigurationEditor({
       className="v3-production-editor"
       data-testid="production-configuration-editor"
     >
-      <div className="v3-section-heading">
-        <div>
-          <div className="overline">
-            {mode === "images"
-              ? "Variation images"
-              : mode === "geometry"
-                ? "Print geometry and rules"
-                : mode === "composed"
-                  ? "Production views"
-                  : "Production configuration"}
+      {compactWorkspace ? (
+        <div className="v3-production-editor-bar">
+          <div>
+            <strong>{title}</strong>
+            <span>
+              {configuration.screens.length} views
+              {" · "}
+              {configuration.print_areas.length} areas
+              {" · "}
+              {selectedRules.size} rules
+            </span>
           </div>
-          <h2>{title}</h2>
-          <p>{subtitle}</p>
-        </div>
-
-        <div className="v3-heading-actions">
           <div
             className={
               complete
-                ? "v3-status v3-status-ready"
-                : "v3-status v3-status-warning"
+                ? "v3-compact-ready ready"
+                : "v3-compact-ready incomplete"
             }
           >
             {complete
-              ? <CheckCircle2 size={16} />
-              : <CircleAlert size={16} />}
-            {complete ? readyLabel : "Setup incomplete"}
+              ? <CheckCircle2 size={14} />
+              : <CircleAlert size={14} />}
+            {complete ? readyLabel : "Incomplete"}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="v3-section-heading">
+            <div>
+              <div className="overline">
+                {mode === "images"
+                  ? "Variation images"
+                  : mode === "geometry"
+                    ? "Print geometry and rules"
+                    : "Production configuration"}
+              </div>
+              <h2>{title}</h2>
+              <p>{subtitle}</p>
+            </div>
+
+            <div className="v3-heading-actions">
+              <div
+                className={
+                  complete
+                    ? "v3-status v3-status-ready"
+                    : "v3-status v3-status-warning"
+                }
+              >
+                {complete
+                  ? <CheckCircle2 size={16} />
+                  : <CircleAlert size={16} />}
+                {complete ? readyLabel : "Setup incomplete"}
+              </div>
+
+              {onCopyRequested && copyLabel && (
+                <button
+                  type="button"
+                  className="v3-button v3-button-secondary"
+                  onClick={() => onCopyRequested(configuration)}
+                >
+                  <Copy size={15} />
+                  {copyLabel}
+                </button>
+              )}
+            </div>
           </div>
 
-          {onCopyRequested && copyLabel && (
-            <button
-              type="button"
-              className="v3-button v3-button-secondary"
-              onClick={() => onCopyRequested(configuration)}
-            >
-              <Copy size={15} />
-              {copyLabel}
-            </button>
-          )}
-        </div>
-      </div>
+          <div className="v3-production-summary">
+            <div>
+              <span>Editor views</span>
+              <strong>{configuration.screens.length}</strong>
+            </div>
+            <div>
+              <span>Print areas</span>
+              <strong>{configuration.print_areas.length}</strong>
+            </div>
+            <div>
+              <span>Print rules</span>
+              <strong>{selectedRules.size}</strong>
+            </div>
+            <div>
+              <span>Ownership</span>
+              <strong>{ownershipLabel}</strong>
+            </div>
+          </div>
 
-      <div className="v3-production-summary">
-        <div>
-          <span>Editor views</span>
-          <strong>{configuration.screens.length}</strong>
-        </div>
-        <div>
-          <span>Print areas</span>
-          <strong>{configuration.print_areas.length}</strong>
-        </div>
-        <div>
-          <span>Print rules</span>
-          <strong>{selectedRules.size}</strong>
-        </div>
-        <div>
-          <span>Ownership</span>
-          <strong>{ownershipLabel}</strong>
-        </div>
-      </div>
-
-      <div className="v3-helper-banner">{helperText}</div>
+          <div className="v3-helper-banner">{helperText}</div>
+        </>
+      )}
 
       {mode === "images" ? (
         <div className="v3-production-grid v3-production-grid-images">
           <TemplateViewManager
+            compact={compactWorkspace}
             screens={configuration.screens}
             onScreensChange={(screens) => (
               onScreensChange
@@ -262,6 +292,7 @@ export default function ProductionConfigurationEditor({
       ) : (
         <div className="v3-production-grid">
           <TemplateViewManager
+            compact={compactWorkspace}
             screens={configuration.screens}
             onScreensChange={(screens) => (
               onScreensChange
@@ -280,6 +311,7 @@ export default function ProductionConfigurationEditor({
           />
 
           <PrintAreaCanvas
+            compact={compactWorkspace}
             screen={selectedScreen}
             printAreas={configuration.print_areas}
             onPrintAreasChange={(print_areas) => commit({ print_areas })}
@@ -288,6 +320,7 @@ export default function ProductionConfigurationEditor({
           />
 
           <PrintAreaInspector
+            compact={compactWorkspace}
             selectedArea={selectedArea}
             printOptions={printOptions}
             onChange={updateSelectedArea}
