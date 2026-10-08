@@ -1379,3 +1379,70 @@
 .v3-production-studio-v3 .v3-view-manage-panel .studio-danger-button {
   flex: 0 0 32px;
 }
+
+
+/* View rail options stay inline so the narrow rail never clips a flyout. */
+.v3-production-studio-v3 .v3-view-card-compact {
+  overflow: hidden;
+}
+
+.v3-view-manage-inline {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--v3-border);
+  background: var(--v3-surface-subtle);
+}
+
+.v3-view-manage-inline > summary {
+  padding: 0.38rem 0.5rem;
+  color: var(--v3-muted);
+  font-size: 0.6rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+
+.v3-view-manage-inline > summary::-webkit-details-marker {
+  display: none;
+}
+
+.v3-view-manage-inline > summary::after {
+  content: " +";
+  color: var(--v3-primary);
+}
+
+.v3-view-manage-inline[open] > summary::after {
+  content: " −";
+}
+
+.v3-view-manage-inline .v3-view-manage-panel {
+  position: static;
+  width: 100%;
+  padding: 0.5rem;
+  border: 0;
+  border-top: 1px solid var(--v3-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.v3-view-manage-inline .v3-view-manage-panel input,
+.v3-view-manage-inline .v3-view-manage-panel select {
+  min-width: 0;
+  width: 100%;
+}
+
+.v3-view-manage-inline .v3-view-manage-panel .studio-file-button {
+  min-width: 0;
+  width: 100%;
+}
+
+.v3-view-manage-inline .v3-view-manage-panel .flex {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.v3-view-manage-inline .v3-view-manage-panel .studio-danger-button {
+  width: 100%;
+}
