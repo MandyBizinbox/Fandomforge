@@ -1340,3 +1340,42 @@
     flex-basis: 100%;
   }
 }
+
+
+.v3-inline-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0.55rem 0 0.7rem;
+}
+
+.v3-inline-mode-switch button {
+  min-height: 34px;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--v3-border);
+  border-radius: 0.4rem;
+  background: var(--v3-surface-subtle);
+  color: var(--v3-text-secondary);
+  font-size: 0.66rem;
+  font-weight: 850;
+}
+
+.v3-inline-mode-switch button:hover,
+.v3-inline-mode-switch button.active {
+  border-color: var(--v3-primary);
+  background: color-mix(in srgb, var(--v3-primary) 8%, var(--v3-surface));
+  color: var(--v3-text);
+}
+
+.v3-production-studio-v3 .v3-view-manage-panel {
+  width: 172px;
+}
+
+.v3-production-studio-v3 .v3-view-manage-panel .studio-file-button {
+  min-width: 0;
+  font-size: 0.58rem;
+}
+
+.v3-production-studio-v3 .v3-view-manage-panel .studio-danger-button {
+  flex: 0 0 32px;
+}
