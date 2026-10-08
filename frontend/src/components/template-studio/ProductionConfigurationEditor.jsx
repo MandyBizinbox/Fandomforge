@@ -115,7 +115,9 @@ export default function ProductionConfigurationEditor({
       ? "Images ready"
       : mode === "geometry"
         ? "Geometry ready"
-        : "Production ready"
+        : mode === "composed"
+          ? "Workspace ready"
+          : "Production ready"
   );
 
   const ownershipLabel = (
@@ -123,7 +125,9 @@ export default function ProductionConfigurationEditor({
       ? "Image attribute"
       : mode === "geometry"
         ? "Production attribute"
-        : "Complete product"
+        : mode === "composed"
+          ? "Attribute profiles"
+          : "Complete product"
   );
 
   const helperText = (
@@ -131,7 +135,9 @@ export default function ProductionConfigurationEditor({
       ? "Upload each Front, Back, Sleeve or other product image once for this attribute value. Every matching variation inherits these editor views."
       : mode === "geometry"
         ? "Select a reference view, draw the printable boundary and set physical dimensions and manufacturing rules. Every matching variation inherits this geometry."
-        : "Add the product/editor image as a view, select it, draw the printable boundary, then choose the manufacturing rule in the print-area inspector."
+        : mode === "composed"
+          ? "The selected image profile supplies the product views while the selected production profile supplies print geometry and manufacturing rules. Edit them together here; they remain separate underneath."
+          : "Add the product/editor image as a view, select it, draw the printable boundary, then choose the manufacturing rule in the print-area inspector."
   );
 
   const commit = (patch) => {
@@ -183,7 +189,9 @@ export default function ProductionConfigurationEditor({
               ? "Variation images"
               : mode === "geometry"
                 ? "Print geometry and rules"
-                : "Production configuration"}
+                : mode === "composed"
+                  ? "Production views"
+                  : "Production configuration"}
           </div>
           <h2>{title}</h2>
           <p>{subtitle}</p>
