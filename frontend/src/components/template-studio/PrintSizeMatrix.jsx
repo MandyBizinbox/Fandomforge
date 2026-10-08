@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   attributeProfileKey,
   blankProductionConfiguration,
@@ -46,6 +46,35 @@ function cm(mm) {
   const value = Number(mm);
   if (!Number.isFinite(value) || value <= 0) return "";
   return Number((value / 10).toFixed(2));
+}
+
+function DimensionInput({ value, onCommit, ariaLabel }) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const commit = () => {
+    onCommit(draft);
+  };
+
+  return (
+    <input
+      type="number"
+      min="0"
+      step="0.1"
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.currentTarget.blur();
+        }
+      }}
+      aria-label={ariaLabel}
+    />
+  );
 }
 
 export default function PrintSizeMatrix({
@@ -192,35 +221,29 @@ export default function PrintSizeMatrix({
                           <div className="v3-dimension-pair">
                             <label>
                               <span>W</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.1"
+                              <DimensionInput
                                 value={cm(area.width_mm)}
-                                onChange={(event) => updateDimension(
+                                onCommit={(nextValue) => updateDimension(
                                   value,
                                   column.key,
                                   "width_mm",
-                                  event.target.value
+                                  nextValue
                                 )}
-                                aria-label={`${value} ${column.label} width cm`}
+                                ariaLabel={`${value} ${column.label} width cm`}
                               />
                             </label>
                             <span>×</span>
                             <label>
                               <span>H</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.1"
+                              <DimensionInput
                                 value={cm(area.height_mm)}
-                                onChange={(event) => updateDimension(
+                                onCommit={(nextValue) => updateDimension(
                                   value,
                                   column.key,
                                   "height_mm",
-                                  event.target.value
+                                  nextValue
                                 )}
-                                aria-label={`${value} ${column.label} height cm`}
+                                ariaLabel={`${value} ${column.label} height cm`}
                               />
                             </label>
                           </div>
