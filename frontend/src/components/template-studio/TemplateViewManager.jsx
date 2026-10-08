@@ -29,6 +29,7 @@ export default function TemplateViewManager({
   selectedScreenId,
   onSelectedScreenIdChange,
   mode = "manage",
+  compact = false,
 }) {
   const isSelectorOnly = mode === "selector";
   const [uploadingId, setUploadingId] = useState(null);
@@ -189,51 +190,145 @@ export default function TemplateViewManager({
 
   return (
     <div className="studio-panel h-full">
-      <div className="studio-panel-header">
-        <div>
-          <div className="overline mb-1">Editor images</div>
-          <h2 className="font-display text-2xl uppercase">Product views</h2>
-          <p className="text-xs text-zinc-500 mt-2 max-w-sm">
-            {isSelectorOnly
-              ? "Select the product view whose printable boundary you want to edit."
-              : "Add the images creators will place artwork onto. Each view and its print areas are stored inside this production setup."}
-          </p>
+      {compact ? (
+        <div className="v3-compact-panel-bar">
+          <strong>Views</strong>
+          {!isSelectorOnly && (
+            <select
+              className="input-base text-xs"
+              value=""
+              aria-label="Add product view"
+              onChange={(event) => {
+                if (event.target.value) addScreen(event.target.value);
+              }}
+            >
+              <option value="">+ Add view</option>
+              {quickViewOptions.map((option) => {
+                const exists = activeScreens.some(
+                  (screen) => (screen.view_key || screen.view) === option.value
+                );
+                return (
+                  <option key={option.value} value={option.value} disabled={exists}>
+                    {option.label}{exists ? " · added" : ""}
+                  </option>
+                );
+              })}
+            </select>
+          )}
         </div>
-        {!isSelectorOnly && (
-          <button type="button" className="btn-primary text-xs" onClick={() => addScreen("front")}><Plus size={14} /> Add view</button>
-        )}
-      </div>
-
-      {!isSelectorOnly && (
-        <div className="mb-4 border border-white/10 bg-black/20 rounded-xl p-3">
-          <div className="label mb-2">Quick add product views</div>
-          <div className="flex flex-wrap gap-2">
-            {quickViewOptions.map((option) => {
-              const exists = activeScreens.some((screen) => (screen.view_key || screen.view) === option.value);
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={exists ? "btn-secondary text-xs opacity-60" : "btn-secondary text-xs"}
-                  onClick={() => addScreen(option.value)}
-                  disabled={exists}
-                  title={exists ? `${option.label} already exists` : `Add ${option.label}`}
-                >
-                  <Plus size={13} /> {exists ? `${option.label} added` : option.label}
-                </button>
-              );
-            })}
+      ) : (
+        <>
+          <div className="studio-panel-header">
+            <div>
+              <div className="overline mb-1">Editor images</div>
+              <h2 className="font-display text-2xl uppercase">Product views</h2>
+              <p className="text-xs text-zinc-500 mt-2 max-w-sm">
+                {isSelectorOnly
+                  ? "Select the product view whose printable boundary you want to edit."
+                  : "Add the images creators will place artwork onto. Each view and its print areas are stored inside this production setup."}
+              </p>
+            </div>
+            {!isSelectorOnly && (
+              <button type="button" className="btn-primary text-xs" onClick={() => addScreen("front")}><Plus size={14} /> Add view</button>
+            )}
           </div>
-          <p className="text-xs text-zinc-500 mt-3">
-            Upload the actual editor image for each view required by this product or variation.
-          </p>
-        </div>
+
+          {!isSelectorOnly && (
+            <div className="mb-4 border border-white/10 bg-black/20 rounded-xl p-3">
+              <div className="label mb-2">Quick add product views</div>
+              <div className="flex flex-wrap gap-2">
+                {quickViewOptions.map((option) => {
+                  const exists = activeScreens.some((screen) => (screen.view_key || screen.view) === option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={exists ? "btn-secondary text-xs opacity-60" : "btn-secondary text-xs"}
+                      onClick={() => addScreen(option.value)}
+                      disabled={exists}
+                      title={exists ? `${option.label} already exists` : `Add ${option.label}`}
+                    >
+                      <Plus size={13} /> {exists ? `${option.label} added` : option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-zinc-500 mt-3">
+                Upload the actual editor image for each view required by this product or variation.
+              </p>
+            </div>
+          )}
+        </>
       )}
 
       <div className="grid gap-3 max-h-[640px] overflow-auto pr-1">
         {activeScreens.map((screen) => {
           const selected = selectedScreenId === screen.id;
           const viewOption = VIEW_OPTIONS.find((item) => item.value === (screen.view_key || screen.view)) || quickViewOptions.find((item) => item.value === (screen.view_key || screen.view));
+
+          if (compact && !isSelectorOnly) {
+            return (
+              <div key={screen.id} className={selected ? "view-card v3-view-card-compact active" : "view-card v3-view-card-compact"}>
+                <button
+                  type="button"
+                  className="view-card-preview"
+                  onClick={() => onSelectedScreenIdChange(screen.id)}
+                >
+                  {screen.image_url ? (
+                    <img src={assetUrl(screen.image_url)} alt={screen.name} />
+                  ) : (
+                    <ImageIcon size={22} className="text-zinc-700" />
+                  )}
+                </button>
+
+                <div className="v3-compact-view-main">
+                  <button
+                    type="button"
+                    className="v3-compact-view-select"
+                    onClick={() => onSelectedScreenIdChange(screen.id)}
+                  >
+                    <strong>{viewOption?.label || screen.name || "Product view"}</strong>
+                    <span>{screen.image_url ? "Image ready" : "Needs image"}</span>
+                  </button>
+
+                  <details className="v3-view-manage">
+                    <summary aria-label={`Manage ${screen.name || "view"}`}>•••</summary>
+                    <div className="v3-view-manage-panel">
+                      <label>
+                        <span>Name</span>
+                        <input
+                          className="input-base text-sm"
+                          value={screen.name || ""}
+                          onChange={(event) => updateScreen(screen.id, { name: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <span>View type</span>
+                        <select
+                          className="input-base text-sm"
+                          value={screen.view_key || screen.view || "front"}
+                          onChange={(event) => {
+                            const option = VIEW_OPTIONS.find((item) => item.value === event.target.value)
+                              || quickViewOptions.find((item) => item.value === event.target.value);
+                            updateScreen(screen.id, {
+                              view: event.target.value,
+                              view_key: event.target.value,
+                              name: screen.name || option?.label || "View",
+                            });
+                          }}
+                        >
+                          {VIEW_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {renderViewActions(screen)}
+                    </div>
+                  </details>
+                </div>
+              </div>
+            );
+          }
 
           if (isSelectorOnly) {
             return (
