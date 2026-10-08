@@ -80,6 +80,25 @@ describe('admin product system UI contract', () => {
     expect(storefront).toContain('Fit & sizing');
   });
 
+  test('template production studio uses compact chrome, composed views and a cm size matrix', () => {
+    const route = read('../../routes/AdminTemplateStudioRoute.jsx');
+    const layout = read('../../components/DashboardLayout.jsx');
+    const attributeEditor = read('../../components/template-studio/AttributeProductionProfileEditor.jsx');
+    const matrix = read('../../components/template-studio/PrintSizeMatrix.jsx');
+
+    expect(route).toContain('workspaceMode="studio"');
+    expect(layout).toContain('workspaceMode = "default"');
+    expect(layout).toContain('studio-workspace-shell');
+    expect(attributeEditor).toContain('mode="composed"');
+    expect(attributeEditor).toContain('label: "Print size matrix"');
+    expect(attributeEditor).toContain('Image profile ·');
+    expect(attributeEditor).toContain('Production profile ·');
+    expect(matrix).toContain('Physical output dimensions');
+    expect(matrix).toContain('parsed * 10');
+    expect(matrix).toContain('width_mm');
+    expect(matrix).toContain('height_mm');
+  });
+
   test('overview stat cells use themed card surfaces', () => {
     const source = read('./dashboard/AdminOverview.jsx');
     expect(source).toContain('bg-[var(--ff-card-bg)]');

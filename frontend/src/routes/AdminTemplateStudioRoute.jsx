@@ -39,7 +39,7 @@ const links = [
 export default function AdminTemplateStudioRoute() {
   return (
     <Routes>
-      <Route element={<DashboardLayout title="Platform Admin" links={links} testidPrefix="admin-dash" notificationEndpoint="/admin/notifications" notificationPath="/admin/notifications" />}>
+      <Route element={<DashboardLayout title="Platform Admin" links={links} testidPrefix="admin-dash" notificationEndpoint="/admin/notifications" notificationPath="/admin/notifications" workspaceMode="studio" />}>
         <Route path="product-templates/new/:section?" element={<ProductTemplateStudioV3Page />} />
         <Route path="product-templates/:id/:section?" element={<ProductTemplateStudioV3Page />} />
       </Route>

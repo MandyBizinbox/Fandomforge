@@ -80,11 +80,13 @@ export default function DashboardLayout({
   testidPrefix = "dash",
   notificationEndpoint = "",
   notificationPath = "",
+  workspaceMode = "default",
 }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isCreatorDashboard = testidPrefix === "creator-dash";
+  const isStudioWorkspace = workspaceMode === "studio";
   const searchParams = React.useMemo(() => new URLSearchParams(location.search), [location.search]);
   const isCreatorCatalogue = isCreatorDashboard && searchParams.get("section") === "catalogue";
 
@@ -98,21 +100,23 @@ export default function DashboardLayout({
   const showCreatorFirstRunChecklist = isCreatorHome;
 
   return (
-    <div className={`min-h-screen admin-workspace ${isCreatorDashboard ? "creator-workspace" : ""} flex bg-[var(--ff-page-bg)] text-[var(--ff-page-text)]`}>
+    <div className={`min-h-screen admin-workspace ${isCreatorDashboard ? "creator-workspace" : ""} ${isStudioWorkspace ? "studio-workspace-shell" : ""} flex bg-[var(--ff-page-bg)] text-[var(--ff-page-text)]`}>
       <aside
-        className="w-20 lg:w-64 admin-sidebar border-r border-[var(--ff-card-border)] bg-[var(--ff-header-bg)] text-[var(--ff-header-text)] flex flex-col min-h-screen sticky top-0"
+        className={`${isStudioWorkspace ? "w-16" : "w-20 lg:w-64"} admin-sidebar border-r border-[var(--ff-card-border)] bg-[var(--ff-header-bg)] text-[var(--ff-header-text)] flex flex-col min-h-screen sticky top-0`}
         data-testid={`${testidPrefix}-sidebar`}
       >
         <button
           type="button"
-          className="min-h-[92px] p-3 lg:p-6 border-b border-[var(--ff-card-border)] text-left flex items-center justify-center lg:justify-start overflow-hidden"
+          className={`${isStudioWorkspace ? "min-h-[64px] p-2 justify-center" : "min-h-[92px] p-3 lg:p-6 justify-center lg:justify-start"} border-b border-[var(--ff-card-border)] text-left flex items-center overflow-hidden`}
           onClick={() => navigate("/")}
           aria-label="Open platform home"
         >
-          <span className="hidden lg:block w-full">
-            <PlatformBrand className="max-h-12 max-w-[190px]" textClassName="font-display text-xl uppercase tracking-tight" showTagline />
-          </span>
-          <span className="lg:hidden">
+          {!isStudioWorkspace && (
+            <span className="hidden lg:block w-full">
+              <PlatformBrand className="max-h-12 max-w-[190px]" textClassName="font-display text-xl uppercase tracking-tight" showTagline />
+            </span>
+          )}
+          <span className={isStudioWorkspace ? "block" : "lg:hidden"}>
             <PlatformBrand compact className="max-h-9 max-w-10" textClassName="font-display text-lg uppercase" />
           </span>
         </button>
@@ -123,7 +127,7 @@ export default function DashboardLayout({
               return (
                 <div
                   key={`${link.label}-${index}`}
-                  className="hidden lg:block px-6 pt-5 pb-2 text-[10px] uppercase tracking-[0.22em] text-[var(--ff-muted-text)] font-bold"
+                  className={`${isStudioWorkspace ? "hidden" : "hidden lg:block"} px-6 pt-5 pb-2 text-[10px] uppercase tracking-[0.22em] text-[var(--ff-muted-text)] font-bold`}
                 >
                   {link.label}
                 </div>
@@ -145,7 +149,7 @@ export default function DashboardLayout({
                 data-testid={`${testidPrefix}-nav-${link.key}`}
               >
                 <span className="shrink-0">{link.icon}</span>
-                <span className="hidden lg:block min-w-0 flex-1 truncate">{link.label}</span>
+                <span className={isStudioWorkspace ? "hidden" : "hidden lg:block min-w-0 flex-1 truncate"}>{link.label}</span>
                 {Number(link.badgeCount || 0) > 0 && (
                   <span className="sidebar-link-badge" aria-label={`${link.badgeCount} pending`}>
                     {formatBadgeCount(link.badgeCount)}
@@ -156,22 +160,22 @@ export default function DashboardLayout({
           })}
         </nav>
 
-        <div className="border-t border-[var(--ff-card-border)] p-3 lg:p-4">
-          <div className="hidden lg:block text-xs text-[var(--ff-muted-text)] mb-2 uppercase tracking-wider">{user?.name}</div>
-          <div className="hidden lg:block text-[10px] text-[var(--ff-muted-text)] mb-3 break-all">{user?.email}</div>
+        <div className={`border-t border-[var(--ff-card-border)] ${isStudioWorkspace ? "p-2" : "p-3 lg:p-4"}`}>
+          <div className={isStudioWorkspace ? "hidden" : "hidden lg:block text-xs text-[var(--ff-muted-text)] mb-2 uppercase tracking-wider"}>{user?.name}</div>
+          <div className={isStudioWorkspace ? "hidden" : "hidden lg:block text-[10px] text-[var(--ff-muted-text)] mb-3 break-all"}>{user?.email}</div>
           <button
             onClick={() => { logout(); navigate("/"); }}
             className="w-full flex items-center justify-center gap-2 border border-[var(--ff-card-border)] px-3 py-2 text-xs uppercase tracking-widest font-bold hover:bg-[var(--ff-button-primary-bg)] hover:text-[var(--ff-button-primary-text)] transition-colors"
             data-testid={`${testidPrefix}-logout-btn`}
             title="Sign out"
           >
-            <LogOut size={14} /> <span className="hidden lg:inline">Sign out</span>
+            <LogOut size={14} /> <span className={isStudioWorkspace ? "hidden" : "hidden lg:inline"}>Sign out</span>
           </button>
         </div>
       </aside>
 
       <main className="flex-1 min-w-0" data-testid={`${testidPrefix}-main`}>
-        <div className="admin-topbar sticky top-0 z-30 border-b border-[var(--ff-card-border)] bg-[var(--ff-header-bg)] text-[var(--ff-header-text)] backdrop-blur px-4 md:px-10 py-4 flex items-center justify-between gap-4">
+        <div className={`admin-topbar sticky top-0 z-30 border-b border-[var(--ff-card-border)] bg-[var(--ff-header-bg)] text-[var(--ff-header-text)] backdrop-blur flex items-center justify-between gap-4 ${isStudioWorkspace ? "px-4 py-2" : "px-4 md:px-10 py-4"}`}>
           <div className="min-w-0">
             <div className="overline">{isCreatorCatalogue ? "Creator Catalogue" : title}</div>
             <div className="text-xs opacity-70 truncate">{user?.name || user?.email}</div>
@@ -184,7 +188,7 @@ export default function DashboardLayout({
             />
           )}
         </div>
-        <div className="p-4 md:p-8 lg:p-10">
+        <div className={isStudioWorkspace ? "p-2 md:p-3 lg:p-4" : "p-4 md:p-8 lg:p-10"}>
           {isCreatorCatalogue ? (
             <CreatorCatalogue />
           ) : isCreatorHome ? (
