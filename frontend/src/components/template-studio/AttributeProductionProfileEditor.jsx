@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Layers3 } from "lucide-react";
 import { toast } from "sonner";
 import ProductionConfigurationEditor from "./ProductionConfigurationEditor";
+import PrintSizeMatrix from "./PrintSizeMatrix";
+import WorkspaceTabs from "./WorkspaceTabs";
 import { getVariationLabel, safeArray } from "./templateStudioUtils";
 import {
   attributeProfileKey,
@@ -33,7 +35,7 @@ function attributeName(attribute) {
 
 function findDefaultAttribute(attributes, patterns, fallbackIndex = 0) {
   const matching = safeArray(attributes).find((attribute) => {
-    const value = `${attribute?.name || ""} ${attribute?.slug || ""}`;
+    const value = String(attribute?.name || "") + " " + String(attribute?.slug || "");
     return patterns.some((pattern) => pattern.test(value));
   });
 
@@ -116,8 +118,15 @@ export default function AttributeProductionProfileEditor({
     productionValues[0] || ""
   );
 
-  const [imageProfileFilter, setImageProfileFilter] = useState("");
-  const [productionProfileFilter, setProductionProfileFilter] = useState("");
+  const configured = (
+    ownership.mode === "attribute"
+    && ownership.image_attribute === imageAttribute
+    && ownership.production_attribute === productionAttribute
+    && Object.keys(template.attribute_image_profiles || {}).length > 0
+    && Object.keys(template.attribute_production_profiles || {}).length > 0
+  );
+
+  const [ownershipOpen, setOwnershipOpen] = useState(!configured);
 
   useEffect(() => {
     if (!imageAttribute && defaultImageAttribute) {
@@ -143,13 +152,11 @@ export default function AttributeProductionProfileEditor({
     }
   }, [productionValues, selectedProductionValue]);
 
-  const configured = (
-    ownership.mode === "attribute"
-    && ownership.image_attribute === imageAttribute
-    && ownership.production_attribute === productionAttribute
-    && Object.keys(template.attribute_image_profiles || {}).length > 0
-    && Object.keys(template.attribute_production_profiles || {}).length > 0
-  );
+  useEffect(() => {
+    if (configured) {
+      setOwnershipOpen(false);
+    }
+  }, [configured]);
 
   const applyOwnership = () => {
     if (!imageAttribute || !productionAttribute) {
@@ -167,9 +174,13 @@ export default function AttributeProductionProfileEditor({
     );
 
     onChange(patch);
+    setOwnershipOpen(false);
 
     toast.success(
-      `${imageAttribute} now owns product images and ${productionAttribute} owns print geometry`
+      imageAttribute
+      + " now owns product images and "
+      + productionAttribute
+      + " owns print geometry"
     );
   };
 
@@ -189,48 +200,46 @@ export default function AttributeProductionProfileEditor({
     || blankProductionConfiguration()
   );
 
-  const geometryEditorConfiguration = composeAttributeGeometryPreview(
+  const composedConfiguration = composeAttributeGeometryPreview(
     imageConfiguration,
     productionConfiguration
   );
 
-  const updateImageProfile = (configuration) => {
-    const key = attributeProfileKey(selectedImageValue);
+  const updateComposedWorkspace = (configuration) => {
+    if (!selectedImageValue || !selectedProductionValue) return;
 
-    const nextConfiguration = normaliseProductionConfiguration({
+    const imageKey = attributeProfileKey(selectedImageValue);
+    const productionKey = attributeProfileKey(selectedProductionValue);
+    const now = new Date().toISOString();
+
+    const nextImageConfiguration = normaliseProductionConfiguration({
       screens: configuration.screens,
       print_areas: [],
       print_option_ids: [],
       print_options: [],
     });
 
-    onChange({
-      attribute_image_profiles: {
-        ...(template.attribute_image_profiles || {}),
-        [key]: {
-          attribute_value: selectedImageValue,
-          configuration: nextConfiguration,
-          updated_at: new Date().toISOString(),
-        },
-      },
-    });
-  };
-
-  const updateProductionProfile = (configuration) => {
-    const key = attributeProfileKey(selectedProductionValue);
-    const geometryConfiguration = geometryOnlyProductionConfiguration(
-      configuration
+    const nextProductionConfiguration = normaliseProductionConfiguration(
+      geometryOnlyProductionConfiguration(configuration)
     );
 
     onChange({
+      attribute_image_profiles: {
+        ...(template.attribute_image_profiles || {}),
+        [imageKey]: {
+          ...(template.attribute_image_profiles?.[imageKey] || {}),
+          attribute_value: selectedImageValue,
+          configuration: nextImageConfiguration,
+          updated_at: now,
+        },
+      },
       attribute_production_profiles: {
         ...(template.attribute_production_profiles || {}),
-        [key]: {
+        [productionKey]: {
+          ...(template.attribute_production_profiles?.[productionKey] || {}),
           attribute_value: selectedProductionValue,
-          configuration: normaliseProductionConfiguration(
-            geometryConfiguration
-          ),
-          updated_at: new Date().toISOString(),
+          configuration: nextProductionConfiguration,
+          updated_at: now,
         },
       },
     });
@@ -255,235 +264,255 @@ export default function AttributeProductionProfileEditor({
     (row) => row.complete
   ).length;
 
-  const filteredImageValues = imageValues.filter((value) =>
-    String(value).toLowerCase().includes(imageProfileFilter.trim().toLowerCase())
+  const imageReady = productionImageConfigurationComplete(
+    imageConfiguration
   );
 
-  const filteredProductionValues = productionValues.filter((value) =>
-    String(value).toLowerCase().includes(productionProfileFilter.trim().toLowerCase())
+  const productionReady = productionGeometryConfigurationComplete(
+    productionConfiguration
   );
 
   return (
-    <div className="v3-attribute-profile-editor">
-      <section className="v3-card">
-        <div className="v3-section-heading">
+    <div className="v3-attribute-profile-editor v3-production-studio-v2">
+      <details
+        className="v3-card v3-ownership-details"
+        open={ownershipOpen}
+        onToggle={(event) => setOwnershipOpen(event.currentTarget.open)}
+      >
+        <summary>
           <div>
-            <div className="overline">Attribute ownership</div>
-            <h2>Configure production by attribute</h2>
-            <p>
-              Images and print geometry can be owned by different
-              attributes. Final variations automatically inherit both.
-            </p>
+            <div className="overline">Production ownership</div>
+            <strong>
+              Images: {imageAttribute || "Not selected"}
+              {" · "}
+              Geometry & rules: {productionAttribute || "Not selected"}
+            </strong>
           </div>
+          <span>{configured ? "Configured" : "Needs setup"}</span>
+        </summary>
 
-          <button
-            type="button"
-            className="v3-button v3-button-primary"
-            onClick={applyOwnership}
-          >
-            <Layers3 size={15} />
-            Apply attribute ownership
-          </button>
-        </div>
-
-        <div className="v3-attribute-profile-grid">
-          <label>
-            <span>Product images grouped by</span>
-            <select
-              value={imageAttribute}
-              onChange={(event) => setImageAttribute(event.target.value)}
-            >
-              <option value="">Select attribute</option>
-              {availableAttributes.map((attribute) => (
-                <option
-                  key={attribute.id}
-                  value={attributeName(attribute)}
-                >
-                  {attributeName(attribute)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>Print geometry grouped by</span>
-            <select
-              value={productionAttribute}
-              onChange={(event) => setProductionAttribute(event.target.value)}
-            >
-              <option value="">Select attribute</option>
-              {availableAttributes.map((attribute) => (
-                <option
-                  key={attribute.id}
-                  value={attributeName(attribute)}
-                >
-                  {attributeName(attribute)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="v3-attribute-owner-summary">
-            <span>Manufacturing rules grouped by</span>
-            <strong>{productionAttribute || "Not selected"}</strong>
-          </div>
-        </div>
-
-        <div className="v3-helper-banner">
-          Example: Small / White resolves to the Small print-area profile
-          plus the White product-image profile. Profiles remain linked;
-          they are not copied into 140 separate editable records.
-        </div>
-      </section>
-
-      {configured && (
-        <>
-          <section className="v3-card">
-            <div className="v3-section-heading">
-              <div>
-                <div className="overline">Image profiles</div>
-                <h2>{imageAttribute} product images</h2>
-                <p>
-                  Upload each view once. Every variation with the same
-                  {` ${imageAttribute}`} value inherits these images.
-                </p>
-              </div>
-            </div>
-
-            <label className="v3-search-field"><span>Find image profile</span><input value={imageProfileFilter} onChange={(event) => setImageProfileFilter(event.target.value)} placeholder={`Search ${imageAttribute || "image"} values…`} /></label>
-            <div className="v3-profile-tabs">
-              {filteredImageValues.map((value) => {
-                const config = getAttributeProfileConfiguration(
-                  template.attribute_image_profiles,
-                  value
-                );
-
-                const ready = productionImageConfigurationComplete(
-                  config || {}
-                );
-
-                return (
-                  <button
-                    type="button"
-                    key={value}
-                    className={
-                      selectedImageValue === value ? "active" : ""
-                    }
-                    onClick={() => setSelectedImageValue(value)}
-                  >
-                    <strong>{value}</strong>
-                    <span>
-                      {profileCount(variations, imageAttribute, value)}
-                      {" "}variations
-                    </span>
-                    <em className={ready ? "ready" : "incomplete"}>
-                      {ready ? "Ready" : "Incomplete"}
-                    </em>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          {selectedImageValue && (
-            <ProductionConfigurationEditor
-              mode="images"
-              value={imageConfiguration}
-              onChange={updateImageProfile}
-              printOptions={printOptions}
-              title={`${selectedImageValue} product images`}
-              subtitle={`These views are inherited by every variation where ${imageAttribute} is ${selectedImageValue}.`}
-            />
-          )}
-
-          <section className="v3-card">
-            <div className="v3-section-heading">
-              <div>
-                <div className="overline">Production profiles</div>
-                <h2>{productionAttribute} print geometry and rules</h2>
-                <p>
-                  Define dimensions and manufacturing rules once for each
-                  {` ${productionAttribute}`} value. The canvas previews the
-                  selected size on the currently selected {imageAttribute}
-                  image profile.
-                </p>
-              </div>
-            </div>
-
-            <label className="v3-search-field"><span>Find production profile</span><input value={productionProfileFilter} onChange={(event) => setProductionProfileFilter(event.target.value)} placeholder={`Search ${productionAttribute || "production"} values…`} /></label>
-            <div className="v3-profile-tabs">
-              {filteredProductionValues.map((value) => {
-                const config = getAttributeProfileConfiguration(
-                  template.attribute_production_profiles,
-                  value
-                );
-
-                const ready = productionGeometryConfigurationComplete(
-                  config || {}
-                );
-
-                return (
-                  <button
-                    type="button"
-                    key={value}
-                    className={
-                      selectedProductionValue === value ? "active" : ""
-                    }
-                    onClick={() => setSelectedProductionValue(value)}
-                  >
-                    <strong>{value}</strong>
-                    <span>
-                      {profileCount(
-                        variations,
-                        productionAttribute,
-                        value
-                      )}
-                      {" "}variations
-                    </span>
-                    <em className={ready ? "ready" : "incomplete"}>
-                      {ready ? "Ready" : "Incomplete"}
-                    </em>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          {selectedProductionValue && (
-            <ProductionConfigurationEditor
-              mode="geometry"
-              value={geometryEditorConfiguration}
-              onChange={updateProductionProfile}
-              printOptions={printOptions}
-              title={`${selectedProductionValue} print geometry and rules`}
-              subtitle={`Previewing ${selectedProductionValue} geometry on the ${selectedImageValue || imageAttribute} image profile. Replacing that colour image updates this canvas without changing the geometry.`}
-            />
-          )}
-
-          <section className="v3-card v3-resolution-summary">
+        <div className="v3-ownership-details-body">
+          <div className="v3-section-heading">
             <div>
-              <div className="overline">Resolved variation matrix</div>
-              <h2>
-                {readyCount} of {variations.length} variations ready
-              </h2>
+              <h2>Configure production by attribute</h2>
               <p>
-                Every final variation is resolved from one image profile
-                and one production profile.
+                Images and print geometry can be owned by different
+                attributes. Final variations automatically inherit both.
               </p>
             </div>
 
-            <div
-              className={
-                readyCount === variations.length
-                  ? "v3-status v3-status-ready"
-                  : "v3-status v3-status-warning"
-              }
+            <button
+              type="button"
+              className="v3-button v3-button-primary"
+              onClick={applyOwnership}
             >
-              <CheckCircle2 size={16} />
-              {readyCount === variations.length
-                ? "All combinations ready"
-                : `${variations.length - readyCount} incomplete`}
+              <Layers3 size={15} />
+              Apply attribute ownership
+            </button>
+          </div>
+
+          <div className="v3-attribute-profile-grid">
+            <label>
+              <span>Product images grouped by</span>
+              <select
+                value={imageAttribute}
+                onChange={(event) => setImageAttribute(event.target.value)}
+              >
+                <option value="">Select attribute</option>
+                {availableAttributes.map((attribute) => (
+                  <option
+                    key={attribute.id}
+                    value={attributeName(attribute)}
+                  >
+                    {attributeName(attribute)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Print geometry grouped by</span>
+              <select
+                value={productionAttribute}
+                onChange={(event) => setProductionAttribute(event.target.value)}
+              >
+                <option value="">Select attribute</option>
+                {availableAttributes.map((attribute) => (
+                  <option
+                    key={attribute.id}
+                    value={attributeName(attribute)}
+                  >
+                    {attributeName(attribute)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="v3-attribute-owner-summary">
+              <span>Manufacturing rules grouped by</span>
+              <strong>{productionAttribute || "Not selected"}</strong>
             </div>
+          </div>
+
+          <div className="v3-helper-banner">
+            Image profiles and production profiles remain separate records.
+            This workspace composes them for editing so one product view shows
+            its image and printable boundaries together.
+          </div>
+        </div>
+      </details>
+
+      {configured && (
+        <>
+          <section className="v3-card v3-production-profile-toolbar">
+            <div className="v3-profile-selector">
+              <label htmlFor="v3-image-profile-select">
+                Image profile · {imageAttribute}
+              </label>
+              <select
+                id="v3-image-profile-select"
+                value={selectedImageValue}
+                onChange={(event) => setSelectedImageValue(event.target.value)}
+              >
+                {imageValues.map((value) => {
+                  const configuration = getAttributeProfileConfiguration(
+                    template.attribute_image_profiles,
+                    value
+                  );
+                  const ready = productionImageConfigurationComplete(
+                    configuration || {}
+                  );
+
+                  return (
+                    <option key={value} value={value}>
+                      {value}
+                      {" · "}
+                      {profileCount(variations, imageAttribute, value)}
+                      {" variations · "}
+                      {ready ? "Ready" : "Incomplete"}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            <div className="v3-profile-selector">
+              <label htmlFor="v3-production-profile-select">
+                Production profile · {productionAttribute}
+              </label>
+              <select
+                id="v3-production-profile-select"
+                value={selectedProductionValue}
+                onChange={(event) => setSelectedProductionValue(event.target.value)}
+              >
+                {productionValues.map((value) => {
+                  const configuration = getAttributeProfileConfiguration(
+                    template.attribute_production_profiles,
+                    value
+                  );
+                  const ready = productionGeometryConfigurationComplete(
+                    configuration || {}
+                  );
+
+                  return (
+                    <option key={value} value={value}>
+                      {value}
+                      {" · "}
+                      {profileCount(variations, productionAttribute, value)}
+                      {" variations · "}
+                      {ready ? "Ready" : "Incomplete"}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            <div className="v3-profile-resolution">
+              <span>Current resolution</span>
+              <strong>
+                {selectedProductionValue || "—"}
+                {" / "}
+                {selectedImageValue || "—"}
+              </strong>
+              <small>
+                Images {imageReady ? "ready" : "incomplete"}
+                {" · "}
+                Geometry {productionReady ? "ready" : "incomplete"}
+              </small>
+            </div>
+          </section>
+
+          <WorkspaceTabs
+            ariaLabel="Production studio workspace"
+            initialTab="canvas"
+            className="v3-production-workspace-tabs"
+            tabs={[
+              {
+                id: "canvas",
+                label: "Canvas",
+                content: (
+                  <ProductionConfigurationEditor
+                    mode="composed"
+                    value={composedConfiguration}
+                    onChange={updateComposedWorkspace}
+                    printOptions={printOptions}
+                    title={
+                      String(selectedProductionValue)
+                      + " / "
+                      + String(selectedImageValue)
+                      + " production views"
+                    }
+                    subtitle={
+                      "Edit "
+                      + selectedProductionValue
+                      + " geometry on the "
+                      + selectedImageValue
+                      + " image profile. Replace images, position print areas and set manufacturing rules in one workspace."
+                    }
+                  />
+                ),
+              },
+              {
+                id: "size-matrix",
+                label: "Print size matrix",
+                badge: productionValues.length,
+                content: (
+                  <PrintSizeMatrix
+                    productionValues={productionValues}
+                    productionAttribute={productionAttribute}
+                    variations={variations}
+                    profiles={template.attribute_production_profiles || {}}
+                    getVariationAttributeValue={getVariationAttributeValue}
+                    onChange={(attribute_production_profiles) => onChange({
+                      attribute_production_profiles,
+                    })}
+                  />
+                ),
+              },
+            ]}
+          />
+
+          <details className="v3-card v3-resolution-details">
+            <summary>
+              <div>
+                <div className="overline">Resolved variation matrix</div>
+                <strong>
+                  {readyCount} of {variations.length} variations ready
+                </strong>
+              </div>
+              <div
+                className={
+                  readyCount === variations.length
+                    ? "v3-status v3-status-ready"
+                    : "v3-status v3-status-warning"
+                }
+              >
+                <CheckCircle2 size={16} />
+                {readyCount === variations.length
+                  ? "All combinations ready"
+                  : String(variations.length - readyCount) + " incomplete"}
+              </div>
+            </summary>
 
             {resolvedStatus.length > 0 && (
               <div className="v3-resolved-example">
@@ -505,7 +534,7 @@ export default function AttributeProductionProfileEditor({
                 </small>
               </div>
             )}
-          </section>
+          </details>
         </>
       )}
     </div>
