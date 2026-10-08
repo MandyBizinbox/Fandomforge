@@ -290,9 +290,11 @@ export default function TemplateViewManager({
                     <strong>{viewOption?.label || screen.name || "Product view"}</strong>
                     <span>{screen.image_url ? "Image ready" : "Needs image"}</span>
                   </button>
+                </div>
 
-                  <details className="v3-view-manage">
-                    <summary aria-label={`Manage ${screen.name || "view"}`}>•••</summary>
+                {selected && (
+                  <details className="v3-view-manage-inline">
+                    <summary>View settings</summary>
                     <div className="v3-view-manage-panel">
                       <label>
                         <span>Name</span>
@@ -325,7 +327,7 @@ export default function TemplateViewManager({
                       {renderViewActions(screen)}
                     </div>
                   </details>
-                </div>
+                )}
               </div>
             );
           }

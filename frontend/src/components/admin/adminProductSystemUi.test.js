@@ -103,6 +103,8 @@ describe('admin product system UI contract', () => {
     expect(productionEditor).toContain('compactWorkspace = mode === "composed"');
     expect(productionEditor).toContain('v3-production-editor-bar');
     expect(views).toContain('v3-view-card-compact');
+    expect(views).toContain('v3-view-manage-inline');
+    expect(views).toContain('View settings');
     expect(canvas).toContain('v3-compact-canvas-bar');
     expect(matrix).toContain('Physical output dimensions');
     expect(matrix).toContain('parsed * 10');
