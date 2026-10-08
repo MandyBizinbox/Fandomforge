@@ -261,7 +261,7 @@ export default function TemplateViewManager({
         </>
       )}
 
-      <div className="grid gap-3 max-h-[640px] overflow-auto pr-1">
+      <div className={compact ? "v3-compact-view-list" : "grid gap-3 max-h-[640px] overflow-auto pr-1"}>
         {activeScreens.map((screen) => {
           const selected = selectedScreenId === screen.id;
           const viewOption = VIEW_OPTIONS.find((item) => item.value === (screen.view_key || screen.view)) || quickViewOptions.find((item) => item.value === (screen.view_key || screen.view));
