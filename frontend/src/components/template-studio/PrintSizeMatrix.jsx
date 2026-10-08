@@ -28,7 +28,7 @@ function areaKey(area = {}) {
     || area.id
     || "print-area"
   );
-  return \`\${view}::\${identity}\`;
+  return `${view}::${identity}`;
 }
 
 function areaLabel(area = {}) {
@@ -39,7 +39,7 @@ function areaLabel(area = {}) {
     || "View"
   ).replace(/_/g, " ");
 
-  return \`\${area.name || area.area_key || "Print area"} · \${view}\`;
+  return `${area.name || area.area_key || "Print area"} · ${view}`;
 }
 
 function cm(mm) {
@@ -203,7 +203,7 @@ export default function PrintSizeMatrix({
                                   "width_mm",
                                   event.target.value
                                 )}
-                                aria-label={\`\${value} \${column.label} width cm\`}
+                                aria-label={`${value} ${column.label} width cm`}
                               />
                             </label>
                             <span>×</span>
@@ -220,7 +220,7 @@ export default function PrintSizeMatrix({
                                   "height_mm",
                                   event.target.value
                                 )}
-                                aria-label={\`\${value} \${column.label} height cm\`}
+                                aria-label={`${value} ${column.label} height cm`}
                               />
                             </label>
                           </div>
