@@ -29,10 +29,10 @@ import {
 import "./templateStudioV3.css";
 
 const SECTION_LABELS = {
-  product: "Product",
-  production: "Production setup",
-  variations: "Variations & production",
-  gallery: "Gallery & mockups",
+  product: "Product details",
+  production: "Production studio",
+  variations: "Variations",
+  gallery: "Gallery",
   "size-guide": "Size guide",
 };
 
@@ -210,12 +210,13 @@ export default function ProductTemplateStudioV3Page() {
   const [sharedConfig, setSharedConfig] = useState(blankProductionConfiguration());
   const [selectedVariationId, setSelectedVariationId] = useState("");
   const [copyTargets, setCopyTargets] = useState([]);
+  const [variationFilter, setVariationFilter] = useState("");
 
   const variations = activeVariations(template);
   const variableProduct = structureMode === "variable";
   const allowedSections = useMemo(
     () => variableProduct
-      ? ["product", "variations", "gallery", "size-guide"]
+      ? ["product", "variations", "production", "gallery", "size-guide"]
       : ["product", "production", "gallery", "size-guide"],
     [variableProduct]
   );
@@ -459,7 +460,7 @@ export default function ProductTemplateStudioV3Page() {
     setSetupMode("shared");
     setCopyTargets(generated.map((variation) => variation.id));
     navigate(templatePath(baseId, "variations"));
-    toast.success(`${generated.length} variations generated. Choose shared, attribute-owned or individual production setup.`);
+    toast.success(`${generated.length} variations generated. Review them here, then continue to Production studio.`);
   };
 
   const patchVariation = (variationId, patch) => {
@@ -692,39 +693,59 @@ export default function ProductTemplateStudioV3Page() {
               </div>
             </div>
 
-            <div className="v3-form-grid v3-form-grid-two">
-              <label className="v3-span-two"><span>Product type blueprint</span><select value={template.product_type_id || ""} onChange={(event) => applyBlueprint(event.target.value)}><option value="">Select product type</option>{productTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
-              <label><span>Template name</span><input value={template.name || ""} onChange={(event) => updateTemplate({ name: event.target.value, slug: template.slug || slugify(event.target.value) })} /></label>
-              <label><span>Slug</span><input value={template.slug || ""} onChange={(event) => updateTemplate({ slug: event.target.value })} /></label>
-              <label><span>Category</span><select value={template.category_id || ""} onChange={(event) => { const category = categories.find((item) => item.id === event.target.value); updateTemplate({ category_id: event.target.value, category: category?.slug || category?.name || "" }); }}><option value="">Select category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
-              <label><span>Brand</span><input value={template.brand || ""} onChange={(event) => updateTemplate({ brand: event.target.value })} /></label>
-              <label><span>Blank SKU / code</span><input value={template.blank_sku || ""} onChange={(event) => updateTemplate({ blank_sku: event.target.value })} /></label>
-              <label><span>Platform blank cost</span><input type="number" step="0.01" value={template.platform_blank_cost || 0} onChange={(event) => { const cost = Number(event.target.value || 0); const creator = creatorPriceFor(cost); updateTemplate({ platform_blank_cost: cost, base_blank_cost: cost, base_price: cost, creator_blank_price: creator, platform_blank_profit: profitFor(cost, creator), platform_blank_margin_percent: marginFor(cost, creator) }); }} /></label>
-              <label><span>Creator blank price</span><input type="number" step="0.01" value={template.creator_blank_price || 0} onChange={(event) => { const creator = Number(event.target.value || 0); updateTemplate({ creator_blank_price: creator, platform_blank_profit: profitFor(template.platform_blank_cost, creator), platform_blank_margin_percent: marginFor(template.platform_blank_cost, creator) }); }} /></label>
-              <div className="v3-metric"><span>Platform profit</span><strong>{money(profitFor(template.platform_blank_cost, template.creator_blank_price))}</strong></div>
-              <div className="v3-metric"><span>Blank margin</span><strong>{marginFor(template.platform_blank_cost, template.creator_blank_price).toFixed(2)}%</strong></div>
-              <label><span>Supplier name</span><input value={template.supplier_name || ""} onChange={(event) => updateTemplate({ supplier_name: event.target.value })} /></label>
-              <label><span>Supplier URL</span><input value={template.supplier_url || ""} onChange={(event) => updateTemplate({ supplier_url: event.target.value })} /></label>
-              <label className="v3-span-two"><span>Supplier notes</span><textarea rows={3} value={template.supplier_notes || ""} onChange={(event) => updateTemplate({ supplier_notes: event.target.value })} /></label>
-            </div>
-
-            <div className="v3-structure-selector" style={{ marginTop: "1.35rem", marginBottom: 0 }}>
-              <div className="v3-section-heading">
-                <div>
-                  <div className="overline">Storefront details</div>
-                  <h3>Creator-facing product defaults</h3>
-                  <p>These fields are copied into each new creator product made from this blank. Creators can edit their copy; existing creator products are never overwritten when this template changes.</p>
+            <div className="v3-product-groups">
+              <section className="v3-subsection">
+                <div className="v3-subsection-heading">
+                  <div>
+                    <div className="overline">Basics</div>
+                    <h3>Product identity</h3>
+                  </div>
                 </div>
-              </div>
+                <div className="v3-form-grid v3-form-grid-two">
+                  <label className="v3-span-two"><span>Product type blueprint</span><select value={template.product_type_id || ""} onChange={(event) => applyBlueprint(event.target.value)}><option value="">Select product type</option>{productTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
+                  <label><span>Template name</span><input value={template.name || ""} onChange={(event) => updateTemplate({ name: event.target.value, slug: template.slug || slugify(event.target.value) })} /></label>
+                  <label><span>Slug</span><input value={template.slug || ""} onChange={(event) => updateTemplate({ slug: event.target.value })} /></label>
+                  <label><span>Category</span><select value={template.category_id || ""} onChange={(event) => { const category = categories.find((item) => item.id === event.target.value); updateTemplate({ category_id: event.target.value, category: category?.slug || category?.name || "" }); }}><option value="">Select category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+                  <label><span>Brand</span><input value={template.brand || ""} onChange={(event) => updateTemplate({ brand: event.target.value })} /></label>
+                  <label><span>Blank SKU / code</span><input value={template.blank_sku || ""} onChange={(event) => updateTemplate({ blank_sku: event.target.value })} /></label>
+                </div>
+              </section>
 
-              <div className="v3-form-grid v3-form-grid-two">
-                <label className="v3-span-two"><span>Default creator product title</span><input value={template.creator_default_title || ""} onChange={(event) => updateTemplate({ creator_default_title: event.target.value })} placeholder={template.name || "Leave blank to use the template name"} /></label>
-                <label className="v3-span-two"><span>Storefront description</span><textarea rows={4} value={template.creator_default_description || ""} onChange={(event) => updateTemplate({ creator_default_description: event.target.value })} placeholder="Customer-facing description for the finished product." /></label>
-                <label className="v3-span-two"><span>Specifications & features</span><textarea rows={5} value={template.specs || ""} onChange={(event) => updateTemplate({ specs: event.target.value })} placeholder={"Capacity: 11oz\nMaterial: Ceramic\nFinish: Colour-changing coating"} /></label>
-                <label><span>Material / composition</span><textarea rows={3} value={template.material_composition || ""} onChange={(event) => updateTemplate({ material_composition: event.target.value })} placeholder="100% ceramic" /></label>
-                <label><span>Fit / sizing notes</span><textarea rows={3} value={template.fit_notes || ""} onChange={(event) => updateTemplate({ fit_notes: event.target.value })} placeholder="Sizing or fit guidance where applicable" /></label>
-                <label className="v3-span-two"><span>Care instructions</span><textarea rows={3} value={template.care_instructions || ""} onChange={(event) => updateTemplate({ care_instructions: event.target.value })} placeholder={"Hand wash recommended\nDo not use abrasive cleaners"} /></label>
-              </div>
+              <section className="v3-subsection">
+                <div className="v3-subsection-heading">
+                  <div>
+                    <div className="overline">Pricing & supplier</div>
+                    <h3>Blank cost and sourcing</h3>
+                  </div>
+                </div>
+                <div className="v3-form-grid v3-form-grid-two">
+                  <label><span>Platform blank cost</span><input type="number" step="0.01" value={template.platform_blank_cost || 0} onChange={(event) => { const cost = Number(event.target.value || 0); const creator = creatorPriceFor(cost); updateTemplate({ platform_blank_cost: cost, base_blank_cost: cost, base_price: cost, creator_blank_price: creator, platform_blank_profit: profitFor(cost, creator), platform_blank_margin_percent: marginFor(cost, creator) }); }} /></label>
+                  <label><span>Creator blank price</span><input type="number" step="0.01" value={template.creator_blank_price || 0} onChange={(event) => { const creator = Number(event.target.value || 0); updateTemplate({ creator_blank_price: creator, platform_blank_profit: profitFor(template.platform_blank_cost, creator), platform_blank_margin_percent: marginFor(template.platform_blank_cost, creator) }); }} /></label>
+                  <div className="v3-metric"><span>Platform profit</span><strong>{money(profitFor(template.platform_blank_cost, template.creator_blank_price))}</strong></div>
+                  <div className="v3-metric"><span>Blank margin</span><strong>{marginFor(template.platform_blank_cost, template.creator_blank_price).toFixed(2)}%</strong></div>
+                  <label><span>Supplier name</span><input value={template.supplier_name || ""} onChange={(event) => updateTemplate({ supplier_name: event.target.value })} /></label>
+                  <label><span>Supplier URL</span><input value={template.supplier_url || ""} onChange={(event) => updateTemplate({ supplier_url: event.target.value })} /></label>
+                  <label className="v3-span-two"><span>Supplier notes</span><textarea rows={3} value={template.supplier_notes || ""} onChange={(event) => updateTemplate({ supplier_notes: event.target.value })} /></label>
+                </div>
+              </section>
+
+              <section className="v3-subsection">
+                <div className="v3-subsection-heading">
+                  <div>
+                    <div className="overline">Storefront defaults</div>
+                    <h3>Creator-facing product copy</h3>
+                    <p>Copied into each new creator product made from this blank. Existing creator products are never overwritten when the template changes.</p>
+                  </div>
+                </div>
+                <div className="v3-form-grid v3-form-grid-two">
+                  <label className="v3-span-two"><span>Default creator product title</span><input value={template.creator_default_title || ""} onChange={(event) => updateTemplate({ creator_default_title: event.target.value })} placeholder={template.name || "Leave blank to use the template name"} /></label>
+                  <label className="v3-span-two"><span>Storefront description</span><textarea rows={4} value={template.creator_default_description || ""} onChange={(event) => updateTemplate({ creator_default_description: event.target.value })} placeholder="Customer-facing description for the finished product." /></label>
+                  <label className="v3-span-two"><span>Specifications & features</span><textarea rows={5} value={template.specs || ""} onChange={(event) => updateTemplate({ specs: event.target.value })} placeholder={"Capacity: 11oz\nMaterial: Ceramic\nFinish: Colour-changing coating"} /></label>
+                  <label><span>Material / composition</span><textarea rows={3} value={template.material_composition || ""} onChange={(event) => updateTemplate({ material_composition: event.target.value })} placeholder="100% ceramic" /></label>
+                  <label><span>Fit / sizing notes</span><textarea rows={3} value={template.fit_notes || ""} onChange={(event) => updateTemplate({ fit_notes: event.target.value })} placeholder="Sizing or fit guidance where applicable" /></label>
+                  <label className="v3-span-two"><span>Care instructions</span><textarea rows={3} value={template.care_instructions || ""} onChange={(event) => updateTemplate({ care_instructions: event.target.value })} placeholder={"Hand wash recommended\nDo not use abrasive cleaners"} /></label>
+                </div>
+              </section>
             </div>
           </section>
 
@@ -762,87 +783,154 @@ export default function ProductTemplateStudioV3Page() {
       {currentSection === "variations" && variableProduct && (
         <div className="v3-variation-workspace">
           <section className="v3-card">
-            <div className="v3-section-heading"><div><div className="overline">Variation matrix</div><h2>Select and generate variations</h2><p>After generation, choose shared setup, attribute-owned setup or fully independent variations.</p></div><button type="button" className="v3-button v3-button-primary" onClick={generateVariations}><Wand2 size={15} /> Generate</button></div>
-            <div className="v3-attribute-list">{attributes.map((attribute) => <button type="button" key={attribute.id} className={safeArray(template.attribute_ids).includes(attribute.id) ? "active" : ""} onClick={() => toggleAttribute(attribute.id)}>{attribute.name}</button>)}</div>
-            {selectedAttributeObjects(attributes, template).map((attribute) => { const key = attribute.id || attribute.name || attribute.slug; const selected = new Set(safeArray(template.selected_attribute_values?.[key])); return <div className="v3-attribute-values" key={key}><strong>{attribute.name}</strong><div>{safeArray(attribute.values).map((value) => <label key={value}><input type="checkbox" checked={selected.has(value)} onChange={() => toggleAttributeValue(attribute, value)} />{value}</label>)}</div></div>; })}
+            <div className="v3-section-heading">
+              <div>
+                <div className="overline">Variation matrix</div>
+                <h2>Select and generate variations</h2>
+                <p>Choose the supplier attributes and values that exist for this blank. Production setup is handled separately in Production studio.</p>
+              </div>
+              <button type="button" className="v3-button v3-button-primary" onClick={generateVariations}>
+                <Wand2 size={15} /> Generate variations
+              </button>
+            </div>
+            <div className="v3-attribute-list">
+              {attributes.map((attribute) => (
+                <button
+                  type="button"
+                  key={attribute.id}
+                  className={safeArray(template.attribute_ids).includes(attribute.id) ? "active" : ""}
+                  onClick={() => toggleAttribute(attribute.id)}
+                >
+                  {attribute.name}
+                </button>
+              ))}
+            </div>
+            {selectedAttributeObjects(attributes, template).map((attribute) => {
+              const key = attribute.id || attribute.name || attribute.slug;
+              const selected = new Set(safeArray(template.selected_attribute_values?.[key]));
+              return (
+                <div className="v3-attribute-values" key={key}>
+                  <strong>{attribute.name}</strong>
+                  <div>
+                    {safeArray(attribute.values).map((value) => (
+                      <label key={value}>
+                        <input type="checkbox" checked={selected.has(value)} onChange={() => toggleAttributeValue(attribute, value)} />
+                        {value}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </section>
 
           {!variations.length ? (
             <section className="v3-card v3-empty-state">
               <Wand2 size={34} />
               <h2>Generate the product variations</h2>
-              <p>Select the relevant attributes and supplier values above. Production can then be shared globally, owned by attributes or configured per variation.</p>
+              <p>Select the relevant attributes and supplier values above. Once generated, review pricing and SKUs here, then configure production in the next section.</p>
+            </section>
+          ) : (
+            <section className="v3-card">
+              <div className="v3-section-heading">
+                <div>
+                  <div className="overline">Generated variations</div>
+                  <h2>{variations.length} sellable combinations</h2>
+                  <p>Variation identity and blank pricing stay here. Image ownership, geometry and manufacturing rules live in Production studio.</p>
+                </div>
+                <NavLink className="v3-button v3-button-primary" to={templatePath(baseId, "production")}>
+                  Continue to Production studio
+                </NavLink>
+              </div>
+
+              <div className="v3-variation-table">
+                {variations.map((variation) => {
+                  const summary = variationProductionSummary(variation, template);
+                  return (
+                    <div className="v3-variation-row" key={variation.id}>
+                      <div className="v3-variation-row-title">
+                        <strong>{getVariationLabel(variation)}</strong>
+                        <span className={summary.complete ? "ready" : "incomplete"}>
+                          {summary.complete ? "Production ready" : "Production incomplete"}
+                        </span>
+                      </div>
+                      <label><span>SKU</span><input value={variation.sku || ""} onChange={(event) => patchVariation(variation.id, { sku: event.target.value })} /></label>
+                      <label><span>Supplier SKU</span><input value={variation.supplier_sku || ""} onChange={(event) => patchVariation(variation.id, { supplier_sku: event.target.value })} /></label>
+                      <label><span>Platform blank cost</span><input type="number" step="0.01" value={variation.platform_blank_cost ?? variation.base_blank_cost ?? 0} onChange={(event) => patchVariation(variation.id, { platform_blank_cost: Number(event.target.value || 0), base_blank_cost: Number(event.target.value || 0) })} /></label>
+                      <label><span>Creator blank price</span><input type="number" step="0.01" value={variation.creator_blank_price ?? 0} onChange={(event) => patchVariation(variation.id, { creator_blank_price: Number(event.target.value || 0) })} /></label>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+
+      {currentSection === "production" && variableProduct && (
+        <div className="v3-variation-workspace">
+          {!variations.length ? (
+            <section className="v3-card v3-empty-state">
+              <Wand2 size={34} />
+              <h2>Generate variations first</h2>
+              <p>Production ownership is configured against generated variations. Build the variation matrix before entering the production workspace.</p>
+              <NavLink className="v3-button v3-button-primary" to={templatePath(baseId, "variations")}>Go to Variations</NavLink>
             </section>
           ) : (
             <>
               <section className="v3-card v3-decision-card">
-                <div className="overline">Production setup method</div>
-                <h2>How should these variations be configured?</h2>
+                <div className="v3-section-heading">
+                  <div>
+                    <div className="overline">Production ownership</div>
+                    <h2>How should these variations share production setup?</h2>
+                    <p>Choose the ownership model first. The detailed editor below only shows the controls needed for that model.</p>
+                  </div>
+                </div>
                 <div className="v3-decision-grid">
                   <button
                     type="button"
                     className={setupMode === "shared" ? "active" : ""}
                     onClick={() => {
                       setSetupMode("shared");
-                      setSharedConfig(
-                        getVariationProductionConfiguration(
-                          selectedVariation || variations[0],
-                          template
-                        )
-                      );
-                      updateTemplate({
-                        variation_inheritance: {
-                          ...(template.variation_inheritance || {}),
-                          mode: "shared",
-                        },
-                      });
+                      setSharedConfig(getVariationProductionConfiguration(selectedVariation || variations[0], template));
+                      updateTemplate({ variation_inheritance: { ...(template.variation_inheritance || {}), mode: "shared" } });
                     }}
                   >
-                    <strong>Same setup for all variations</strong>
-                    <span>
-                      One complete setup is copied to every variation.
-                      Best when every combination is physically identical.
-                    </span>
+                    <strong>Shared setup</strong>
+                    <span>Configure once, then apply the complete setup to every variation.</span>
                   </button>
-
-                  <button
-                    type="button"
-                    className={setupMode === "attribute" ? "active" : ""}
-                    onClick={() => setSetupMode("attribute")}
-                  >
-                    <strong>Configure by attribute</strong>
-                    <span>
-                      Let one attribute own images and another own print
-                      geometry. Best for Size × Colour products.
-                    </span>
+                  <button type="button" className={setupMode === "attribute" ? "active" : ""} onClick={() => setSetupMode("attribute")}>
+                    <strong>Attribute-owned</strong>
+                    <span>Let one attribute own images and another own print geometry and manufacturing rules.</span>
                   </button>
-
                   <button
                     type="button"
                     className={setupMode === "individual" ? "active" : ""}
                     onClick={() => {
                       setSetupMode("individual");
-                      updateTemplate({
-                        variation_inheritance: {
-                          ...(template.variation_inheritance || {}),
-                          mode: "individual",
-                        },
-                      });
+                      updateTemplate({ variation_inheritance: { ...(template.variation_inheritance || {}), mode: "individual" } });
                     }}
                   >
-                    <strong>Configure every variation separately</strong>
-                    <span>
-                      Every combination owns independent images, dimensions
-                      and manufacturing rules.
-                    </span>
+                    <strong>Individual</strong>
+                    <span>Each variation keeps an independent production record.</span>
                   </button>
                 </div>
               </section>
 
               {setupMode === "shared" ? (
                 <>
-                  <ProductionConfigurationEditor value={sharedConfig} onChange={setSharedConfig} printOptions={printOptions} title="Shared production setup" subtitle={`This configuration will be copied into all ${variations.length} variations. Each variation remains independently editable afterwards.`} />
-                  <div className="v3-sticky-action"><button type="button" className="v3-button v3-button-primary" onClick={applySharedToAll}><Check size={16} /> Apply this complete configuration to all {variations.length} variations</button></div>
+                  <ProductionConfigurationEditor
+                    value={sharedConfig}
+                    onChange={setSharedConfig}
+                    printOptions={printOptions}
+                    title="Shared production setup"
+                    subtitle={`Configure the complete workspace once, then apply it to all ${variations.length} variations.`}
+                  />
+                  <div className="v3-sticky-action">
+                    <button type="button" className="v3-button v3-button-primary" onClick={applySharedToAll}>
+                      <Check size={16} /> Apply setup to all {variations.length} variations
+                    </button>
+                  </div>
                 </>
               ) : setupMode === "attribute" ? (
                 <AttributeProductionProfileEditor
@@ -855,25 +943,60 @@ export default function ProductTemplateStudioV3Page() {
               ) : (
                 <div className="v3-individual-layout">
                   <aside className="v3-variation-list">
-                    {variations.map((variation) => { const summary = variationProductionSummary(variation, template); return <button type="button" key={variation.id} className={variation.id === selectedVariation?.id ? "active" : ""} onClick={() => setSelectedVariationId(variation.id)}><strong>{getVariationLabel(variation)}</strong><span>{summary.screens} view(s) · {summary.printAreas} area(s) · {summary.printRules} rule(s)</span><em className={summary.complete ? "ready" : "incomplete"}>{summary.complete ? "Ready" : "Incomplete"}</em></button>; })}
+                    <label className="v3-search-field"><span>Find variation</span><input value={variationFilter} onChange={(event) => setVariationFilter(event.target.value)} placeholder="Search colour, size, SKU…" /></label>
+                    {variations.filter((variation) => `${getVariationLabel(variation)} ${variation.sku || ""} ${variation.supplier_sku || ""}`.toLowerCase().includes(variationFilter.trim().toLowerCase())).map((variation) => {
+                      const summary = variationProductionSummary(variation, template);
+                      return (
+                        <button
+                          type="button"
+                          key={variation.id}
+                          className={variation.id === selectedVariation?.id ? "active" : ""}
+                          onClick={() => setSelectedVariationId(variation.id)}
+                        >
+                          <strong>{getVariationLabel(variation)}</strong>
+                          <span>{summary.screens} view(s) · {summary.printAreas} area(s) · {summary.printRules} rule(s)</span>
+                          <em className={summary.complete ? "ready" : "incomplete"}>{summary.complete ? "Ready" : "Incomplete"}</em>
+                        </button>
+                      );
+                    })}
                   </aside>
                   <div className="v3-variation-editor">
                     {selectedVariation && (
                       <>
-                        <section className="v3-card">
-                          <div className="v3-section-heading"><div><div className="overline">Selected variation</div><h2>{getVariationLabel(selectedVariation)}</h2></div></div>
-                          <div className="v3-form-grid v3-form-grid-four">
-                            <label><span>SKU</span><input value={selectedVariation.sku || ""} onChange={(event) => patchVariation(selectedVariation.id, { sku: event.target.value })} /></label>
-                            <label><span>Supplier SKU</span><input value={selectedVariation.supplier_sku || ""} onChange={(event) => patchVariation(selectedVariation.id, { supplier_sku: event.target.value })} /></label>
-                            <label><span>Platform blank cost</span><input type="number" step="0.01" value={selectedVariation.platform_blank_cost ?? selectedVariation.base_blank_cost ?? 0} onChange={(event) => patchVariation(selectedVariation.id, { platform_blank_cost: Number(event.target.value || 0), base_blank_cost: Number(event.target.value || 0) })} /></label>
-                            <label><span>Creator blank price</span><input type="number" step="0.01" value={selectedVariation.creator_blank_price ?? 0} onChange={(event) => patchVariation(selectedVariation.id, { creator_blank_price: Number(event.target.value || 0) })} /></label>
+                        <ProductionConfigurationEditor
+                          value={selectedConfig}
+                          onChange={updateSelectedVariationConfig}
+                          printOptions={printOptions}
+                          title={`${getVariationLabel(selectedVariation)} production setup`}
+                          subtitle="Edit this variation's complete editor views, print areas and manufacturing rules."
+                        />
+                        <details className="v3-card v3-on-demand">
+                          <summary>Bulk copy this production setup</summary>
+                          <div className="v3-on-demand-body">
+                            <div className="v3-section-heading">
+                              <div>
+                                <div className="overline">Bulk copy</div>
+                                <h2>Apply to selected variations</h2>
+                                <p>Copy this complete setup without creating parent-level production areas.</p>
+                              </div>
+                              <button type="button" className="v3-button v3-button-primary" onClick={copySelectedConfiguration}>
+                                <Copy size={15} /> Copy setup
+                              </button>
+                            </div>
+                            <div className="v3-copy-targets">
+                              {variations.map((variation) => (
+                                <label key={variation.id}>
+                                  <input
+                                    type="checkbox"
+                                    checked={copyTargets.includes(variation.id)}
+                                    onChange={(event) => setCopyTargets((current) => event.target.checked ? Array.from(new Set([...current, variation.id])) : current.filter((item) => item !== variation.id))}
+                                  />
+                                  {getVariationLabel(variation)}
+                                </label>
+                              ))}
+                            </div>
                           </div>
-                        </section>
-                        <ProductionConfigurationEditor value={selectedConfig} onChange={updateSelectedVariationConfig} printOptions={printOptions} title={`${getVariationLabel(selectedVariation)} production setup`} subtitle="This is the complete production record for this variation." />
-                        <section className="v3-card">
-                          <div className="v3-section-heading"><div><div className="overline">Copy production setup</div><h2>Apply to selected variations</h2><p>Copy this complete setup to matching colour, size or material variations without creating parent-level production areas.</p></div><button type="button" className="v3-button v3-button-primary" onClick={copySelectedConfiguration}><Copy size={15} /> Copy setup</button></div>
-                          <div className="v3-copy-targets">{variations.map((variation) => <label key={variation.id}><input type="checkbox" checked={copyTargets.includes(variation.id)} onChange={(event) => setCopyTargets((current) => event.target.checked ? Array.from(new Set([...current, variation.id])) : current.filter((item) => item !== variation.id))} />{getVariationLabel(variation)}</label>)}</div>
-                        </section>
+                        </details>
                       </>
                     )}
                   </div>
