@@ -121,7 +121,7 @@ function polygonPointsText(points) {
   }
 }
 
-export default function PrintAreaInspector({ selectedArea, printOptions, onChange }) {
+export default function PrintAreaInspector({ selectedArea, printOptions, onChange, compact = false }) {
   const activeOptionIds = safeArray(selectedArea?.allowed_print_option_ids);
   const areaKey = selectedArea?.area_key || selectedArea?.view_key || selectedArea?.screen_view || "";
   const geometryType = selectedArea?.geometry_type || selectedArea?.shape_type || "rectangle";
@@ -134,7 +134,10 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
   if (!selectedArea) {
     return (
       <div className="studio-panel h-full">
-        <div className="overline mb-2">Inspector</div>
+        <div className={compact ? "v3-compact-panel-bar" : ""}>
+          <strong>{compact ? "Inspector" : ""}</strong>
+        </div>
+        {!compact && <div className="overline mb-2">Inspector</div>}
         <div className="text-zinc-500 text-sm">
           Select a print area to edit its placement, geometry, dimensions and allowed print options.
         </div>
@@ -230,15 +233,25 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
 
   return (
     <div className="studio-panel h-full overflow-y-auto">
-      <div className="studio-panel-header">
-        <div>
-          <div className="overline mb-1">Inspector</div>
-          <h2 className="font-display text-2xl uppercase">Print Area</h2>
-          <p className="text-xs text-zinc-500 mt-1">
-            Area geometry clips creator artwork and defines the production boundary. Pricing rules decide how that boundary is costed.
-          </p>
+      {compact ? (
+        <div className="v3-compact-inspector-bar">
+          <div>
+            <span>Print area</span>
+            <strong>{selectedArea.name || "Selected area"}</strong>
+          </div>
+          <small>{selectedArea.geometry_type || selectedArea.shape_type || "rectangle"}</small>
         </div>
-      </div>
+      ) : (
+        <div className="studio-panel-header">
+          <div>
+            <div className="overline mb-1">Inspector</div>
+            <h2 className="font-display text-2xl uppercase">Print Area</h2>
+            <p className="text-xs text-zinc-500 mt-1">
+              Area geometry clips creator artwork and defines the production boundary. Pricing rules decide how that boundary is costed.
+            </p>
+          </div>
+        </div>
+      )}
 
       <WorkspaceTabs
         ariaLabel="Print area inspector"
@@ -365,7 +378,7 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
           },
           {
             id: "output",
-            label: "Output dimensions",
+            label: compact ? "Dimensions" : "Output dimensions",
             content: (
               <div className="space-y-4">
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-4">
@@ -401,7 +414,7 @@ export default function PrintAreaInspector({ selectedArea, printOptions, onChang
           },
           {
             id: "rules",
-            label: "Manufacturing rules",
+            label: compact ? "Rules" : "Manufacturing rules",
             badge: activeOptionIds.length,
             content: (
               <div className="space-y-4">
