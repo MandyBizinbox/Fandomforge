@@ -4112,6 +4112,72 @@ async def public_product_templates(
     return [_creator_safe_product_template_doc(d) for d in docs]
 
 
+# Read-only, creator-safe lightweight listing. The full template route remains unchanged
+# for editing, costing and production. Only catalogue-card data crosses the wire.
+@product_templates_router.get("/catalogue-cards")
+async def creator_catalogue_cards(
+    request: Request,
+    category: Optional[str] = None,
+    product_type_id: Optional[str] = None,
+):
+    from product_template_visibility import creator_template_query
+
+    db = request.app.state.db
+    query = creator_template_query({"status": "active"})
+    if category:
+        query["category"] = category
+    if product_type_id:
+        query["product_type_id"] = product_type_id
+
+    # A projection prevents fetching full manufacturing blueprints and large
+    # embedded variation configurations for simple catalogue cards.
+    fields = {
+        "_id": 0, "id": 1, "name": 1, "title": 1, "status": 1,
+        "category": 1, "category_id": 1, "category_slug": 1,
+        "product_type_id": 1, "product_type_name": 1,
+        "product_type": 1, "product_type_slug": 1,
+        "brand": 1, "supplier_brand": 1, "description": 1,
+        "short_description": 1, "creator_blank_price": 1,
+        "platform_blank_cost": 1, "base_blank_cost": 1, "base_price": 1,
+        "creator_catalogue_thumbnail_url": 1, "product_image_url": 1,
+        "mockup_url": 1, "mockup_images": {"$slice": 1},
+        "print_option_ids": 1, "print_options": 1, "print_areas": 1,
+        "variations": 1, "mockup_screens": 1, "template_gallery": 1,
+        "variation_production_rules": 1, "production_rules": 1,
+    }
+    docs = await db.product_templates.find(query, fields).sort("name", 1).to_list(500)
+    cards = []
+    for doc in docs:
+        # Keep the attributes, price and available image fallback required by
+        # the catalogue's existing readiness/pricing functions, not the huge
+        # manufacturing or mockup payloads embedded in each variation.
+        doc["variations"] = [{
+            key: variation[key]
+            for key in (
+                "id", "name", "label", "status", "enabled", "archived", "deleted",
+                "attributes", "attribute_values", "options", "size", "colour",
+                "color", "colour_hex", "color_hex", "swatch_hex", "hex",
+                "creator_blank_price", "base_blank_cost", "platform_blank_cost",
+                "cost", "image_url", "product_image_url", "mockup_image_url",
+            )
+            if key in variation
+        } for variation in doc.get("variations", []) if isinstance(variation, dict)]
+        # Card display only needs the primary gallery/preview image, but keep
+        # all lightweight gallery metadata for correct image selection.
+        doc["template_gallery"] = [{
+            key: value for key, value in row.items()
+            if key in ("image_url", "is_primary", "role", "status",
+                       "sort_order", "archived", "deleted", "label", "name")
+        } for row in doc.get("template_gallery", []) if isinstance(row, dict)]
+        doc["mockup_screens"] = [{
+            key: value for key, value in row.items()
+            if key in ("id", "name", "label", "view_name", "view_key",
+                       "status", "archived", "deleted", "image_url")
+        } for row in doc.get("mockup_screens", []) if isinstance(row, dict)]
+        cards.append(_creator_safe_product_template_doc(doc))
+    return cards
+
+
 @product_templates_router.get("/{template_id}")
 async def public_product_template(
     template_id: str,
