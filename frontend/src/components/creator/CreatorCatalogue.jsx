@@ -335,7 +335,7 @@ export default function CreatorCatalogue() {
   );
 
   const selectedTemplateId = searchParams.get("template") || "";
-  const selectedCard = launchReadyTemplates.find((template) => String(template.id) === String(selectedTemplateId)) || null;
+  const selectedCard = useMemo(() => launchReadyTemplates.find((template) => String(template.id) === String(selectedTemplateId)) || null, [launchReadyTemplates, selectedTemplateId]);
   const selectedTemplate = detailedTemplate && String(detailedTemplate.id) === String(selectedTemplateId)
     ? detailedTemplate : null;
 
@@ -357,7 +357,7 @@ export default function CreatorCatalogue() {
       })
       .finally(() => { if (active) setDetailLoading(false); });
     return () => { active = false; };
-  }, [selectedTemplateId, selectedCard?.id]);
+  }, [selectedTemplateId, selectedCard]);
 
   const openTemplate = (templateId) => {
     const next = new URLSearchParams(searchParams);
