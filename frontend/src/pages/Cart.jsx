@@ -84,7 +84,7 @@ export default function Cart() {
                 <div className="font-display text-4xl" data-testid="cart-subtotal">R {subtotal.toFixed(2)}</div>
               </div>
 
-              <button type="button" onClick={() => navigate("/checkout")} className="btn-primary w-full mt-6 justify-center" data-testid="cart-checkout-btn">
+              <button type="button" onClick={() => { trackEvent("begin_checkout", { currency: "ZAR", value: Number(subtotal || 0), items: items.map((item) => ({ item_id: String(item.product_id), quantity: Number(item.quantity || 1), price: Number(item.unit_price || 0) })) }); navigate("/checkout"); }} className="btn-primary w-full mt-6 justify-center" data-testid="cart-checkout-btn">
                 Continue to checkout — R {subtotal.toFixed(2)}
               </button>
             </>
