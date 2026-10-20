@@ -9,6 +9,8 @@ import { CartProvider } from "./context/CartContext";
 import { usePlatformConfig } from "./lib/platform";
 import { applyPlatformTheme, resolveThemeMode } from "./lib/theme";
 import Footer from "./components/Footer";
+import AnalyticsConsent from "./components/AnalyticsConsent";
+import { initializeAnalytics, trackPage } from "./lib/analytics";
 import ImagePerformanceHints from "./components/ImagePerformanceHints";
 import EntitlementNotice from "./components/EntitlementNotice";
 
@@ -92,6 +94,12 @@ function PlatformThemeSync() {
     return () => media.removeEventListener?.("change", sync);
   }, [platform, location.pathname]);
 
+  return null;
+}
+
+function AnalyticsRouteTracking() {
+  const location = useLocation();
+  useEffect(() => { initializeAnalytics(); trackPage(location.pathname); }, [location.pathname]);
   return null;
 }
 
@@ -179,5 +187,5 @@ function AppRoutes() {
 }
 
 export default function App() {
-  return <div className="App"><AuthProvider><CartProvider><BrowserRouter><PlatformThemeSync /><ImagePerformanceHints /><EntitlementNotice /><AppRoutes /><PlatformToaster /></BrowserRouter></CartProvider></AuthProvider></div>;
+  return <div className="App"><AuthProvider><CartProvider><BrowserRouter><PlatformThemeSync /><AnalyticsRouteTracking /><AnalyticsConsent /><ImagePerformanceHints /><EntitlementNotice /><AppRoutes /><PlatformToaster /></BrowserRouter></CartProvider></AuthProvider></div>;
 }
