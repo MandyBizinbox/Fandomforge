@@ -161,6 +161,36 @@ function readImageFileDimensions(file) {
   });
 }
 
+// Editor-only derivative. The production original is uploaded unmodified.
+async function createStudioPreview(file, maxEdge = 1100) {
+  if (!file || !/^image\/(png|jpeg|webp)$/i.test(file.type || "")) return null;
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
+    });
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) return null;
+    const factor = Math.min(1, maxEdge / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * factor));
+    canvas.height = Math.max(1, Math.round(height * factor));
+    canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.78));
+    if (!blob) return null;
+    return {
+      file: new File([blob], "studio-preview.webp", { type: "image/webp" }),
+      width, height, aspectRatio: width / height,
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function trimTransparentImageFile(file) {
   return new Promise((resolve) => {
     const fallback = async () => {
@@ -1204,25 +1234,42 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     if (!file || !area) return;
     setUploading(true);
     try {
-      const prepared = await trimTransparentImageFile(file);
+      // Start uploading the unmodified production file immediately. The small
+      // derivative exists only to make the on-screen editor responsive.
       const data = new FormData();
-      data.append("file", prepared.file);
+      data.append("file", file);
       data.append("subdir", "product-artwork");
-      const response = await http.post("/files/image", data);
+      const originalUpload = http.post("/files/image", data);
+      const previewUpload = createStudioPreview(file).then(async (preview) => {
+        if (!preview) return null;
+        const previewData = new FormData();
+        previewData.append("file", preview.file);
+        previewData.append("subdir", "product-artwork-previews");
+        const result = await http.post("/files/image", previewData);
+        return { ...preview, url: result.data.url };
+      }).catch(() => null);
+      // An upload failure must not leave a rejected promise unobserved while
+      // preview generation is running.
+      const [originalResult, previewResult] = await Promise.allSettled([originalUpload, previewUpload]);
+      if (originalResult.status !== "fulfilled") throw originalResult.reason;
+      const response = originalResult.value;
+      const preview = previewResult.status === "fulfilled" ? previewResult.value : null;
+      const dimensions = preview || await readImageFileDimensions(file);
       const placement = fittedPlacementForAspect(
         area,
-        prepared.aspectRatio || 1,
+        dimensions.aspectRatio || 1,
         replaceSlot?.placement?.width || 70,
         replaceSlot?.placement || null
       );
       const patch = {
         original_url: response.data.url,
+        preview_asset_url: preview?.url || "",
         file_name: file.name,
-        mime_type: prepared.file.type || file.type || "",
-        original_width_px: prepared.width,
-        original_height_px: prepared.height,
-        artwork_aspect_ratio: prepared.aspectRatio || 1,
-        transparent_bounds_trimmed: prepared.trimmed,
+        mime_type: file.type || "",
+        original_width_px: dimensions.width,
+        original_height_px: dimensions.height,
+        artwork_aspect_ratio: dimensions.aspectRatio || 1,
+        transparent_bounds_trimmed: false,
         lock_aspect_ratio: true,
         text_layer: false,
         text_content: "",
@@ -1889,7 +1936,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
                       const active = activeSlot?.id === slot.id;
                       return (
                         <div key={slot.id} data-artwork-layer-id={slot.id} className={`absolute border-2 ${active ? "border-[#34C759]" : "border-white/40"} bg-white/5 cursor-move`} style={{ left: `${placement.x}%`, top: `${placement.y}%`, width: `${placement.width}%`, height: `${placement.height}%`, transform: `rotate(${placement.rotation}deg)`, transformOrigin: "center center", touchAction: "none", willChange: "left, top, width, height, transform" }} onPointerDown={(event) => startDrag(event, slot, "move")} onMouseDown={(event) => startDrag(event, slot, "move")}>
-                          {slot.text_layer ? <TextLayerPreview slot={slot} /> : <img src={assetUrl(slot.original_url)} alt="Artwork layer" className="h-full w-full object-fill pointer-events-none" draggable="false" />}
+                          {slot.text_layer ? <TextLayerPreview slot={slot} /> : <img src={assetUrl(slot.preview_asset_url || slot.original_url)} alt="Artwork layer" className="h-full w-full object-fill pointer-events-none" draggable="false" />}
                           {active && <><ResizeHandle position="nw" onStart={(event) => startDrag(event, slot, "resize", "nw")} /><ResizeHandle position="ne" onStart={(event) => startDrag(event, slot, "resize", "ne")} /><ResizeHandle position="sw" onStart={(event) => startDrag(event, slot, "resize", "sw")} /><ResizeHandle position="se" onStart={(event) => startDrag(event, slot, "resize", "se")} /><button type="button" className="absolute left-1/2 -top-12 -translate-x-1/2 h-8 w-8 rounded-full border border-[#34C759] bg-black text-[#34C759] flex items-center justify-center cursor-grab" title="Drag to rotate" onPointerDown={(event) => startDrag(event, slot, "rotate")} onMouseDown={(event) => startDrag(event, slot, "rotate")}><RotateCcw size={14} /></button></>}
                         </div>
                       );
