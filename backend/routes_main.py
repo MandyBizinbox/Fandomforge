@@ -4112,6 +4112,112 @@ async def public_product_templates(
     return [_creator_safe_product_template_doc(d) for d in docs]
 
 
+def _compact_creator_catalogue_template(template: dict) -> dict:
+    """Remove editor-only configuration from a creator catalogue listing.
+
+    Keep runtime scalar geometry, print-option IDs and image URL availability.
+    Full manufacturing configuration is returned by the per-template endpoint.
+    """
+    compact = dict(template)
+    variations = []
+    for variation in template.get("variations") or []:
+        row = dict(variation)
+        overrides = row.get("print_area_overrides") or {}
+        if isinstance(overrides, dict):
+            slim_overrides = {}
+            for key, value in overrides.items():
+                if key == "__production_configuration__" and isinstance(value, dict):
+                    screens = []
+                    for screen in value.get("screens") or value.get("mockup_screens") or []:
+                        if isinstance(screen, dict):
+                            screens.append({
+                                k: v for k, v in screen.items()
+                                if k in ("id", "name", "view_key", "view", "screen_view",
+                                         "image_url", "status", "archived", "deleted",
+                                         "disabled", "sort_order")
+                            })
+                    areas = []
+                    for area in value.get("print_areas") or []:
+                        if not isinstance(area, dict):
+                            continue
+                        # Preserve numeric print geometry, availability, area
+                        # identifiers and print-option linkage. Drop nested
+                        # editor/media blobs while retaining small shape arrays.
+                        area_keys = (
+                            "id", "name", "area_key", "view_key", "screen_view",
+                            "screen_id", "status", "archived", "deleted", "disabled",
+                            "shape", "shape_type", "x", "y", "width", "height",
+                            "x_pct", "y_pct", "width_pct", "height_pct",
+                            "width_mm", "height_mm", "print_width_mm",
+                            "print_height_mm", "print_area_width_mm",
+                            "print_area_height_mm", "allowed_print_option_ids",
+                            "rotation", "rotation_deg", "points", "polygon_points",
+                            "radius", "radius_pct", "radius_mm",
+                        )
+                        areas.append({k: area[k] for k in area_keys if k in area})
+                    slim_overrides[key] = {
+                        "version": value.get("version", 3),
+                        "screens": screens,
+                        "print_areas": areas,
+                    }
+                elif isinstance(value, dict):
+                    # Legacy per-area overrides remain runtime inputs.
+                    slim_overrides[key] = {
+                        k: v for k, v in value.items()
+                        if isinstance(v, (str, int, float, bool, type(None)))
+                    }
+            row["print_area_overrides"] = slim_overrides
+        variations.append(row)
+    compact["variations"] = variations
+    return compact
+
+
+# Read-only, creator-safe lightweight listing. The full template route remains unchanged
+# for editing, costing and production. Only catalogue-card data crosses the wire.
+@product_templates_router.get("/catalogue-cards")
+async def creator_catalogue_cards(
+    request: Request,
+    category: Optional[str] = None,
+    product_type_id: Optional[str] = None,
+):
+    from product_template_visibility import creator_template_query
+
+    db = request.app.state.db
+    query = creator_template_query({"status": "active"})
+    if category:
+        query["category"] = category
+    if product_type_id:
+        query["product_type_id"] = product_type_id
+
+    # Keep variation pricing inputs but return a slim runtime representation
+    # instead of 900+ complete manufacturing configuration snapshots.
+    projection = dict(PRODUCT_TEMPLATE_LIST_PROJECTION)
+    projection.update({
+        "title": 1,
+        "category_id": 1,
+        "category_slug": 1,
+        "supplier_brand": 1,
+        "description": 1,
+        "short_description": 1,
+        "variations.name": 1,
+        "variations.label": 1,
+        "variations.attribute_values": 1,
+        "variations.options": 1,
+        "variations.size": 1,
+        "variations.colour": 1,
+        "variations.color": 1,
+        "variations.colour_hex": 1,
+        "variations.color_hex": 1,
+        "variations.swatch_hex": 1,
+        "variations.hex": 1,
+    })
+    docs = await db.product_templates.find(query, projection).sort("name", 1).to_list(500)
+    return [
+        _compact_creator_catalogue_template(_creator_safe_product_template_doc(doc))
+        for doc in docs
+    ]
+
+
 @product_templates_router.get("/{template_id}")
 async def public_product_template(
     template_id: str,

@@ -285,6 +285,9 @@ function CatalogueDetail({ template, printOptions, productTypes, onBack }) {
 export default function CreatorCatalogue() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [templates, setTemplates] = useState([]);
+  const [detailedTemplate, setDetailedTemplate] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
   const [printOptions, setPrintOptions] = useState([]);
   const [productTypes, setProductTypes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -298,7 +301,7 @@ export default function CreatorCatalogue() {
       setLoading(true);
       setError("");
       const [templateResult, printResult, typeResult] = await Promise.allSettled([
-        http.get("/product-templates"),
+        http.get("/product-templates/catalogue-cards"),
         http.get("/print-options"),
         http.get("/public/product-types?status=active"),
       ]);
@@ -332,7 +335,29 @@ export default function CreatorCatalogue() {
   );
 
   const selectedTemplateId = searchParams.get("template") || "";
-  const selectedTemplate = launchReadyTemplates.find((template) => String(template.id) === String(selectedTemplateId)) || null;
+  const selectedCard = useMemo(() => launchReadyTemplates.find((template) => String(template.id) === String(selectedTemplateId)) || null, [launchReadyTemplates, selectedTemplateId]);
+  const selectedTemplate = detailedTemplate && String(detailedTemplate.id) === String(selectedTemplateId)
+    ? detailedTemplate : null;
+
+  useEffect(() => {
+    if (!selectedTemplateId || !selectedCard) {
+      setDetailedTemplate(null);
+      setDetailLoading(false);
+      setDetailError("");
+      return;
+    }
+    let active = true;
+    setDetailedTemplate(null);
+    setDetailLoading(true);
+    setDetailError("");
+    http.get(`/product-templates/${encodeURIComponent(selectedTemplateId)}`)
+      .then((result) => { if (active) setDetailedTemplate(result.data); })
+      .catch((error) => {
+        if (active) setDetailError(error.response?.data?.detail || "Could not load product details.");
+      })
+      .finally(() => { if (active) setDetailLoading(false); });
+    return () => { active = false; };
+  }, [selectedTemplateId, selectedCard]);
 
   const openTemplate = (templateId) => {
     const next = new URLSearchParams(searchParams);
@@ -366,6 +391,19 @@ export default function CreatorCatalogue() {
         <Package size={34} />
         <h2>Catalogue unavailable</h2>
         <p>{error}</p>
+      </div>
+    );
+  }
+
+  if (selectedTemplateId && selectedCard && (detailLoading || detailError || !selectedTemplate)) {
+    return (
+      <div className="creator-catalogue" data-testid="creator-catalogue-detail-loading">
+        <button type="button" className="creator-catalogue-back" onClick={closeTemplate}>
+          <ArrowLeft size={16} /> Back to catalogue
+        </button>
+        {detailError ? <p role="alert">{detailError}</p> : <div className="creator-catalogue-loading-grid" aria-label="Loading product details">
+          {Array.from({ length: 4 }).map((_, index) => <div key={index} className="creator-catalogue-skeleton" />)}
+        </div>}
       </div>
     );
   }
