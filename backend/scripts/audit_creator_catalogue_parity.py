@@ -18,7 +18,8 @@ from routes_main import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG = dotenv_values(ROOT / "backend" / ".env")
+CONFIG_ROOT = Path(os.environ.get("FANDOMFORGE_CONFIG_ROOT", "/var/www/sites/fandomforge"))
+CONFIG = dotenv_values(CONFIG_ROOT / "backend" / ".env")
 URI = CONFIG.get("MONGO_URL")
 DB_NAME = CONFIG.get("DB_NAME")
 if not URI or not DB_NAME:
