@@ -4,12 +4,29 @@
  * Use via: NODE_ENV=test node scripts/check-catalogue-parity.cjs < /tmp/...json
  */
 process.env.NODE_ENV = process.env.NODE_ENV || "test";
-require("@babel/register")({
-  presets: ["react-app"],
-  extensions: [".js", ".jsx"],
-  ignore: [/node_modules/],
-});
+// Use the Babel compiler already bundled with react-scripts. We deliberately
+// avoid @babel/register, which is not installed in the deployed frontend.
+const babel = require("@babel/core");
 const fs = require("fs");
+const Module = require("module");
+const path = require("path");
+const srcRoot = path.resolve(__dirname, "../src") + path.sep;
+for (const ext of [".js", ".jsx"]) {
+  const originalLoader = Module._extensions[ext] || Module._extensions[".js"];
+  Module._extensions[ext] = function loadApplicationCode(module, filename) {
+    if (!filename.startsWith(srcRoot)) {
+      return originalLoader(module, filename);
+    }
+    const source = fs.readFileSync(filename, "utf8");
+    const transformed = babel.transformSync(source, {
+      filename,
+      presets: ["react-app"],
+      babelrc: false,
+      configFile: false,
+    });
+    module._compile(transformed.code, filename);
+  };
+}
 const { templateReadiness, templateImage } = require("../src/lib/templateReadiness");
 const { creatorCatalogueColours, creatorCatalogueSizes, creatorCataloguePrintMethods } = require("../src/lib/creatorCatalogue");
 
