@@ -62,3 +62,40 @@ def test_creator_sanitizer_strips_internal_cost_fields():
     assert safe["variations"][0]["creator_blank_price"] == 125
     assert safe["variations"][0]["print_area_overrides"] == template["variations"][0]["print_area_overrides"]
     assert "base_blank_cost" not in safe["variations"][0]
+
+
+def test_creator_catalogue_compacts_stored_production_configuration():
+    template = {
+        "id": "demo",
+        "variations": [{
+            "id": "v1",
+            "creator_blank_price": 123,
+            "print_area_overrides": {
+                "__production_configuration__": {
+                    "version": 3,
+                    "screens": [{
+                        "id": "front", "image_url": "/uploads/front.png",
+                        "editor_payload": "unused" * 1000,
+                    }],
+                    "print_areas": [{
+                        "id": "area-front", "screen_id": "front",
+                        "width_mm": 300, "height_mm": 400,
+                        "allowed_print_option_ids": ["dtf"],
+                        "editor_payload": "unused" * 1000,
+                    }],
+                    "print_options": [{"heavy_editor_data": "unused" * 1000}],
+                }
+            }
+        }],
+    }
+    result = routes_main._compact_creator_catalogue_template(template)
+    variation = result["variations"][0]
+    config = variation["print_area_overrides"]["__production_configuration__"]
+    assert variation["creator_blank_price"] == 123
+    assert config["screens"][0]["image_url"] == "/uploads/front.png"
+    assert config["print_areas"][0]["width_mm"] == 300
+    assert config["print_areas"][0]["allowed_print_option_ids"] == ["dtf"]
+    assert "editor_payload" not in config["screens"][0]
+    assert "editor_payload" not in config["print_areas"][0]
+    assert "print_options" not in config
+    assert template["variations"][0]["print_area_overrides"]["__production_configuration__"]["print_options"]
