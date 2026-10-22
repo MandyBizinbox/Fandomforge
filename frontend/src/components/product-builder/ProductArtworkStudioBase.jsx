@@ -1298,19 +1298,18 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
           const previewUrl = result.data?.url;
           if (!previewUrl) return;
           const currentGroups = latestGroupsRef.current;
-          const nextGroups = currentGroups.map((group) => {
-            if (group.id !== targetGroupId) return group;
-            return {
-              ...group,
-              artworks: asArray(group.artworks).map((slot) =>
-                slot.id === targetSlotId && slot.original_url === response.data.url
-                  ? { ...slot, preview_asset_url: previewUrl }
-                  : slot
-              ),
-            };
-          });
-          const changed = nextGroups.some((group, index) => group !== currentGroups[index]);
-          if (changed) setGroups(nextGroups);
+          const targetGroup = currentGroups.find((group) => group.id === targetGroupId);
+          const targetSlot = asArray(targetGroup?.artworks).find((slot) => slot.id === targetSlotId);
+          if (!targetSlot || targetSlot.original_url !== response.data.url) return;
+          setGroups(currentGroups.map((group) => group.id === targetGroupId
+            ? {
+                ...group,
+                artworks: asArray(group.artworks).map((slot) =>
+                  slot.id === targetSlotId ? { ...slot, preview_asset_url: previewUrl } : slot
+                ),
+              }
+            : group
+          ));
         }).catch(() => null);
       }
     } catch (error) {
