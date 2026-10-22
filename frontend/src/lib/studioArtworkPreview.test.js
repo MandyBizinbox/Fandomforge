@@ -1,4 +1,4 @@
-import { applyStudioArtworkPreview } from "./studioArtworkPreview";
+import { applyStudioArtworkPreview, attachStudioArtworkPreviewAfterUpload } from "./studioArtworkPreview";
 
 const groups = () => [
   { id: "front", artworks: [
@@ -38,4 +38,93 @@ test("ignores stale preview when group is removed", () => {
 test("does not attach preview when required URL is absent", () => {
   const before = groups();
   expect(applyStudioArtworkPreview(before, "front", "layer-1", "/original.png", "")).toBe(before);
+});
+
+const deferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+};
+
+test("original layer is usable while preview generation is pending", async () => {
+  let current = groups();
+  const pending = deferred();
+  const setGroups = jest.fn((next) => { current = next; });
+  const uploadPreview = jest.fn(async () => "/preview.webp");
+  const finished = attachStudioArtworkPreviewAfterUpload({
+    previewPreparation: pending.promise, uploadPreview,
+    getGroups: () => current, setGroups,
+    groupId: "front", slotId: "layer-1", originalUrl: "/original.png",
+  });
+  expect(current[0].artworks[0].original_url).toBe("/original.png");
+  expect(setGroups).not.toHaveBeenCalled();
+  expect(uploadPreview).not.toHaveBeenCalled();
+  pending.resolve({ file: "small.webp" });
+  expect(await finished).toBe(true);
+  expect(uploadPreview).toHaveBeenCalledWith({ file: "small.webp" });
+  expect(current[0].artworks[0].preview_asset_url).toBe("/preview.webp");
+});
+
+test("preview generation failure never changes the original", async () => {
+  const current = groups();
+  const setGroups = jest.fn();
+  const pending = deferred();
+  const finished = attachStudioArtworkPreviewAfterUpload({
+    previewPreparation: pending.promise,
+    uploadPreview: jest.fn(),
+    getGroups: () => current, setGroups,
+    groupId: "front", slotId: "layer-1", originalUrl: "/original.png",
+  });
+  pending.reject(new Error("canvas failed"));
+  expect(await finished).toBe(false);
+  expect(setGroups).not.toHaveBeenCalled();
+  expect(current[0].artworks[0].original_url).toBe("/original.png");
+});
+
+test("failed preview network upload does not change artwork", async () => {
+  const current = groups();
+  const setGroups = jest.fn();
+  const finished = attachStudioArtworkPreviewAfterUpload({
+    previewPreparation: Promise.resolve({ file: "small.webp" }),
+    uploadPreview: async () => { throw new Error("preview endpoint unavailable"); },
+    getGroups: () => current, setGroups,
+    groupId: "front", slotId: "layer-1", originalUrl: "/original.png",
+  });
+  expect(await finished).toBe(false);
+  expect(setGroups).not.toHaveBeenCalled();
+});
+
+test("late preview after replacement is discarded", async () => {
+  let current = groups();
+  const pending = deferred();
+  const setGroups = jest.fn();
+  const finished = attachStudioArtworkPreviewAfterUpload({
+    previewPreparation: pending.promise,
+    uploadPreview: async () => "/old-preview.webp",
+    getGroups: () => current, setGroups,
+    groupId: "front", slotId: "layer-1", originalUrl: "/original.png",
+  });
+  current = groups();
+  current[0].artworks[0].original_url = "/replacement.png";
+  pending.resolve({ file: "old.webp" });
+  expect(await finished).toBe(false);
+  expect(setGroups).not.toHaveBeenCalled();
+});
+
+test("late preview after deletion is discarded", async () => {
+  let current = groups();
+  const pending = deferred();
+  const setGroups = jest.fn();
+  const finished = attachStudioArtworkPreviewAfterUpload({
+    previewPreparation: pending.promise,
+    uploadPreview: async () => "/orphan.webp",
+    getGroups: () => current, setGroups,
+    groupId: "front", slotId: "layer-1", originalUrl: "/original.png",
+  });
+  current = groups();
+  current[0].artworks.shift();
+  pending.resolve({ file: "orphan.webp" });
+  expect(await finished).toBe(false);
+  expect(setGroups).not.toHaveBeenCalled();
 });
