@@ -6,7 +6,7 @@ import { http, assetUrl } from "../../lib/api";
 import { resolveEffectiveProductionSetup } from "../../lib/templateProductionResolver";
 import { geometryClipStyle, normalisePrintAreaGeometry, traceCanvasPrintAreaPath } from "../../lib/printAreaGeometry";
 import { renderDerivedMockupCanvas } from "../../lib/derivedMockupRenderer";
-import { applyStudioArtworkPreview } from "../../lib/studioArtworkPreview";
+import { attachStudioArtworkPreviewAfterUpload } from "../../lib/studioArtworkPreview";
 import "./productBuilderV2.css";
 import {
   asArray,
@@ -1290,20 +1290,21 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       const targetGroupId = activeGroup?.id;
       const targetSlotId = replaceSlot?.id || createdSlotId;
       if (targetGroupId && targetSlotId) {
-        void previewPreparation.then(async (preview) => {
-          if (!preview) return;
-          const previewData = new FormData();
-          previewData.append("file", preview.file);
-          previewData.append("subdir", "product-artwork-previews");
-          const result = await http.post("/files/image", previewData);
-          const previewUrl = result.data?.url;
-          if (!previewUrl) return;
-          const currentGroups = latestGroupsRef.current;
-          const updatedGroups = applyStudioArtworkPreview(
-            currentGroups, targetGroupId, targetSlotId, response.data.url, previewUrl
-          );
-          if (updatedGroups !== currentGroups) setGroups(updatedGroups);
-        }).catch(() => null);
+        void attachStudioArtworkPreviewAfterUpload({
+          previewPreparation,
+          uploadPreview: async (preview) => {
+            const previewData = new FormData();
+            previewData.append("file", preview.file);
+            previewData.append("subdir", "product-artwork-previews");
+            const result = await http.post("/files/image", previewData);
+            return result.data?.url || "";
+          },
+          getGroups: () => latestGroupsRef.current,
+          setGroups,
+          groupId: targetGroupId,
+          slotId: targetSlotId,
+          originalUrl: response.data.url,
+        });
       }
     } catch (error) {
       toast.error(error.response?.data?.detail || "Image upload failed");
