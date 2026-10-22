@@ -6,6 +6,7 @@ import { http, assetUrl } from "../../lib/api";
 import { resolveEffectiveProductionSetup } from "../../lib/templateProductionResolver";
 import { geometryClipStyle, normalisePrintAreaGeometry, traceCanvasPrintAreaPath } from "../../lib/printAreaGeometry";
 import { renderDerivedMockupCanvas } from "../../lib/derivedMockupRenderer";
+import { applyStudioArtworkPreview } from "../../lib/studioArtworkPreview";
 import "./productBuilderV2.css";
 import {
   asArray,
@@ -1298,18 +1299,10 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
           const previewUrl = result.data?.url;
           if (!previewUrl) return;
           const currentGroups = latestGroupsRef.current;
-          const targetGroup = currentGroups.find((group) => group.id === targetGroupId);
-          const targetSlot = asArray(targetGroup?.artworks).find((slot) => slot.id === targetSlotId);
-          if (!targetSlot || targetSlot.original_url !== response.data.url) return;
-          setGroups(currentGroups.map((group) => group.id === targetGroupId
-            ? {
-                ...group,
-                artworks: asArray(group.artworks).map((slot) =>
-                  slot.id === targetSlotId ? { ...slot, preview_asset_url: previewUrl } : slot
-                ),
-              }
-            : group
-          ));
+          const updatedGroups = applyStudioArtworkPreview(
+            currentGroups, targetGroupId, targetSlotId, response.data.url, previewUrl
+          );
+          if (updatedGroups !== currentGroups) setGroups(updatedGroups);
         }).catch(() => null);
       }
     } catch (error) {
