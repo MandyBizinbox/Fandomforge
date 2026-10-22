@@ -14,3 +14,24 @@ export function applyStudioArtworkPreview(groups, groupId, slotId, originalUrl, 
   });
   return matched ? next : groups;
 }
+
+
+// Preview failures are deliberately non-fatal: the original has already been
+// uploaded and applied. The callback reads current groups after the upload.
+export function attachStudioArtworkPreviewAfterUpload({
+  previewPreparation, uploadPreview, getGroups, setGroups,
+  groupId, slotId, originalUrl,
+}) {
+  return Promise.resolve(previewPreparation).then(async (preview) => {
+    if (!preview) return false;
+    const previewUrl = await uploadPreview(preview);
+    if (!previewUrl) return false;
+    const currentGroups = getGroups();
+    const updatedGroups = applyStudioArtworkPreview(
+      currentGroups, groupId, slotId, originalUrl, previewUrl
+    );
+    if (updatedGroups === currentGroups) return false;
+    setGroups(updatedGroups);
+    return true;
+  }).catch(() => false);
+}
