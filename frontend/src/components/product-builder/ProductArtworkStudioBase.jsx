@@ -851,6 +851,12 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   const dragCleanupRef = useRef(null);
 
   const groups = asArray(artworkGroups);
+  // Keep pending preview callbacks anchored to the latest artwork state, not
+  // the render that started an upload.
+  const latestGroupsRef = useRef(groups);
+  latestGroupsRef.current = groups;
+  const onArtworkGroupsChangeRef = useRef(onArtworkGroupsChange);
+  onArtworkGroupsChangeRef.current = onArtworkGroupsChange;
   const variations = asArray(selectedVariations);
   const screens = asArray(template?.mockup_screens).filter((screen) => screen?.id);
   const activeGroup = useMemo(() => groups.find((group) => group.id === activeGroupId) || groups[0] || null, [groups, activeGroupId]);
@@ -1065,8 +1071,10 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
   }, [areasForScreen, activePrintAreaId]);
 
   const setGroups = useCallback((nextGroups) => {
-    onArtworkGroupsChange(nextGroups.map((group, index) => ({ ...group, sort_order: index })));
-  }, [onArtworkGroupsChange]);
+    const ordered = nextGroups.map((group, index) => ({ ...group, sort_order: index }));
+    latestGroupsRef.current = ordered;
+    onArtworkGroupsChangeRef.current(ordered);
+  }, []);
   const setGroupSlots = useCallback((groupId, nextSlots) => {
     const nextGroups = patchGroup(groups, groupId, (group) => {
       const primaryMockup = nextSlots.find((slot) => slot.mockup_image_url)?.mockup_image_url || group.primary_mockup_image_url || "";
@@ -1234,27 +1242,15 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
     if (!file || !area) return;
     setUploading(true);
     try {
-      // Start uploading the unmodified production file immediately. The small
-      // derivative exists only to make the on-screen editor responsive.
+      // Upload the production original unchanged. Preview preparation may run
+      // concurrently, but its network upload must never delay the original.
       const data = new FormData();
       data.append("file", file);
       data.append("subdir", "product-artwork");
       const originalUpload = http.post("/files/image", data);
-      const previewUpload = createStudioPreview(file).then(async (preview) => {
-        if (!preview) return null;
-        const previewData = new FormData();
-        previewData.append("file", preview.file);
-        previewData.append("subdir", "product-artwork-previews");
-        const result = await http.post("/files/image", previewData);
-        return { ...preview, url: result.data.url };
-      }).catch(() => null);
-      // An upload failure must not leave a rejected promise unobserved while
-      // preview generation is running.
-      const [originalResult, previewResult] = await Promise.allSettled([originalUpload, previewUpload]);
-      if (originalResult.status !== "fulfilled") throw originalResult.reason;
-      const response = originalResult.value;
-      const preview = previewResult.status === "fulfilled" ? previewResult.value : null;
-      const dimensions = preview || await readImageFileDimensions(file);
+      const previewPreparation = createStudioPreview(file).catch(() => null);
+      const response = await originalUpload;
+      const dimensions = await readImageFileDimensions(file);
       const placement = fittedPlacementForAspect(
         area,
         dimensions.aspectRatio || 1,
@@ -1263,7 +1259,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
       );
       const patch = {
         original_url: response.data.url,
-        preview_asset_url: preview?.url || "",
+        preview_asset_url: "",
         file_name: file.name,
         mime_type: file.type || "",
         original_width_px: dimensions.width,
@@ -1276,6 +1272,7 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
         mockup_image_url: "",
         placement,
       };
+      let createdSlotId = "";
       if (replaceSlot) {
         patchSlot(replaceSlot.id, patch);
         setActiveSlotId(replaceSlot.id);
@@ -1283,8 +1280,38 @@ export default function ProductArtworkStudio({ template, printOptions, artworkGr
         setActiveScreenId(area.screen_id || currentScreenId);
         toast.success("Image layer replaced");
       } else {
-        createLayer(area, patch);
+        const createdSlot = createLayer(area, patch);
+        createdSlotId = createdSlot?.id || "";
         toast.success("Image layer uploaded");
+      }
+      // Attach the optional preview later, only if this exact original is still
+      // on the same layer. Replacing/deleting a layer invalidates the callback.
+      const targetGroupId = activeGroup?.id;
+      const targetSlotId = replaceSlot?.id || createdSlotId;
+      if (targetGroupId && targetSlotId) {
+        void previewPreparation.then(async (preview) => {
+          if (!preview) return;
+          const previewData = new FormData();
+          previewData.append("file", preview.file);
+          previewData.append("subdir", "product-artwork-previews");
+          const result = await http.post("/files/image", previewData);
+          const previewUrl = result.data?.url;
+          if (!previewUrl) return;
+          const currentGroups = latestGroupsRef.current;
+          const nextGroups = currentGroups.map((group) => {
+            if (group.id !== targetGroupId) return group;
+            return {
+              ...group,
+              artworks: asArray(group.artworks).map((slot) =>
+                slot.id === targetSlotId && slot.original_url === response.data.url
+                  ? { ...slot, preview_asset_url: previewUrl }
+                  : slot
+              ),
+            };
+          });
+          const changed = nextGroups.some((group, index) => group !== currentGroups[index]);
+          if (changed) setGroups(nextGroups);
+        }).catch(() => null);
       }
     } catch (error) {
       toast.error(error.response?.data?.detail || "Image upload failed");
