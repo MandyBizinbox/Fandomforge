@@ -12,7 +12,7 @@ function openPrintDocument(html) {
   return true;
 }
 
-export default function OrderBatchPrintControls({ orders = [], printers = [], onView, onReassign }) {
+export default function OrderBatchPrintControls({ orders = [], printers = [], onView, onReassign, onDelete }) {
   const flags = useMemo(() => duplicateOrderFlags(orders), [orders]);
   const [selected, setSelected] = useState([]);
   const [query, setQuery] = useState("");
@@ -150,6 +150,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
                 </select></td>
                 <td className="whitespace-nowrap">
                   <button type="button" onClick={() => onView?.(order.id)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] mr-3">View</button>
+                  <button type="button" className="text-xs uppercase tracking-widest ff-admin-muted mr-3" onClick={() => onDelete?.(order)}>Delete</button>
                   {duplicate && <button type="button" disabled={!matched(order) || !paid} className="text-xs underline"
                     onClick={() => review(order)}>{reviewedIds.includes(order.id) ? "Revoke review" : "Confirm for printing"}</button>}
                 </td>
