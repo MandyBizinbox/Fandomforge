@@ -47,6 +47,33 @@ function OrdersPage({ basePath }) {
 
 
 
+  const updateBulkStatus = async (orders, status) => {
+    const successful = [];
+    const failed = [];
+    // Bounded concurrency: avoid flooding the backend with hundreds of writes.
+    for (let index = 0; index < orders.length; index += 3) {
+      const batch = orders.slice(index, index + 3);
+      const results = await Promise.allSettled(batch.map(order =>
+        http.patch(`/orders/${encodeURIComponent(order.id)}/status`, { status })
+      ));
+      results.forEach((result, offset) => {
+        const order = batch[offset];
+        if (result.status === "fulfilled") {
+          successful.push(order.id);
+        } else {
+          failed.push({
+            orderNumber: order.order_number,
+            reason: result.reason?.response?.data?.detail || result.reason?.message || "Request failed",
+          });
+        }
+      });
+    }
+    await load();
+    if (failed.length) toast.error(`${failed.length} order statuses could not be updated`);
+    else toast.success(`${successful.length} order statuses updated`);
+    return { successful, failed };
+  };
+
   const remove = async (order) => {
     if (!window.confirm(`Delete order ${order.order_number}? This is permanent and should never be used for payment reconciliation.`)) return;
     try {
@@ -70,6 +97,7 @@ function OrdersPage({ basePath }) {
         onView={(id) => navigate(`${basePath}/fulfilment/orders/${id}`)}
         onReassign={reassign}
         onDelete={remove}
+        onBulkStatusUpdate={updateBulkStatus}
       />
     </div>
   );
