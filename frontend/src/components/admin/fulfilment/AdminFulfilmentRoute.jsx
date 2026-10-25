@@ -8,6 +8,7 @@ import ProductionJobCard from "../../production/ProductionJobCard";
 import ManualOrderBuilder from "../../orders/ManualOrderBuilder";
 import OrderDetail from "../../OrderDetail";
 import ShippingSettings from "../ShippingSettings";
+import OrderBatchPrintControls from "./OrderBatchPrintControls";
 
 const money = (value) => `R ${Number(value || 0).toFixed(2)}`;
 
@@ -61,6 +62,7 @@ function OrdersPage({ basePath }) {
         <div><div className="overline mb-2">Orders</div><h2 className="font-display text-4xl uppercase">Order Queue</h2></div>
         <button onClick={() => navigate(`${basePath}/fulfilment/manual`)} className="ff-admin-button ff-admin-button--primary"><Plus size={14} /> New Order</button>
       </div>
+      <OrderBatchPrintControls orders={rows} />
       <div className="ff-admin-card p-0 overflow-x-auto">
         <table className="table-brutal min-w-[900px] w-full">
           <thead><tr><th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Status</th><th>Printer</th><th></th></tr></thead>
