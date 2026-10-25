@@ -45,16 +45,6 @@ function OrdersPage({ basePath }) {
     }
   };
 
-  const remove = async (order) => {
-    if (!window.confirm(`Delete order ${order.order_number}?`)) return;
-    try {
-      await http.delete(`/orders/${order.id}`);
-      toast.success("Deleted");
-      await load();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed");
-    }
-  };
 
   return (
     <div data-testid="admin-orders-page" className="space-y-6">
@@ -62,26 +52,12 @@ function OrdersPage({ basePath }) {
         <div><div className="overline mb-2">Orders</div><h2 className="font-display text-4xl uppercase">Order Queue</h2></div>
         <button onClick={() => navigate(`${basePath}/fulfilment/manual`)} className="ff-admin-button ff-admin-button--primary"><Plus size={14} /> New Order</button>
       </div>
-      <OrderBatchPrintControls orders={rows} />
-      <div className="ff-admin-card p-0 overflow-x-auto">
-        <table className="table-brutal min-w-[900px] w-full">
-          <thead><tr><th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Status</th><th>Printer</th><th></th></tr></thead>
-          <tbody>
-            {rows.map((order) => (
-              <tr key={order.id}>
-                <td>{order.order_number}</td>
-                <td className="text-xs ff-admin-muted">{order.buyer_email}</td>
-                <td>{order.items?.length || 0}</td>
-                <td>{money(order.total)}</td>
-                <td><StatusBadge status={order.status} /></td>
-                <td><select className="ff-admin-control py-1 text-xs" defaultValue="" onChange={(event) => event.target.value && reassign(order.id, event.target.value)}><option value="">Assign / reassign</option>{printers.map((printer) => <option key={printer.id} value={printer.id}>{printer.company_name}</option>)}</select></td>
-                <td className="text-right whitespace-nowrap"><button onClick={() => navigate(`${basePath}/fulfilment/orders/${order.id}`)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] mr-3">View</button><button onClick={() => remove(order)} className="text-xs uppercase tracking-widest ff-admin-muted">Delete</button></td>
-              </tr>
-            ))}
-            {!rows.length && <tr><td colSpan={7} className="p-10 text-center overline ff-admin-muted">No orders</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <OrderBatchPrintControls
+        orders={rows}
+        printers={printers}
+        onView={(id) => navigate(`${basePath}/fulfilment/orders/${id}`)}
+        onReassign={reassign}
+      />
     </div>
   );
 }
