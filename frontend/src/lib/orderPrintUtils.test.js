@@ -29,9 +29,11 @@ test("only paid unshipped orders count toward picking", () => {
   const pending=sample("2","2026-10-23T11:00:00Z",{payment_status:"pending"});
   const refunded=sample("3","2026-10-23T11:00:00Z",{payment_status:"refunded"});
   const shipped=sample("4","2026-10-23T11:00:00Z",{status:"shipped"});
+  const completed=sample("5","2026-10-23T11:00:00Z",{status:"completed"});
   expect(paidOrder(paid)).toBe(true);
   expect(productionOrder(shipped)).toBe(false);
-  expect(aggregatePickingLines([paid,pending,refunded,shipped])[0].quantity).toBe(2);
+  expect(productionOrder(completed)).toBe(false);
+  expect(aggregatePickingLines([paid,pending,refunded,shipped,completed])[0].quantity).toBe(2);
   expect(pickingListHtml([paid,pending])).toContain("MF-1");
   expect(pickingListHtml([paid,pending])).not.toContain("MF-2");
 });
