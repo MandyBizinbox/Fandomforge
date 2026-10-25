@@ -43,7 +43,17 @@ export default function OrderBatchPrintControls({ orders = [] }) {
   const pickingOrders = chosen.filter(productionOrder);
   const setSelectedSafe = (ids) => setSelected([...new Set(ids)]);
   const toggle = (id) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current,id]);
-  const review = (id) => setReviewed((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current,id]);
+  const review = (order) => {
+    if (reviewedIds.includes(order.id)) {
+      setReviewed((current) => current.filter((item) => item !== order.id));
+      return;
+    }
+    if (!matched(order) || !paidOrder(order)) return;
+    const confirmation = window.prompt(
+      `Confirm PayFast settlement and that order ${order.order_number} has NOT already been produced. Type the exact order number to release this print hold:`
+    );
+    if (confirmation === order.order_number) setReviewed((current) => [...current, order.id]);
+  };
   const print = (html) => {
     if (!openPrintDocument(html)) window.alert("Your browser blocked the print window. Enable pop-ups for FandomForge and retry.");
   };
@@ -68,7 +78,7 @@ export default function OrderBatchPrintControls({ orders = [] }) {
       {exportResult && <p className="text-sm">Matched paid orders: {orders.filter(o => paidOrder(o) && matched(o)).length} / {orders.filter(paidOrder).length}. Unmatched and ambiguous orders are held.</p>}
       {exportError && <p role="alert" className="text-red-600">{exportError}</p>}
       {flags.size > 0 && <div className="border border-amber-500/50 rounded-lg p-3 text-sm" role="alert">
-        <strong>Possible duplicate checkouts detected.</strong> Matching buyer, basket and amount within 45 minutes are flagged. Confirm against PayFast before including either order in a print batch.
+        <strong>Possible duplicate checkouts detected.</strong> Matching buyer, basket and amount within 45 minutes are flagged. Only gateway-matched paid records can be released by explicitly entering the order number. This does not establish whether an order has already been fulfilled.
       </div>}
       <div className="overflow-x-auto">
         <table className="table-brutal min-w-[900px] w-full text-sm">
@@ -86,7 +96,7 @@ export default function OrderBatchPrintControls({ orders = [] }) {
                 <td>{order.payment_status || "unknown"}</td>
                 <td>{exportResult ? (reconciliation[order.id] || "not_in_export") : "export required"}</td>
                 <td>{order.status || "unknown"}</td>
-                <td>{duplicate ? <label className="flex gap-2 items-center"><input type="checkbox" checked={reviewedIds.includes(order.id)} onChange={() => review(order.id)} />Reviewed against gateway</label> : "—"}</td>
+                <td>{duplicate ? <label className="flex gap-2 items-center"><input type="checkbox" checked={reviewedIds.includes(order.id)} disabled={!matched(order) || !paid} onChange={() => review(order)} />Confirmed for printing</label> : "—"}</td>
               </tr>;
             })}
           </tbody>
