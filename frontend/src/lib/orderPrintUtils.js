@@ -39,7 +39,7 @@ export function paidOrder(order) {
 }
 
 export function productionOrder(order) {
-  return paidOrder(order) && !["cancelled","canceled","refunded","delivered","shipped"].includes(
+  return paidOrder(order) && !["cancelled","canceled","refunded","delivered","shipped","completed"].includes(
     asText(order?.status).toLowerCase()
   );
 }
