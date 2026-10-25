@@ -46,6 +46,18 @@ function OrdersPage({ basePath }) {
   };
 
 
+
+  const remove = async (order) => {
+    if (!window.confirm(`Delete order ${order.order_number}? This is permanent and should never be used for payment reconciliation.`)) return;
+    try {
+      await http.delete(`/orders/${order.id}`);
+      toast.success("Deleted");
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed");
+    }
+  };
+
   return (
     <div data-testid="admin-orders-page" className="space-y-6">
       <div className="flex items-end justify-between gap-4">
@@ -57,6 +69,7 @@ function OrdersPage({ basePath }) {
         printers={printers}
         onView={(id) => navigate(`${basePath}/fulfilment/orders/${id}`)}
         onReassign={reassign}
+        onDelete={remove}
       />
     </div>
   );
