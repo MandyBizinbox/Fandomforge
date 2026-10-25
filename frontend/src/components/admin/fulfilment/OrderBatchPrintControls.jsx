@@ -11,9 +11,12 @@ function openPrintDocument(html) {
   return true;
 }
 
-export default function OrderBatchPrintControls({ orders = [], printers = [], onView, onReassign, onDelete }) {
+export default function OrderBatchPrintControls({ orders = [], printers = [], onView, onReassign, onDelete, onBulkStatusUpdate }) {
   const flags = useMemo(() => duplicateOrderFlags(orders), [orders]);
   const [selected, setSelected] = useState([]);
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [updating, setUpdating] = useState(false);
+  const [bulkResult, setBulkResult] = useState("");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [page, setPage] = useState(1);
@@ -58,6 +61,34 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
     );
     if (confirmation === order.order_number) setReviewed((current) => [...current, order.id]);
   };
+  const statusOptions = [
+    { value: "awaiting_artwork_review", label: "Awaiting artwork review" },
+    { value: "sent_to_printer", label: "Sent to printer" },
+    { value: "in_production", label: "In production" },
+    { value: "ready_for_dispatch", label: "Ready for dispatch" },
+    { value: "completed", label: "Completed" },
+  ];
+  const bulkStatusOrders = chosen.filter(order =>
+    productionOrder(order) && order.status !== bulkStatus
+  );
+  const applyBulkStatus = async () => {
+    if (!bulkStatus || !bulkStatusOrders.length || updating || !onBulkStatusUpdate) return;
+    const label = statusOptions.find(item => item.value === bulkStatus)?.label || bulkStatus;
+    if (!window.confirm(`Change ${bulkStatusOrders.length} selected paid, non-final orders to "${label}"? This updates customer-visible order statuses. Payment statuses are not changed.`)) return;
+    setUpdating(true);
+    setBulkResult("");
+    try {
+      const result = await onBulkStatusUpdate(bulkStatusOrders, bulkStatus);
+      const successful = result?.successful || [];
+      const failed = result?.failed || [];
+      setSelected(current => current.filter(id => !successful.includes(id)));
+      setBulkResult(`Status update: ${successful.length} successful, ${failed.length} failed.${failed.length ? " Failed orders: " + failed.map(entry => entry.orderNumber).join(", ") : ""}`);
+    } catch (error) {
+      setBulkResult("Status update failed: " + (error?.message || "Unknown error"));
+    } finally {
+      setUpdating(false);
+    }
+  };
   const print = (html) => {
     if (!openPrintDocument(html)) window.alert("Your browser blocked the print window. Enable pop-ups for FandomForge and retry.");
   };
@@ -75,8 +106,19 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
           <button type="button" className="ff-admin-button" onClick={() => setSelectedSafe([])}>Clear</button>
           <button type="button" className="ff-admin-button ff-admin-button--primary" disabled={!pickingOrders.length} onClick={() => print(pickingListHtml(pickingOrders))}>Print picking list ({pickingOrders.length})</button>
           <button type="button" className="ff-admin-button ff-admin-button--primary" disabled={!invoiceOrders.length} onClick={() => print(bulkInvoicesHtml(invoiceOrders))}>Bulk print invoices ({invoiceOrders.length})</button>
+          <span className="mx-1 h-6 border-l border-current opacity-20" aria-hidden="true" />
+          <label className="text-xs">Bulk status
+            <select aria-label="Bulk order status" className="ff-admin-control ml-2" value={bulkStatus} disabled={updating} onChange={event => setBulkStatus(event.target.value)}>
+              <option value="">Choose status</option>
+              {statusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <button type="button" className="ff-admin-button" disabled={updating || !bulkStatusOrders.length || !bulkStatus} onClick={applyBulkStatus}>
+            {updating ? "Updating..." : `Apply status (${bulkStatusOrders.length})`}
+          </button>
         </div>
       </div>
+      {bulkResult && <p role="status" className="text-sm">{bulkResult}</p>}
       <p className="text-xs ff-admin-muted">Only paid orders are selectable. Completed and shipped orders are excluded from picking. Printable invoices are order summaries until legal invoice details are implemented.</p>
       {flags.size > 0 && <div className="border border-amber-500/50 rounded-lg p-3 text-sm" role="alert">
         <strong>Possible duplicate checkouts detected.</strong> Matching buyer, basket and amount within 45 minutes are flagged. Paid records can be released by explicitly entering the order number. This does not establish whether an order has already been fulfilled.
