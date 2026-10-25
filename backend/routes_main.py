@@ -9938,7 +9938,7 @@ async def admin_orders(
 ):
     _require_manager_permission(user, "manage_orders")
     db = request.app.state.db
-    docs = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    docs = await db.orders.find({"archived": {"$ne": True}}, {"_id": 0}).sort("created_at", -1).to_list(500)
     return [Order(**d) for d in docs]
 
 
