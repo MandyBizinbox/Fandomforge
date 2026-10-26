@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const { randomUUID } = require('crypto');
 
 const API = process.env.E2E_API_URL || 'http://127.0.0.1:8000/api';
 const PASSWORD = 'LaunchTest123!';
@@ -83,8 +84,8 @@ async function uploadSvg(page, token, productId, filename, label) {
 async function checkoutProduct(page, product, quantity = 1) {
   const variation = product.variations?.[0];
   expect(variation?.id).toBeTruthy();
-  const response = await page.request.post(`${API}/orders/checkout`, {
-    data: {
+  const attemptId = randomUUID();
+  const checkoutData = {
       items: [{
         id: `cart-${Date.now()}`,
         product_id: product.id,
@@ -111,12 +112,18 @@ async function checkoutProduct(page, product, quantity = 1) {
       },
       payment_provider: 'mock',
       shipping_method_key: 'e2e_flat',
-    },
-    failOnStatusCode: false,
-  });
-  const body = await response.json();
-  expect(response.status(), JSON.stringify(body)).toBe(200);
+      checkout_attempt_id: attemptId,
+  };
+  const [first, second] = await Promise.all([
+    page.request.post(`${API}/orders/checkout`, { data: checkoutData, failOnStatusCode: false }),
+    page.request.post(`${API}/orders/checkout`, { data: checkoutData, failOnStatusCode: false }),
+  ]);
+  const [body, retry] = await Promise.all([first.json(), second.json()]);
+  expect(first.status(), JSON.stringify(body)).toBe(200);
+  expect(second.status(), JSON.stringify(retry)).toBe(200);
   expect(body.order_id).toBeTruthy();
+  expect(retry.order_id).toBe(body.order_id);
+  expect(retry.reference).toBe(body.reference);
   return body.order_id;
 }
 
@@ -186,6 +193,16 @@ test.describe.serial('FandomForge launch integrity', () => {
     expect(published.response.status(), JSON.stringify(published.body)).toBe(200);
     creatorProduct = published.body;
     expect(creatorProduct.published).toBe(true);
+    const changedCopy = await api(page, creatorToken, 'PATCH', `/products/${creatorProduct.id}`, {
+      description: 'Updated after approval',
+      selling_price: 250,
+      review_submission_status: 'draft',
+      published: false,
+    });
+    expect(changedCopy.response.status(), JSON.stringify(changedCopy.body)).toBe(200);
+    expect(changedCopy.body.artwork_review_status).toBe('approved');
+    expect(changedCopy.body.published).toBe(true);
+    creatorProduct = changedCopy.body;
     await page.goto('/creators/creator-integrity-store');
     await expect(page.getByText('Creator Integrity Tee', { exact: false }).first()).toBeVisible();
 
