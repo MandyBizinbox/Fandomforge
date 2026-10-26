@@ -7055,6 +7055,12 @@ async def gateway_payment_webhook(gateway_key: str, request: Request):
         except KeyError:
             raise HTTPException(status_code=404, detail="Payment gateway not found")
         except PaymentGatewayError as exc:
+            # Record the validation category for incident diagnosis. Never log
+            # webhook payloads, signatures, gateway credentials or passphrases.
+            logging.getLogger(__name__).warning(
+                "Payment webhook rejected gateway=%s error_type=%s",
+                gateway_key, type(exc).__name__,
+            )
             raise HTTPException(status_code=403, detail=str(exc))
 
         reference = result.get("reference")
