@@ -45,6 +45,52 @@ def _slot_key(slot: Dict[str, Any] | None) -> str:
     )
 
 
+
+# Only visual/production artwork fields affect whether a previous artwork review
+# is still valid. Product copy, pricing and generated mockup URLs do not.
+_ARTWORK_REVIEW_FIELDS = (
+    "original_url", "text_layer", "text_content", "font_family", "font_size",
+    "font_weight", "font_style", "text_color", "color", "print_area_id",
+    "print_option_id", "screen_id", "screen_view", "placement",
+    "selected_stocked_colour", "manufacturing_profile_id", "production_profile_id",
+    "rotation", "opacity", "width", "height",
+)
+
+
+def artwork_review_signature(product: Dict[str, Any] | None) -> str:
+    """Deterministic identity for the artwork layout requiring approval.
+
+    Excludes review metadata, generated mockups, calculated cost and commercial
+    product fields. Includes scope and visual/production fields. Slot and group
+    order are preserved because artwork stacking order can affect output.
+    """
+    import json
+
+    product = product or {}
+    groups = product.get("artwork_groups") or []
+    if groups:
+        payload = [
+            {
+                "scope_type": group.get("scope_type"),
+                "attribute_key": group.get("attribute_key"),
+                "attribute_value": group.get("attribute_value"),
+                "variation_ids": sorted(str(x) for x in group.get("variation_ids") or []),
+                "artworks": [
+                    {field: slot.get(field) for field in _ARTWORK_REVIEW_FIELDS if slot.get(field) is not None}
+                    for slot in group.get("artworks") or []
+                ],
+            }
+            for group in groups
+        ]
+    else:
+        payload = [{
+            "artworks": [
+                {field: slot.get(field) for field in _ARTWORK_REVIEW_FIELDS if slot.get(field) is not None}
+                for slot in product.get("artworks") or []
+            ],
+        }]
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+
 def _reset_slot(slot: Dict[str, Any]) -> Dict[str, Any]:
     row = dict(slot or {})
     if not row.get("original_url"):
