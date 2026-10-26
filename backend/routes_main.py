@@ -11,6 +11,8 @@ import urllib.request
 import requests
 import hmac
 import hashlib
+import asyncio
+from pymongo.errors import DuplicateKeyError
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -6183,7 +6185,41 @@ async def _create_manual_order_document(db, payload: ManualOrderCreate, user_id:
         doc["collection_location_name"] = selected_shipping.get("collection_location_name") or ""
         doc["collection_address"] = selected_shipping.get("collection_address") or ""
         doc["collection_instructions"] = selected_shipping.get("collection_instructions") or ""
+    # Atomic reservation. The MongoDB _id index prevents two concurrent
+    # requests with the same checkout attempt from creating separate orders.
+    attempt_id = str(payload.checkout_attempt_id or "").strip()
+    claim_id = hashlib.sha256(attempt_id.encode("utf-8")).hexdigest() if attempt_id else None
+    if claim_id:
+        fingerprint_data = payload.model_dump(exclude={"checkout_attempt_id"})
+        payload_fingerprint = hashlib.sha256(
+            json.dumps(fingerprint_data, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+        try:
+            await db.checkout_attempts.insert_one({
+                "_id": claim_id,
+                "fingerprint": payload_fingerprint,
+                "state": "processing",
+                "created_at": utcnow().isoformat(),
+            })
+        except DuplicateKeyError:
+            for _ in range(30):
+                prior = await db.checkout_attempts.find_one({"_id": claim_id})
+                if prior and prior.get("fingerprint") != payload_fingerprint:
+                    raise HTTPException(status_code=409, detail="This checkout attempt belongs to a different cart or address.")
+                if prior and prior.get("state") == "completed" and prior.get("response"):
+                    return prior["response"]
+                await asyncio.sleep(0.5)
+            raise HTTPException(
+                status_code=409,
+                detail="This checkout attempt is already being processed. Please wait and check your order confirmation before retrying.",
+            )
+    if claim_id:
+        doc["checkout_attempt_id"] = claim_id
     await db.orders.insert_one(doc)
+    if claim_id:
+        await db.checkout_attempts.update_one(
+            {"_id": claim_id}, {"$set": {"order_id": order.id}}
+        )
     await add_order_event(
         db,
         order=doc,
@@ -6563,7 +6599,7 @@ async def checkout(
         }},
     )
 
-    return {
+    checkout_response = {
         "order_id": order.id,
         "order_number": order.order_number,
         "tracking_token": doc.get("tracking_token"),
@@ -6576,6 +6612,15 @@ async def checkout(
         "total": order.total,
         "manual_payment_details": gateway_response if gateway_key == "manual_eft" else None,
     }
+    if claim_id:
+        await db.checkout_attempts.update_one(
+            {"_id": claim_id},
+            {"$set": {
+                "state": "completed", "response": checkout_response,
+                "completed_at": utcnow().isoformat(),
+            }},
+        )
+    return checkout_response
 
 
 @orders_router.post("/{order_id}/mock-complete", response_model=Order)
