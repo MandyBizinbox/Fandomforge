@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { LockKeyhole, ShoppingBag } from "lucide-react";
 import Navbar from "../components/Navbar";
@@ -14,6 +14,8 @@ export default function Checkout() {
   const { items, subtotal, clear } = useCart();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const checkoutInFlight = useRef(false);
+  const checkoutAttemptId = useRef(null);
   const [paymentMethod, setPaymentMethod] = useState("");
   const [selectedGateway, setSelectedGateway] = useState(null);
   const [shippingMethod, setShippingMethod] = useState("");
@@ -58,10 +60,17 @@ export default function Checkout() {
       return;
     }
 
+    if (checkoutInFlight.current) return;
+    checkoutInFlight.current = true;
     setLoading(true);
 
     try {
+      if (!checkoutAttemptId.current) {
+        checkoutAttemptId.current = sessionStorage.getItem("ff_checkout_attempt_id") || crypto.randomUUID();
+        sessionStorage.setItem("ff_checkout_attempt_id", checkoutAttemptId.current);
+      }
       const response = await http.post("/orders/checkout", {
+        checkout_attempt_id: checkoutAttemptId.current,
         items: items.map((item) => ({
           id: item.id,
           product_id: item.product_id,
@@ -93,6 +102,8 @@ export default function Checkout() {
       });
 
       const data = response.data || {};
+      sessionStorage.removeItem("ff_checkout_attempt_id");
+      checkoutAttemptId.current = null;
 
       if (paymentMethod === "mock") {
         await http.post(`/orders/${data.order_id}/mock-complete`);
@@ -119,6 +130,7 @@ export default function Checkout() {
     } catch (error) {
       toast.error(error.response?.data?.detail || "Checkout could not be completed. Your cart has been kept so you can try again.");
     } finally {
+      checkoutInFlight.current = false;
       setLoading(false);
     }
   };
