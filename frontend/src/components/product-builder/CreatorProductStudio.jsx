@@ -842,9 +842,19 @@ export default function CreatorProductStudio({ mode = "creator", backTo }) {
               <button type="button" className="btn-secondary creator-studio-save creator-studio-save-draft" onClick={saveDraft} disabled={saving || submittingReview}>
                 <Save size={14} /> {saving ? "Saving…" : "Save draft"}
               </button>
-              <button type="button" className="btn-primary creator-studio-review-submit" onClick={sendForReview} disabled={saving || submittingReview || !readyToSave}>
-                <Sparkles size={14} /> {submittingReview ? "Sending…" : reviewRejected ? "Resubmit for review" : "Send for review"}
-              </button>
+              {published ? (
+                <span className="creator-studio-live-note"><Check size={14} /> Product is live</span>
+              ) : reviewApproved ? (
+                <button type="button" className="btn-primary creator-studio-publish" onClick={publish}
+                  disabled={saving || publishing || !canPublishCreatorProduct(product)}
+                  title={!canPublishCreatorProduct(product) ? "Publishing requires approved artwork and cleared pricing requirements." : undefined}>
+                  <Check size={14} /> {publishing ? "Publishing…" : "Publish product"}
+                </button>
+              ) : (
+                <button type="button" className="btn-primary creator-studio-review-submit" onClick={sendForReview} disabled={saving || submittingReview || !readyToSave}>
+                  <Sparkles size={14} /> {submittingReview ? "Sending…" : reviewRejected ? "Resubmit for review" : "Send for review"}
+                </button>
+              )}
             </>
           ) : (
             <span className="creator-studio-review-lock">Editing locked while review is pending</span>
