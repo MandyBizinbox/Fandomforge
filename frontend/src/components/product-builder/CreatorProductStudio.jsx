@@ -43,6 +43,7 @@ import {
   getProductBuilderStorefrontGalleryCandidates,
   getSelectedVariations,
   getUniquePrintCostFromGroups,
+  getAggregatedPrintCostLines,
   getVariationCost,
   money,
   resolveCreatorCommissionRate,
@@ -380,6 +381,41 @@ export default function CreatorProductStudio({ mode = "creator", backTo }) {
     () => getUniquePrintCostFromGroups(form.artwork_groups, printOptions, selectedTemplate),
     [form.artwork_groups, printOptions, selectedTemplate]
   );
+  // Use the same aggregated print-charge lines as the existing pricing total.
+  // Some print methods combine multiple artwork layers into one charge.
+  const printCostLines = useMemo(
+    () => getAggregatedPrintCostLines(form.artwork_groups, printOptions, selectedTemplate),
+    [form.artwork_groups, printOptions, selectedTemplate]
+  );
+  const printCostRows = useMemo(() => {
+    const slots = form.artwork_groups.flatMap((group) => asArray(group.artworks));
+    const byId = new Map(slots.map((slot) => [slot.id, slot]));
+    const pricedSlotIds = new Set(printCostLines.flatMap((line) => line.slot_ids));
+    const lines = printCostLines.map((line, index) => {
+      const names = line.slot_ids.map((id) => {
+        const slot = byId.get(id) || {};
+        return slot.text_layer ? (slot.text_content || "Text layer") : (slot.file_name || "Artwork layer");
+      });
+      return {
+        key: `charge-${index}`,
+        label: line.combined ? `Combined print: ${names.join(" + ")}` : names[0] || "Artwork layer",
+        detail: [line.method_key?.replace(/_/g, " ").toUpperCase(), line.combined ? `${line.layer_count} layers, one print charge` : null]
+          .filter(Boolean).join(" · "),
+        cost: Number(line.cost || 0),
+        priced: true,
+      };
+    });
+    slots.filter((slot) => (slot.original_url || slot.text_layer) && !pricedSlotIds.has(slot.id))
+      .forEach((slot, index) => {
+        lines.push({
+          key: `unpriced-${slot.id || index}`,
+          label: slot.text_layer ? (slot.text_content || "Text layer") : (slot.file_name || "Artwork layer"),
+          detail: "Print method not configured",
+          priced: false,
+        });
+      });
+    return lines;
+  }, [form.artwork_groups, printCostLines]);
   const assignedCreator = useMemo(
     () => isAdmin ? creators.find((creator) => String(creator.id) === String(form.band_id)) || null : creatorAccount,
     [creatorAccount, creators, form.band_id, isAdmin]
@@ -1165,6 +1201,28 @@ export default function CreatorProductStudio({ mode = "creator", backTo }) {
                   <div><span>Artwork printing</span><strong>{money(pricing.print)}</strong></div>
                   <div><span>Production</span><strong>{money(pricing.production)}</strong></div>
                   <div><span>{isAdmin ? "Creator amount" : "Your amount"}</span><strong className={pricing.profit >= 0 ? "is-positive" : "is-negative"}>{money(pricing.profit)}</strong></div>
+                </div>
+                <div className="mt-3 border-t border-white/15 pt-3" data-testid="creator-print-cost-breakdown">
+                  <div className="mb-2 flex justify-between gap-2 text-xs font-semibold uppercase tracking-wide">
+                    <span>Artwork print cost breakdown</span>
+                    <span>{money(pricing.print)}</span>
+                  </div>
+                  {printCostRows.length ? (
+                    <div className="space-y-2">
+                      {printCostRows.map((line) => (
+                        <div key={line.key} className="flex justify-between gap-3 border-b border-white/10 pb-2 text-xs">
+                          <div className="min-w-0">
+                            <div className="break-words font-medium">{line.label}</div>
+                            <div className="mt-1 opacity-70">{line.detail}</div>
+                          </div>
+                          <strong className="shrink-0">{line.priced ? money(line.cost) : "Not priced"}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs opacity-70">No artwork print charges configured.</p>
+                  )}
+                  <p className="mt-2 text-xs opacity-70">Some printing methods charge multiple layers together. Those layers appear as one combined charge rather than misleading individual prices.</p>
                 </div>
               </>
             )}
