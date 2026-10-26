@@ -7062,9 +7062,17 @@ async def gateway_payment_webhook(gateway_key: str, request: Request):
         except PaymentGatewayError as exc:
             # Record the validation category for incident diagnosis. Never log
             # webhook payloads, signatures, gateway credentials or passphrases.
+            reason = str(exc).lower()
+            reason_code = (
+                "invalid_signature" if "signature" in reason
+                else "merchant_mismatch" if "merchant" in reason
+                else "confirmation_failed" if "server validation" in reason
+                else "confirmation_unreachable" if "connection failed" in reason
+                else "gateway_validation_failed"
+            )
             logging.getLogger(__name__).warning(
-                "Payment webhook rejected gateway=%s error_type=%s",
-                gateway_key, type(exc).__name__,
+                "Payment webhook rejected gateway=%s reason=%s",
+                gateway_key, reason_code,
             )
             raise HTTPException(status_code=403, detail=str(exc))
 
