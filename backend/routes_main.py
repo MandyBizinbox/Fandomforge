@@ -4534,7 +4534,15 @@ async def update_product(
             "review_submitted_at", "published", "publish_on_approval",
         ):
             merged[field] = product.get(field)
-        if not artwork_changed:
+        if artwork_changed:
+            # Changed artwork must become a draft before publish validation runs.
+            merged["published"] = False
+            merged["review_submission_status"] = REVIEW_DRAFT
+            merged["review_submitted_at"] = None
+            merged, _ = reset_product_artwork_review(
+                merged, submission_status=REVIEW_DRAFT
+            )
+        else:
             merged["artwork_groups"] = _restore_unchanged_artwork_review(
                 product.get("artwork_groups") or [], merged.get("artwork_groups") or []
             )
