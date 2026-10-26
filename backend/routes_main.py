@@ -4430,6 +4430,8 @@ async def submit_product_for_review(
 
     if review_is_locked(product):
         raise HTTPException(status_code=409, detail="This product is already in review")
+    if product.get("artwork_review_status") == "approved":
+        raise HTTPException(status_code=409, detail="Artwork is already approved. Publish the product instead of resubmitting unchanged artwork.")
 
     if not (product.get("title") or "").strip():
         raise HTTPException(status_code=400, detail="Add a product title before sending for review")
