@@ -6497,7 +6497,31 @@ async def checkout(
     doc = order.model_dump()
     doc["created_at"] = doc["created_at"].isoformat()
     doc["updated_at"] = doc["updated_at"].isoformat()
+    attempt_id = str(payload.checkout_attempt_id or "").strip()
+    claim_id = hashlib.sha256(attempt_id.encode("utf-8")).hexdigest() if attempt_id else None
+    if claim_id:
+        fingerprint = hashlib.sha256(json.dumps(
+            payload.model_dump(exclude={"checkout_attempt_id"}), sort_keys=True, default=str
+        ).encode("utf-8")).hexdigest()
+        try:
+            await db.checkout_attempts.insert_one({
+                "_id": claim_id, "fingerprint": fingerprint,
+                "state": "processing", "created_at": utcnow().isoformat(),
+            })
+        except DuplicateKeyError:
+            for _ in range(30):
+                previous = await db.checkout_attempts.find_one({"_id": claim_id})
+                if previous and previous.get("fingerprint") != fingerprint:
+                    raise HTTPException(status_code=409, detail="Checkout attempt was already used for another cart.")
+                if previous and previous.get("state") == "completed" and previous.get("response"):
+                    return previous["response"]
+                await asyncio.sleep(0.5)
+            raise HTTPException(status_code=409, detail="Checkout is still processing; retry after checking the order confirmation.")
+    if claim_id:
+        doc["checkout_attempt_id"] = claim_id
     await db.orders.insert_one(doc)
+    if claim_id:
+        await db.checkout_attempts.update_one({"_id": claim_id}, {"$set": {"order_id": order.id}})
     await add_order_event(
         db,
         order=doc,
