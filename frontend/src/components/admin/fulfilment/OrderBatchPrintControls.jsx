@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { bulkInvoicesHtml, duplicateOrderFlags, paidOrder, pickingListHtml, productionOrder } from "../../../lib/orderPrintUtils";
+import { bulkInvoicesHtml, paidOrder, pickingListHtml, productionOrder } from "../../../lib/orderPrintUtils";
 
 function openPrintDocument(html) {
   const popup = window.open("", "_blank");
@@ -12,7 +12,6 @@ function openPrintDocument(html) {
 }
 
 export default function OrderBatchPrintControls({ orders = [], printers = [], onView, onReassign, onDelete, onBulkStatusUpdate }) {
-  const flags = useMemo(() => duplicateOrderFlags(orders), [orders]);
   const [selected, setSelected] = useState([]);
   const [bulkStatus, setBulkStatus] = useState("");
   const [updating, setUpdating] = useState(false);
@@ -21,12 +20,8 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
   const [filter, setFilter] = useState("all");
   const [page, setPage] = useState(1);
   const pageSize = 25;
-  const [reviewed, setReviewed] = useState([]);
-  const validIds = new Set(orders.map((order) => order.id));
-  const reviewedIds = reviewed.filter((id) => validIds.has(id));
-  const isHeld = (order) => flags.has(order.id) && !reviewedIds.includes(order.id);
-  const eligible = orders.filter((order) => productionOrder(order) && !isHeld(order));
-  const chosen = orders.filter((order) => selected.includes(order.id) && paidOrder(order) && !isHeld(order));
+  const eligible = orders.filter(productionOrder);
+  const chosen = orders.filter((order) => selected.includes(order.id) && paidOrder(order));
   const invoiceOrders = chosen.filter(paidOrder);
   const pickingOrders = chosen.filter(productionOrder);
   const setSelectedSafe = (ids) => setSelected([...new Set(ids)]);
@@ -37,30 +32,18 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
     const matchesFilter = filter === "all" ||
       (filter === "production" && productionOrder(order)) ||
       (filter === "paid" && paidOrder(order)) ||
-      (filter === "pending" && !paidOrder(order)) ||
-      (filter === "duplicates" && flags.has(order.id));
+      (filter === "pending" && !paidOrder(order));
     return matchesText && matchesFilter;
-  }), [orders, query, filter, flags]);
+  }), [orders, query, filter]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount);
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const selectableVisible = visible.filter(order => paidOrder(order) && !isHeld(order));
+  const selectableVisible = visible.filter(paidOrder);
   const visibleFullySelected = selectableVisible.length > 0 && selectableVisible.every(order => selected.includes(order.id));
   const togglePage = () => setSelected(current => visibleFullySelected
     ? current.filter(id => !selectableVisible.some(order => order.id === id))
     : [...new Set([...current, ...selectableVisible.map(order => order.id)])]);
   const toggle = (id) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current,id]);
-  const review = (order) => {
-    if (reviewedIds.includes(order.id)) {
-      setReviewed((current) => current.filter((item) => item !== order.id));
-      return;
-    }
-    if (!paidOrder(order)) return;
-    const confirmation = window.prompt(
-      `Confirm this order is legitimate and has NOT already been produced. Type ${order.order_number} to release this print hold:`
-    );
-    if (confirmation === order.order_number) setReviewed((current) => [...current, order.id]);
-  };
   const statusOptions = [
     { value: "awaiting_artwork_review", label: "Awaiting artwork review" },
     { value: "sent_to_printer", label: "Sent to printer" },
@@ -98,7 +81,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
         <div>
           <div className="font-semibold">Production printing</div>
           <div className="text-xs ff-admin-muted">
-            {eligible.length} paid production orders · {flags.size} potential duplicate records · {chosen.length} selected
+            {eligible.length} paid production orders · {chosen.length} selected
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -120,9 +103,6 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
       </div>
       {bulkResult && <p role="status" className="text-sm">{bulkResult}</p>}
       <p className="text-xs ff-admin-muted">Only paid orders are selectable. Completed and shipped orders are excluded from picking. Printable invoices are order summaries until legal invoice details are implemented.</p>
-      {flags.size > 0 && <div className="border border-amber-500/50 rounded-lg p-3 text-sm" role="alert">
-        <strong>Possible duplicate checkouts detected.</strong> Matching buyer, basket and amount within 45 minutes are flagged. Paid records can be released by explicitly entering the order number. This does not establish whether an order has already been fulfilled.
-      </div>}
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-xs">Search orders
           <input className="ff-admin-control ml-2" value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="Order number, email or status" />
@@ -133,7 +113,6 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
             <option value="production">Production eligible</option>
             <option value="paid">Paid</option>
             <option value="pending">Unpaid / pending</option>
-            <option value="duplicates">Possible duplicates</option>
           </select>
         </label>
         <span className="text-xs ff-admin-muted">{filtered.length} matching · {selected.length} selected</span>
@@ -147,14 +126,12 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
           <tbody>
             {visible.map(order => {
               const paid = paidOrder(order);
-              const duplicate = flags.has(order.id);
-              const held = isHeld(order);
               return <tr key={order.id}>
                 <td><input type="checkbox" aria-label={`Select order ${order.order_number}`}
-                  checked={!held && selected.includes(order.id)}
-                  disabled={!paid || held}
+                  checked={selected.includes(order.id)}
+                  disabled={!paid}
                   onChange={() => toggle(order.id)} /></td>
-                <td className="whitespace-nowrap">{order.order_number}{duplicate && <div className="text-xs text-amber-600">Possible duplicate</div>}</td>
+                <td className="whitespace-nowrap">{order.order_number}</td>
                 <td className="text-xs">{order.buyer_email}</td>
                 <td>{order.items?.length || 0}</td>
                 <td>R {Number(order.total || 0).toFixed(2)}</td>
@@ -167,8 +144,6 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
                 <td className="whitespace-nowrap">
                   <button type="button" onClick={() => onView?.(order.id)} className="text-xs uppercase tracking-widest text-[var(--ff-primary)] mr-3">View</button>
                   <button type="button" className="text-xs uppercase tracking-widest ff-admin-muted mr-3" onClick={() => onDelete?.(order)}>Delete</button>
-                  {duplicate && <button type="button" disabled={!paid} className="text-xs underline"
-                    onClick={() => review(order)}>{reviewedIds.includes(order.id) ? "Revoke review" : "Confirm for printing"}</button>}
                 </td>
               </tr>;
             })}

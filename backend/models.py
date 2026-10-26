@@ -1439,6 +1439,7 @@ class OrderNoteCreate(BaseModel):
 
 
 class CheckoutRequest(BaseModel):
+    checkout_attempt_id: Optional[str] = Field(default=None, min_length=16, max_length=128)
     items: List[CartItem]
     shipping_address: ShippingAddress
     payment_provider: str = "mock"

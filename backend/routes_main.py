@@ -11,6 +11,8 @@ import urllib.request
 import requests
 import hmac
 import hashlib
+import asyncio
+from pymongo.errors import DuplicateKeyError
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -154,6 +156,7 @@ from creator_product_review import (
     REVIEW_DRAFT,
     REVIEW_SUBMITTED,
     reset_product_artwork_review,
+    artwork_review_signature,
     review_is_locked,
     review_queue_includes_product,
 )
@@ -4429,6 +4432,8 @@ async def submit_product_for_review(
 
     if review_is_locked(product):
         raise HTTPException(status_code=409, detail="This product is already in review")
+    if product.get("artwork_review_status") == "approved":
+        raise HTTPException(status_code=409, detail="Artwork is already approved. Publish the product instead of resubmitting unchanged artwork.")
 
     if not (product.get("title") or "").strip():
         raise HTTPException(status_code=400, detail="Add a product title before sending for review")
@@ -4465,6 +4470,31 @@ async def submit_product_for_review(
     return Product(**_decorate_product_effective_pricing(doc, template=template))
 
 
+def _restore_unchanged_artwork_review_flat(existing: list, incoming: list) -> list:
+    old = {row.get("id"): row for row in existing if row.get("id")}
+    review_fields = ("status", "reviewed_by_user_id", "reviewed_at", "review_note", "rejection_reason")
+    output = []
+    for row in incoming:
+        copy = dict(row)
+        previous = old.get(row.get("id"))
+        if previous:
+            for field in review_fields:
+                if field in previous:
+                    copy[field] = previous[field]
+                else:
+                    copy.pop(field, None)
+        output.append(copy)
+    return output
+
+
+def _restore_unchanged_artwork_review(existing_groups: list, incoming_groups: list) -> list:
+    old_slots = [slot for group in existing_groups for slot in group.get("artworks") or []]
+    return [
+        {**group, "artworks": _restore_unchanged_artwork_review_flat(old_slots, group.get("artworks") or [])}
+        for group in incoming_groups
+    ]
+
+
 @products_router.patch("/{product_id}", response_model=Product)
 async def update_product(
     product_id: str,
@@ -4493,7 +4523,39 @@ async def update_product(
             detail="This product is in review and cannot be edited until review is complete",
         )
 
+    is_creator_edit = user.role not in ("super_admin", "admin")
     merged = {**product, **updates}
+    artwork_changed = is_creator_edit and (
+        artwork_review_signature(product) != artwork_review_signature(merged)
+        or (updates.get("template_id") is not None and updates["template_id"] != product.get("template_id"))
+    )
+    if is_creator_edit:
+        # Approval and publication are server-owned, not client-controlled.
+        for field in (
+            "artwork_review_status", "artwork_review_notes", "review_submission_status",
+            "review_submitted_at", "published", "publish_on_approval",
+        ):
+            merged[field] = product.get(field)
+        # A dedicated publish PATCH is an explicit creator action.
+        # Ordinary Studio saves send published=False as stale form state,
+        # so only allow publication toggles through a dedicated PATCH.
+        if not artwork_changed and set(updates) == {"published"}:
+            merged["published"] = bool(updates["published"])
+        if artwork_changed:
+            # Changed artwork must become a draft before publish validation runs.
+            merged["published"] = False
+            merged["review_submission_status"] = REVIEW_DRAFT
+            merged["review_submitted_at"] = None
+            merged, _ = reset_product_artwork_review(
+                merged, submission_status=REVIEW_DRAFT
+            )
+        else:
+            merged["artwork_groups"] = _restore_unchanged_artwork_review(
+                product.get("artwork_groups") or [], merged.get("artwork_groups") or []
+            )
+            merged["artworks"] = _restore_unchanged_artwork_review_flat(
+                product.get("artworks") or [], merged.get("artworks") or []
+            )
     normalized = await normalize_template_product_payload(
         db=db,
         data=merged,
@@ -4502,7 +4564,7 @@ async def update_product(
         allow_admin_publish=user.role in ("super_admin", "admin"),
     )
 
-    if user.role not in ("super_admin", "admin") and updates.get("review_submission_status") == REVIEW_DRAFT:
+    if artwork_changed:
         normalized, _ = reset_product_artwork_review(
             normalized,
             submission_status=REVIEW_DRAFT,
@@ -6128,7 +6190,41 @@ async def _create_manual_order_document(db, payload: ManualOrderCreate, user_id:
         doc["collection_location_name"] = selected_shipping.get("collection_location_name") or ""
         doc["collection_address"] = selected_shipping.get("collection_address") or ""
         doc["collection_instructions"] = selected_shipping.get("collection_instructions") or ""
+    # Atomic reservation. The MongoDB _id index prevents two concurrent
+    # requests with the same checkout attempt from creating separate orders.
+    attempt_id = str(payload.checkout_attempt_id or "").strip()
+    claim_id = hashlib.sha256(attempt_id.encode("utf-8")).hexdigest() if attempt_id else None
+    if claim_id:
+        fingerprint_data = payload.model_dump(exclude={"checkout_attempt_id"})
+        payload_fingerprint = hashlib.sha256(
+            json.dumps(fingerprint_data, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+        try:
+            await db.checkout_attempts.insert_one({
+                "_id": claim_id,
+                "fingerprint": payload_fingerprint,
+                "state": "processing",
+                "created_at": utcnow().isoformat(),
+            })
+        except DuplicateKeyError:
+            for _ in range(30):
+                prior = await db.checkout_attempts.find_one({"_id": claim_id})
+                if prior and prior.get("fingerprint") != payload_fingerprint:
+                    raise HTTPException(status_code=409, detail="This checkout attempt belongs to a different cart or address.")
+                if prior and prior.get("state") == "completed" and prior.get("response"):
+                    return prior["response"]
+                await asyncio.sleep(0.5)
+            raise HTTPException(
+                status_code=409,
+                detail="This checkout attempt is already being processed. Please wait and check your order confirmation before retrying.",
+            )
+    if claim_id:
+        doc["checkout_attempt_id"] = claim_id
     await db.orders.insert_one(doc)
+    if claim_id:
+        await db.checkout_attempts.update_one(
+            {"_id": claim_id}, {"$set": {"order_id": order.id}}
+        )
     await add_order_event(
         db,
         order=doc,
@@ -6401,7 +6497,31 @@ async def checkout(
     doc = order.model_dump()
     doc["created_at"] = doc["created_at"].isoformat()
     doc["updated_at"] = doc["updated_at"].isoformat()
+    attempt_id = str(payload.checkout_attempt_id or "").strip()
+    claim_id = hashlib.sha256(attempt_id.encode("utf-8")).hexdigest() if attempt_id else None
+    if claim_id:
+        fingerprint = hashlib.sha256(json.dumps(
+            payload.model_dump(exclude={"checkout_attempt_id"}), sort_keys=True, default=str
+        ).encode("utf-8")).hexdigest()
+        try:
+            await db.checkout_attempts.insert_one({
+                "_id": claim_id, "fingerprint": fingerprint,
+                "state": "processing", "created_at": utcnow().isoformat(),
+            })
+        except DuplicateKeyError:
+            for _ in range(30):
+                previous = await db.checkout_attempts.find_one({"_id": claim_id})
+                if previous and previous.get("fingerprint") != fingerprint:
+                    raise HTTPException(status_code=409, detail="Checkout attempt was already used for another cart.")
+                if previous and previous.get("state") == "completed" and previous.get("response"):
+                    return previous["response"]
+                await asyncio.sleep(0.5)
+            raise HTTPException(status_code=409, detail="Checkout is still processing; retry after checking the order confirmation.")
+    if claim_id:
+        doc["checkout_attempt_id"] = claim_id
     await db.orders.insert_one(doc)
+    if claim_id:
+        await db.checkout_attempts.update_one({"_id": claim_id}, {"$set": {"order_id": order.id}})
     await add_order_event(
         db,
         order=doc,
@@ -6508,7 +6628,7 @@ async def checkout(
         }},
     )
 
-    return {
+    checkout_response = {
         "order_id": order.id,
         "order_number": order.order_number,
         "tracking_token": doc.get("tracking_token"),
@@ -6521,6 +6641,15 @@ async def checkout(
         "total": order.total,
         "manual_payment_details": gateway_response if gateway_key == "manual_eft" else None,
     }
+    if claim_id:
+        await db.checkout_attempts.update_one(
+            {"_id": claim_id},
+            {"$set": {
+                "state": "completed", "response": checkout_response,
+                "completed_at": utcnow().isoformat(),
+            }},
+        )
+    return checkout_response
 
 
 @orders_router.post("/{order_id}/mock-complete", response_model=Order)
@@ -6955,6 +7084,20 @@ async def gateway_payment_webhook(gateway_key: str, request: Request):
         except KeyError:
             raise HTTPException(status_code=404, detail="Payment gateway not found")
         except PaymentGatewayError as exc:
+            # Record the validation category for incident diagnosis. Never log
+            # webhook payloads, signatures, gateway credentials or passphrases.
+            reason = str(exc).lower()
+            reason_code = (
+                "invalid_signature" if "signature" in reason
+                else "merchant_mismatch" if "merchant" in reason
+                else "confirmation_failed" if "server validation" in reason
+                else "confirmation_unreachable" if "connection failed" in reason
+                else "gateway_validation_failed"
+            )
+            logging.getLogger(__name__).warning(
+                "Payment webhook rejected gateway=%s reason=%s",
+                gateway_key, reason_code,
+            )
             raise HTTPException(status_code=403, detail=str(exc))
 
         reference = result.get("reference")

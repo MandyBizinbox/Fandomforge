@@ -210,7 +210,11 @@ jobs:
         run: |
           set -o pipefail
           cd e2e
-          npm test 2>&1 | tee ../artifacts/e2e/playwright.log
+          npm test 2>&1 | tee ../artifacts/e2e/playwright.log || {
+            echo "=== Backend traceback for failed browser tests ==="
+            tail -n 140 ../artifacts/e2e/backend.log
+            exit 1
+          }
       - name: Read-only integrity report, duplicate audit and dry-run backfill
         if: always()
         shell: bash
