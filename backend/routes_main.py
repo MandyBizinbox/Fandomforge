@@ -154,6 +154,7 @@ from creator_product_review import (
     REVIEW_DRAFT,
     REVIEW_SUBMITTED,
     reset_product_artwork_review,
+    artwork_review_signature,
     review_is_locked,
     review_queue_includes_product,
 )
@@ -4429,6 +4430,8 @@ async def submit_product_for_review(
 
     if review_is_locked(product):
         raise HTTPException(status_code=409, detail="This product is already in review")
+    if product.get("artwork_review_status") == "approved":
+        raise HTTPException(status_code=409, detail="Artwork is already approved. Publish the product instead of resubmitting unchanged artwork.")
 
     if not (product.get("title") or "").strip():
         raise HTTPException(status_code=400, detail="Add a product title before sending for review")
@@ -4465,6 +4468,31 @@ async def submit_product_for_review(
     return Product(**_decorate_product_effective_pricing(doc, template=template))
 
 
+def _restore_unchanged_artwork_review_flat(existing: list, incoming: list) -> list:
+    old = {row.get("id"): row for row in existing if row.get("id")}
+    review_fields = ("status", "reviewed_by_user_id", "reviewed_at", "review_note", "rejection_reason")
+    output = []
+    for row in incoming:
+        copy = dict(row)
+        previous = old.get(row.get("id"))
+        if previous:
+            for field in review_fields:
+                if field in previous:
+                    copy[field] = previous[field]
+                else:
+                    copy.pop(field, None)
+        output.append(copy)
+    return output
+
+
+def _restore_unchanged_artwork_review(existing_groups: list, incoming_groups: list) -> list:
+    old_slots = [slot for group in existing_groups for slot in group.get("artworks") or []]
+    return [
+        {**group, "artworks": _restore_unchanged_artwork_review_flat(old_slots, group.get("artworks") or [])}
+        for group in incoming_groups
+    ]
+
+
 @products_router.patch("/{product_id}", response_model=Product)
 async def update_product(
     product_id: str,
@@ -4493,7 +4521,34 @@ async def update_product(
             detail="This product is in review and cannot be edited until review is complete",
         )
 
+    is_creator_edit = user.role not in ("super_admin", "admin")
     merged = {**product, **updates}
+    artwork_changed = is_creator_edit and (
+        artwork_review_signature(product) != artwork_review_signature(merged)
+        or (updates.get("template_id") is not None and updates["template_id"] != product.get("template_id"))
+    )
+    if is_creator_edit:
+        # Approval and publication are server-owned, not client-controlled.
+        for field in (
+            "artwork_review_status", "artwork_review_notes", "review_submission_status",
+            "review_submitted_at", "published", "publish_on_approval",
+        ):
+            merged[field] = product.get(field)
+        if artwork_changed:
+            # Changed artwork must become a draft before publish validation runs.
+            merged["published"] = False
+            merged["review_submission_status"] = REVIEW_DRAFT
+            merged["review_submitted_at"] = None
+            merged, _ = reset_product_artwork_review(
+                merged, submission_status=REVIEW_DRAFT
+            )
+        else:
+            merged["artwork_groups"] = _restore_unchanged_artwork_review(
+                product.get("artwork_groups") or [], merged.get("artwork_groups") or []
+            )
+            merged["artworks"] = _restore_unchanged_artwork_review_flat(
+                product.get("artworks") or [], merged.get("artworks") or []
+            )
     normalized = await normalize_template_product_payload(
         db=db,
         data=merged,
@@ -4502,7 +4557,7 @@ async def update_product(
         allow_admin_publish=user.role in ("super_admin", "admin"),
     )
 
-    if user.role not in ("super_admin", "admin") and updates.get("review_submission_status") == REVIEW_DRAFT:
+    if artwork_changed:
         normalized, _ = reset_product_artwork_review(
             normalized,
             submission_status=REVIEW_DRAFT,
