@@ -4536,6 +4536,11 @@ async def update_product(
             "review_submitted_at", "published", "publish_on_approval",
         ):
             merged[field] = product.get(field)
+        # A dedicated publish PATCH is an explicit creator action.
+        # Ordinary Studio saves send published=False as stale form state,
+        # so only allow publication toggles through a dedicated PATCH.
+        if not artwork_changed and set(updates) == {"published"}:
+            merged["published"] = bool(updates["published"])
         if artwork_changed:
             # Changed artwork must become a draft before publish validation runs.
             merged["published"] = False
