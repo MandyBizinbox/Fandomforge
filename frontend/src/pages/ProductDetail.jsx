@@ -1,3 +1,4 @@
+import { trackEvent } from "../lib/analytics";
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, RotateCcw, ShieldCheck, Store } from "lucide-react";
@@ -106,6 +107,9 @@ export default function ProductDetail() {
     };
   }, [product?.template_id]);
 
+  useEffect(() => {
+    if (product?.id) trackEvent("view_item", { currency: "ZAR", items: [{ item_id: String(product.id), item_name: String(product.title || "").slice(0,100) }] });
+  }, [product?.id]);
   const unitPrice = getEffectiveSellingPrice(product, variation);
   const variationLabel = variation ? getVariationLabel(variation) : "";
   const isOutOfStock = variation?.stock_status === "out_of_stock";
@@ -143,6 +147,7 @@ export default function ProductDetail() {
       customization,
     });
 
+    trackEvent("add_to_cart", { currency: "ZAR", value: Number(unitPrice || 0) * Number(quantity || 1), items: [{ item_id: String(product.id), item_name: String(product.title || "").slice(0,100), price: Number(unitPrice || 0), quantity: Number(quantity || 1) }] });
     toast.success("Added to cart", { description: product.title });
     navigate("/cart");
   };

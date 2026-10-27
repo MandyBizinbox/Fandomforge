@@ -1,3 +1,4 @@
+import { trackPurchase } from "../lib/analytics";
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import Navbar from "../components/Navbar";
@@ -122,6 +123,8 @@ export default function OrderConfirmation() {
       sessionStorage.removeItem("ff_pending_order_id");
     }
   }, [clear, order?.payment_status]);
+
+  useEffect(() => { trackPurchase(order); }, [order]);
 
   const items = useMemo(() => (Array.isArray(order?.items) ? order.items : []), [order]);
   const creatorStore = getCreatorStoreFromItems(items) || getLastCreatorStore();

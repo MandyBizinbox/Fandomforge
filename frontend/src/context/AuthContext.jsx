@@ -1,3 +1,4 @@
+import { trackEvent } from "../lib/analytics";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { AUTH_EXPIRED_EVENT, http } from "../lib/api";
 import { clearAuthToken, getAuthToken, setAuthToken } from "../lib/authToken";
@@ -41,6 +42,7 @@ export function AuthProvider({ children }) {
     const response = await http.post("/auth/login", { email, password });
     setAuthToken(response.data.access_token);
     setUser(response.data.user);
+    trackEvent("login", { method: "email" });
     return response.data.user;
   }, []);
 
@@ -48,6 +50,7 @@ export function AuthProvider({ children }) {
     const response = await http.post("/auth/register", { email, password, name, role });
     setAuthToken(response.data.access_token);
     setUser(response.data.user);
+    trackEvent("sign_up", { method: "email" });
     return response.data.user;
   }, []);
 
