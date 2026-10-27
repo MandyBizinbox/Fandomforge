@@ -34,6 +34,54 @@ def test_internal_route_metadata_is_excluded_from_itn_signature():
     assert adapter._verify_signature(payload, config()) is True
 
 
+
+def test_itn_signature_preserves_empty_fields_and_received_order():
+    """PayFast ITN includes blank fields in the signed notification."""
+    import hashlib
+    from urllib.parse import quote_plus
+
+    adapter = PayFastPaymentGateway()
+    posted = {
+        "m_payment_id": "REF123",
+        "name_first": "",
+        "name_last": "Buyer",
+        "email_address": "",
+        "payment_status": "COMPLETE",
+        "amount_gross": "145.00",
+        "merchant_id": "10000100",
+    }
+    signed_body = "&".join(f"{k}={quote_plus(v)}" for k, v in posted.items())
+    posted["signature"] = hashlib.md5(
+        (signed_body + "&passphrase=secret-passphrase").encode("utf-8")
+    ).hexdigest()
+    posted["__request_url"] = "https://fandomforge.co.za/api/payments/webhooks/payfast"
+
+    assert adapter._verify_signature(posted, config()) is True
+    assert "name_first=&" in adapter._itn_payload_string(posted)
+    assert "email_address=&" in adapter._itn_payload_string(posted)
+
+    reordered = dict(reversed(list(posted.items())))
+    assert adapter._verify_signature(reordered, config()) is False
+
+
+def test_itn_signature_rejects_modified_values():
+    adapter = PayFastPaymentGateway()
+    payload = {
+        "merchant_id": "10000100",
+        "payment_status": "COMPLETE",
+        "amount_gross": "145.00",
+        "name_first": "",
+    }
+    data = adapter._itn_payload_string(payload)
+    import hashlib
+    payload["signature"] = hashlib.md5(
+        (data + "&passphrase=secret-passphrase").encode("utf-8")
+    ).hexdigest()
+    assert adapter._verify_signature(payload, config())
+    payload["amount_gross"] = "1450.00"
+    assert not adapter._verify_signature(payload, config())
+
+
 def test_handle_webhook_requires_server_confirmation(monkeypatch):
     adapter = PayFastPaymentGateway()
     payload = {
