@@ -125,9 +125,26 @@ class PayFastPaymentGateway(PaymentGatewayAdapter):
         payload = self._signature_payload(data, passphrase)
         return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _itn_pairs(payload: Dict[str, Any]) -> Iterable[tuple[str, str]]:
+        """Preserve PayFast ITN field order and even empty posted values.
+
+        ITN is not the checkout request: PayFast's notification signature
+        includes fields received before the signature, including empty strings.
+        Internal __ metadata is never part of the signed payload.
+        """
+        for key, value in (payload or {}).items():
+            if key == "signature":
+                break
+            if str(key).startswith("__"):
+                continue
+            if value is None:
+                continue
+            yield str(key), str(value)
+
     def _itn_payload_string(self, payload: Dict[str, Any]) -> str:
-        """Build the exact form body PayFast expects at /eng/query/validate."""
-        return "&".join(f"{key}={quote_plus(value)}" for key, value in self._clean_payment_pairs(payload))
+        """Reconstruct the ordered posted fields for PayFast ITN validation."""
+        return "&".join(f"{key}={quote_plus(value)}" for key, value in self._itn_pairs(payload))
 
     def _verify_server_confirmation(self, payload: Dict[str, Any], config: Dict[str, Any]) -> None:
         body = self._itn_payload_string(payload)
@@ -391,8 +408,11 @@ class PayFastPaymentGateway(PaymentGatewayAdapter):
         if not supplied:
             return False
         passphrase = self._setting(config, "passphrase")
-        expected = self._signature(payload, passphrase)
-        return hmac.compare_digest(expected, supplied)
+        signed_data = self._itn_payload_string(payload)
+        if passphrase:
+            signed_data += "&passphrase=" + quote_plus(passphrase)
+        expected = hashlib.md5(signed_data.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(expected.lower(), supplied.lower())
 
     async def handle_webhook(self, payload: Dict[str, Any], headers: Dict[str, str], config: Dict[str, Any], raw_body: str | bytes | None = None) -> Dict[str, Any]:
         if not self._verify_signature(payload, config):
