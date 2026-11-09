@@ -15,6 +15,8 @@ import EntitlementNotice from "./components/EntitlementNotice";
 const lazyNamed = (importer, exportName) => lazy(() => importer().then((module) => ({ default: module[exportName] })));
 const Home = lazy(() => import("./pages/Home"));
 const Login = lazy(() => import("./pages/Login"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const Register = lazy(() => import("./pages/Register"));
 const RegisterCreator = lazy(() => import("./pages/RegisterCreator"));
 const RegisterPrinter = lazy(() => import("./pages/RegisterPrinter"));
@@ -121,6 +123,8 @@ function AppRoutes() {
           <Route path="/shipping-returns" element={<Navigate to="/shipping-production-returns" replace />} />
           <Route path="/faq" element={<CreatorFaqPage />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/register" element={<Register />} />
           <Route path="/register/creator" element={<RegisterCreator />} />
           <Route path="/register/printer" element={<RegisterPrinter />} />
