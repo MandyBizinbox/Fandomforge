@@ -80,7 +80,7 @@ function batchDateLabel(value) {
   return new Intl.DateTimeFormat("en-ZA", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(date);
 }
 function GroupDeliveryDetails({ order }) {
-  if (order.shipping_method_key !== "group_delivery") return null;
+  if (order.shipping_method_key !== "group_delivery" && !order.group_delivery_batch_date) return null;
   const location = [order.group_delivery_address_line_1, order.group_delivery_suburb, order.group_delivery_town, order.group_delivery_province, order.group_delivery_postal_code].filter(Boolean).join(", ");
   return <div className="mt-3 border-t border-[var(--ff-card-border)] pt-3 space-y-1 text-sm" data-testid="order-group-delivery">
     <div className="font-semibold">Group delivery</div>
@@ -142,6 +142,7 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
   const totals = creatorTotals(order);
   const tracking = order.tracking_number || (order.items || []).find((item) => item.tracking_number)?.tracking_number || "";
   const courier = order.courier_name || (order.items || []).find((item) => item.courier_name)?.courier_name || "";
+  const isGroupDelivery = order.shipping_method_key === "group_delivery" || Boolean(order.group_delivery_batch_date);
   const trackingUrl = order.tracking_url || (order.items || []).find((item) => item.tracking_url)?.tracking_url || (order.tracking_token ? `${window.location.origin}/order-tracking/${order.tracking_token}` : "");
 
   const patchOrderStatus = async (status) => {
@@ -245,11 +246,25 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
       </div>
     </div>
 
+    {isGroupDelivery && <section className="ff-ui-card p-4 md:p-5 border-2 border-[var(--ff-primary)]" data-testid="group-delivery-schedule-banner">
+      <div className="overline mb-2">Group delivery schedule</div>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <div className="text-xs ff-ui-muted">Scheduled batch date (assigned at checkout)</div>
+          <div className="font-display text-2xl md:text-3xl" data-testid="group-delivery-batch-date">{batchDateLabel(order.group_delivery_batch_date)}</div>
+        </div>
+        {order.group_delivery_point_name && <div>
+          <div className="text-xs ff-ui-muted">Collection point</div>
+          <div className="font-semibold">{order.group_delivery_point_name}</div>
+        </div>}
+      </div>
+    </section>}
+
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <Stat label="Items" value={(order.items || []).reduce((sum, item) => sum + number(item.quantity), 0)} />
       <Stat label="Order total" value={money(order.total)} emphasis />
       <Stat label="Payment" value={(order.payment_status || "—").replaceAll("_", " ")} />
-      <Stat label="Delivery" value={tracking ? "Tracking assigned" : (order.shipping_method_name || "Pending")} />
+      <Stat label="Delivery" value={isGroupDelivery ? `${order.shipping_method_name || "Group delivery"} · ${batchDateLabel(order.group_delivery_batch_date)}` : (tracking ? "Tracking assigned" : (order.shipping_method_name || "Pending"))} />
     </div>
 
     <div className="ff-ui-tabs overflow-x-auto"><div className="flex min-w-max">{tabs.map((tab) => <TabButton key={tab} active={activeTab === tab} onClick={() => setActiveTab(tab)}>{tab}</TabButton>)}</div></div>
