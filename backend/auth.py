@@ -28,9 +28,9 @@ def verify_password(pw: str, hashed: str) -> bool:
         return False
 
 
-def create_token(user_id: str, email: str, role: str) -> str:
+def create_token(user_id: str, email: str, role: str, auth_version: int = 0) -> str:
     exp = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRES_MIN)
-    payload = {"sub": user_id, "email": email, "role": role, "exp": exp}
+    payload = {"sub": user_id, "email": email, "role": role, "exp": exp, "auth_version": auth_version}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
@@ -58,6 +58,8 @@ async def get_current_user(
     user_doc = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
     if not user_doc:
         raise HTTPException(status_code=401, detail="User not found")
+    if int(payload.get("auth_version", 0)) != int(user_doc.get("auth_version", 0)):
+        raise HTTPException(status_code=401, detail="Session expired. Please sign in again")
     user_doc.pop("password_hash", None)
     user = User(**user_doc)
     request.state.user = user
@@ -114,7 +116,7 @@ async def login(payload: UserLogin, request: Request):
         raise HTTPException(status_code=403, detail="Account suspended")
     doc.pop("password_hash", None)
     user = User(**doc)
-    token = create_token(user.id, user.email, user.role)
+    token = create_token(user.id, user.email, user.role, int(doc.get("auth_version", 0)))
     return TokenResponse(access_token=token, user=user)
 
 
@@ -164,7 +166,7 @@ async def google_session_exchange(
             await db.users.update_one({"id": doc["id"]}, {"$set": {"avatar_url": picture}})
             doc["avatar_url"] = picture
         user = User(**doc)
-    token = create_token(user.id, user.email, user.role)
+    token = create_token(user.id, user.email, user.role, int(doc.get("auth_version", 0)) if doc else 0)
     return TokenResponse(access_token=token, user=user)
 
 
