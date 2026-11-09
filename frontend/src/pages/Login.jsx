@@ -72,6 +72,7 @@ export default function Login() {
                 <button type="button" onClick={() => setShowPassword((current) => !current)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ff-muted-text)] hover:text-[var(--ff-primary)]" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>
               </div>
             </div>
+            <div className="text-right text-sm"><Link to="/forgot-password" className="underline text-[var(--ff-page-text)]" data-testid="login-forgot-password">Forgot password?</Link></div>
             {error && <div className="text-[var(--ff-primary)] text-sm" role="alert" data-testid="login-error">{error}</div>}
             <button type="submit" className="btn-primary w-full justify-center" disabled={loading} data-testid="login-submit">{loading ? "Signing in…" : "Sign in"}</button>
           </form>
