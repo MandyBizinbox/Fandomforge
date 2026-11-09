@@ -74,8 +74,17 @@ async def _allow(db, kind: str, key: str, limit: int) -> bool:
 
 
 def _client_ip(request: Request) -> str:
-    # Do not trust client-controlled forwarding headers.
-    return request.client.host if request.client else "unknown"
+    """Trust Nginx's overwritten X-Real-IP only over the local loopback proxy."""
+    from ipaddress import ip_address
+
+    peer = request.client.host if request.client else "unknown"
+    if peer not in {"127.0.0.1", "::1"}:
+        return peer
+    forwarded = request.headers.get("x-real-ip", "").strip()
+    try:
+        return str(ip_address(forwarded))
+    except ValueError:
+        return peer
 
 
 @password_recovery_router.post("/forgot-password")
