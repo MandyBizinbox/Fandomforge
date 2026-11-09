@@ -74,3 +74,19 @@ def test_reset_invalidates_old_session_and_accepts_new_session():
         assert current.id == user.id
 
     asyncio.run(scenario())
+
+
+def test_client_ip_trusts_only_local_nginx_proxy_header():
+    from types import SimpleNamespace
+    from password_recovery import _client_ip
+
+    def request(peer, claimed):
+        return SimpleNamespace(
+            client=SimpleNamespace(host=peer),
+            headers={"x-real-ip": claimed},
+        )
+
+    assert _client_ip(request("127.0.0.1", "198.51.100.42")) == "198.51.100.42"
+    assert _client_ip(request("::1", "2001:db8::42")) == "2001:db8::42"
+    assert _client_ip(request("203.0.113.10", "198.51.100.42")) == "203.0.113.10"
+    assert _client_ip(request("127.0.0.1", "not-an-ip")) == "127.0.0.1"
