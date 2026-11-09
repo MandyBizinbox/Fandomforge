@@ -30,3 +30,47 @@ def test_utf8_password_byte_limit():
 def test_token_hash_deterministic():
     assert _digest("one") == _digest("one")
     assert _digest("one") != _digest("two")
+
+
+def test_auth_version_is_embedded_in_new_tokens():
+    from auth import create_token, decode_token
+
+    token = create_token("user-1", "test@example.com", "buyer", auth_version=3)
+    payload = decode_token(token)
+    assert payload["sub"] == "user-1"
+    assert payload["auth_version"] == 3
+
+
+def test_reset_invalidates_old_session_and_accepts_new_session():
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    import pytest
+    from fastapi import HTTPException
+    from fastapi.security import HTTPAuthorizationCredentials
+    from auth import create_token, get_current_user
+    from models import User
+
+    user = User(email="test@example.com", name="Password Reset Test", role="buyer")
+    doc = user.model_dump()
+    doc["auth_version"] = 1
+    doc["password_hash"] = "irrelevant-test-only"
+    db = SimpleNamespace(users=SimpleNamespace(find_one=AsyncMock(return_value=doc)))
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db)), state=SimpleNamespace())
+
+    async def validate(version):
+        bearer = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=create_token(user.id, user.email, user.role, auth_version=version),
+        )
+        return await get_current_user(request, bearer)
+
+    async def scenario():
+        with pytest.raises(HTTPException) as old:
+            await validate(0)
+        assert old.value.status_code == 401
+        assert "Session expired" in str(old.value.detail)
+        current = await validate(1)
+        assert current.id == user.id
+
+    asyncio.run(scenario())
