@@ -59,6 +59,8 @@ async def lifespan(app: FastAPI):
         logger.info("Authoritative HTV profile-colour assignment: %s", htv_profile_assignment)
         await ensure_payout_launch_indexes(app.state.db)
         await ensure_email_delivery_indexes(app.state.db)
+        from password_recovery import ensure_password_recovery_indexes
+        await ensure_password_recovery_indexes(app.state.db)
         await ensure_launch_integrity_indexes(app.state.db)
         if E2E_MODE:
             from e2e_support import normalize_e2e_fixture_emails
@@ -100,6 +102,7 @@ async def health(request: Request):
 
 
 from auth import auth_router
+from password_recovery import password_recovery_router
 import routes_main as routes_main_module
 from order_finance_patches import install_order_finance_patches
 install_order_finance_patches(routes_main_module)
@@ -133,6 +136,7 @@ from launch_integrity.financial_gate_routes import financial_gate_router
 install_payout_retry_guard(payout_launch_routes_module)
 
 api_router.include_router(auth_router)
+api_router.include_router(password_recovery_router)
 api_router.include_router(integrity_router)
 api_router.include_router(printer_gate_router)
 api_router.include_router(printer_ops_router)
