@@ -1,6 +1,16 @@
 import React, { useMemo, useState } from "react";
 import { bulkInvoicesHtml, paidOrder, pickingListHtml, productionOrder } from "../../../lib/orderPrintUtils";
 
+function groupDeliveryDate(order) {
+  return order?.shipping_method_key === "group_delivery" ? String(order.group_delivery_batch_date || "").trim() : "";
+}
+function displayBatchDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return "Date missing";
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "Date missing";
+  return new Intl.DateTimeFormat("en-ZA", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(date);
+}
 function openPrintDocument(html) {
   const popup = window.open("", "_blank");
   if (!popup) return false;
@@ -18,6 +28,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
   const [bulkResult, setBulkResult] = useState("");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
+  const [deliverySort, setDeliverySort] = useState("newest");
   const [page, setPage] = useState(1);
   const pageSize = 25;
   const eligible = orders.filter(productionOrder);
@@ -26,18 +37,32 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
   const pickingOrders = chosen.filter(productionOrder);
   const setSelectedSafe = (ids) => setSelected([...new Set(ids)]);
   const filtered = useMemo(() => orders.filter(order => {
-    const haystack = [order.order_number, order.buyer_email, order.status, order.payment_status]
+    const haystack = [order.order_number, order.buyer_email, order.status, order.payment_status, order.shipping_method_name, order.group_delivery_point_name, order.group_delivery_batch_date]
       .map(value => String(value || "").toLowerCase()).join(" ");
     const matchesText = haystack.includes(query.trim().toLowerCase());
     const matchesFilter = filter === "all" ||
       (filter === "production" && productionOrder(order)) ||
       (filter === "paid" && paidOrder(order)) ||
-      (filter === "pending" && !paidOrder(order));
+      (filter === "pending" && !paidOrder(order)) ||
+      (filter === "group_delivery" && order.shipping_method_key === "group_delivery") ||
+      (filter === "missing_date" && order.shipping_method_key === "group_delivery" && displayBatchDate(groupDeliveryDate(order)) === "Date missing");
     return matchesText && matchesFilter;
   }), [orders, query, filter]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const sorted = useMemo(() => {
+    if (deliverySort === "newest") return filtered;
+    return [...filtered].sort((a, b) => {
+      const left = groupDeliveryDate(a);
+      const right = groupDeliveryDate(b);
+      const aValid = displayBatchDate(left) !== "Date missing";
+      const bValid = displayBatchDate(right) !== "Date missing";
+      if (aValid !== bValid) return aValid ? -1 : 1;
+      if (!aValid) return 0;
+      return deliverySort === "latest" ? right.localeCompare(left) : left.localeCompare(right);
+    });
+  }, [filtered, deliverySort]);
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, pageCount);
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const visible = sorted.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectableVisible = visible.filter(paidOrder);
   const visibleFullySelected = selectableVisible.length > 0 && selectableVisible.every(order => selected.includes(order.id));
   const togglePage = () => setSelected(current => visibleFullySelected
@@ -113,6 +138,15 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
             <option value="production">Production eligible</option>
             <option value="paid">Paid</option>
             <option value="pending">Unpaid / pending</option>
+            <option value="group_delivery">Group delivery</option>
+            <option value="missing_date">Group delivery: date missing</option>
+          </select>
+        </label>
+        <label className="text-xs">Order by
+          <select className="ff-admin-control ml-2" value={deliverySort} onChange={event => { setDeliverySort(event.target.value); setPage(1); }}>
+            <option value="newest">Newest orders</option>
+            <option value="earliest">Earliest group batch</option>
+            <option value="latest">Latest group batch</option>
           </select>
         </label>
         <span className="text-xs ff-admin-muted">{filtered.length} matching · {selected.length} selected</span>
@@ -121,7 +155,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
         <table className="table-brutal min-w-[1100px] w-full text-sm">
           <thead><tr>
             <th><input type="checkbox" aria-label="Select eligible orders on this page" checked={visibleFullySelected} disabled={!selectableVisible.length} onChange={togglePage} /></th>
-            <th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Printer</th><th>Actions</th>
+            <th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Delivery method</th><th>Scheduled batch</th><th>Payment</th><th>Status</th><th>Printer</th><th>Actions</th>
           </tr></thead>
           <tbody>
             {visible.map(order => {
@@ -135,6 +169,8 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
                 <td className="text-xs">{order.buyer_email}</td>
                 <td>{order.items?.length || 0}</td>
                 <td>R {Number(order.total || 0).toFixed(2)}</td>
+                <td className="text-xs">{order.shipping_method_name || order.shipping_method_key || "Not specified"}{order.shipping_method_key === "group_delivery" && order.group_delivery_point_name && <div className="ff-admin-muted">{order.group_delivery_point_name}</div>}</td>
+                <td className="text-xs whitespace-nowrap">{order.shipping_method_key === "group_delivery" ? <span className={displayBatchDate(groupDeliveryDate(order)) === "Date missing" ? "text-[var(--ff-primary)] font-bold" : "font-semibold"}>{displayBatchDate(groupDeliveryDate(order))}</span> : "—"}</td>
                 <td>{order.payment_status || "unknown"}</td>
                 <td>{order.status || "unknown"}</td>
                 <td><select className="ff-admin-control py-1 text-xs" defaultValue="" onChange={event => event.target.value && onReassign?.(order.id, event.target.value)}>
@@ -147,7 +183,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
                 </td>
               </tr>;
             })}
-            {!visible.length && <tr><td colSpan={9} className="p-10 text-center ff-admin-muted">No matching orders</td></tr>}
+            {!visible.length && <tr><td colSpan={11} className="p-10 text-center ff-admin-muted">No matching orders</td></tr>}
           </tbody>
         </table>
       </div>
