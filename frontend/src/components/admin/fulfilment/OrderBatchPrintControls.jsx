@@ -101,7 +101,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
     if (!openPrintDocument(html)) window.alert("Your browser blocked the print window. Enable pop-ups for FandomForge and retry.");
   };
   return (
-    <section className="ff-admin-card space-y-3" data-testid="order-batch-print-controls">
+    <section className="ff-admin-card space-y-3 w-full min-w-0 max-w-full" data-testid="order-batch-print-controls">
       <div className="flex flex-wrap gap-2 items-center justify-between">
         <div>
           <div className="font-semibold">Production printing</div>
