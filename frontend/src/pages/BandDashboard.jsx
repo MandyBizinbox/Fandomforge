@@ -339,8 +339,8 @@ function ProductsList() {
         />
       </div>
 
-      <div className="border border-[var(--ff-card-border)] overflow-x-auto">
-        <table className="table-brutal">
+      <div className="border border-[var(--ff-card-border)] w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain" role="region" aria-label="Creator orders table" tabIndex={0}>
+        <table className="table-brutal min-w-[760px]">
           <thead>
             <tr>
               <th>Product</th>
@@ -348,7 +348,6 @@ function ProductsList() {
               <th>Price</th>
               <th>Print Cost</th>
               <th>Status</th>
-              <th>Artwork</th>
               <th></th>
             </tr>
           </thead>
@@ -428,7 +427,7 @@ function ProductsList() {
 
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-10 text-center text-[var(--ff-muted-text)] overline">
+                <td colSpan={6} className="p-10 text-center text-[var(--ff-muted-text)] overline">
                   No products found
                 </td>
               </tr>
