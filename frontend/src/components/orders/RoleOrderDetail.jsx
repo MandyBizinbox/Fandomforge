@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Copy, Download, FileText, Printer as PrinterIcon } from "lucide-react";
 import { toast } from "sonner";
 import { http, assetUrl } from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 import StatusBadge from "../StatusBadge";
 import ProductionPackSummary from "../production/ProductionPackSummary";
 import ActivityTimeline from "../activity/ActivityTimeline";
@@ -107,6 +108,7 @@ function TabButton({ active, children, onClick }) {
 export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = "order" }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const isAdmin = mode === "admin" || mode === "edit";
   const isCreator = mode === "creator" || String(testidPrefix || "").startsWith("creator");
   const isPrinter = mode === "printer";
@@ -116,6 +118,12 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
   const [activeTab, setActiveTab] = useState("overview");
   const [helpMessage, setHelpMessage] = useState("");
   const [sendingHelp, setSendingHelp] = useState(false);
+  const [manualPaymentOpen, setManualPaymentOpen] = useState(false);
+  const [manualPaymentMethod, setManualPaymentMethod] = useState("eft");
+  const [manualPaymentReference, setManualPaymentReference] = useState("");
+  const [manualPaymentNote, setManualPaymentNote] = useState("");
+  const [manualPaymentConfirmed, setManualPaymentConfirmed] = useState(false);
+  const [manualPaymentSaving, setManualPaymentSaving] = useState(false);
 
   const load = async () => {
     const endpoint = isPrinter ? `/printer-dash/orders/${id}` : `/orders/${id}`;
@@ -172,6 +180,31 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
       setHelpMessage(""); toast.success("Help request sent");
     } catch (error) { toast.error(error.response?.data?.detail || "Could not send help request"); }
     finally { setSendingHelp(false); }
+  };
+
+  const recordManualPayment = async (event) => {
+    event.preventDefault();
+    if (manualPaymentSaving || !manualPaymentConfirmed || manualPaymentReference.trim().length < 2) return;
+    setManualPaymentSaving(true);
+    try {
+      await http.post(`/orders/${id}/manual-payment`, {
+        method: manualPaymentMethod,
+        reference: manualPaymentReference.trim(),
+        note: manualPaymentNote.trim(),
+        confirmed_received: true,
+      });
+      toast.success("Full offline payment recorded");
+      setManualPaymentOpen(false);
+      setManualPaymentReference("");
+      setManualPaymentNote("");
+      setManualPaymentConfirmed(false);
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Could not record offline payment");
+      await load().catch(() => {});
+    } finally {
+      setManualPaymentSaving(false);
+    }
   };
 
   const printDispatchInvoice = () => {
@@ -284,7 +317,73 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
 
     {activeTab === "shipping" && <div className="grid lg:grid-cols-2 gap-4"><Section title="Delivery address"><div className="font-bold">{shipping.full_name || "—"}</div><div className="text-sm mt-2 space-y-1">{addressLines(shipping).map((line) => <div key={line}>{line}</div>)}</div></Section><Section title="Tracking"><div className="space-y-2 text-sm"><div className="flex justify-between gap-4"><span className="ff-ui-muted">Method</span><span>{order.shipping_method_name || "—"}</span></div><div className="flex justify-between gap-4"><span className="ff-ui-muted">Courier</span><span>{courier || "—"}</span></div><div className="flex justify-between gap-4"><span className="ff-ui-muted">Tracking</span><span className="font-mono">{tracking || "—"}</span></div>{trackingUrl && <button type="button" className="ff-ui-button ff-ui-button--secondary w-full mt-3" onClick={() => copy(trackingUrl)}><Copy size={14} /> Copy tracking link</button>}<GroupDeliveryDetails order={order} /></div></Section></div>}
 
-    {activeTab === "payment" && <Section title="Payment"><div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3"><Stat label="Provider" value={order.payment_details?.provider || order.payment_provider || "—"} /><Stat label="Status" value={order.payment_details?.status || order.payment_status || "—"} /><Stat label="Amount" value={money(order.payment_details?.amount || order.total, order.payment_details?.currency || "ZAR")} />{isAdmin && <Stat label="Reference" value={short(order.payment_details?.reference || order.payment_reference)} />}</div>{isAdmin && <div className="mt-4 text-xs ff-ui-muted">Provider ID: {short(order.payment_details?.provider_payment_id || order.provider_payment_id, 28)} · Internal ID: {short(order.payment_details?.id || order.payment_id, 28)}</div>}</Section>}
+    {activeTab === "payment" && (
+      <Section title="Payment">
+        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <Stat label="Provider" value={order.payment_details?.provider || order.payment_provider || "—"} />
+          <Stat label="Status" value={order.payment_details?.status || order.payment_status || "—"} />
+          <Stat label="Amount" value={money(order.payment_details?.amount ?? order.total, order.payment_details?.currency || "ZAR")} />
+          {isAdmin && <Stat label="Reference" value={short(order.payment_details?.reference || order.payment_reference)} />}
+          {order.payment_details?.manual_method && <Stat label="Offline method" value={order.payment_details.manual_method.replaceAll("_", " ")} />}
+          {order.payment_details?.manual_reference && <Stat label="Receipt reference" value={order.payment_details.manual_reference} />}
+        </div>
+        {isAdmin && <div className="mt-4 text-xs ff-ui-muted">
+          Provider ID: {short(order.payment_details?.provider_payment_id || order.provider_payment_id, 28)}
+          {" · "}Internal ID: {short(order.payment_details?.id || order.payment_id, 28)}
+        </div>}
+        {isAdmin && user?.role === "super_admin" &&
+          !["paid", "refunded"].includes(order.payment_status) &&
+          !["cancelled", "refunded", "completed"].includes(order.status) &&
+          Number(order.total) > 0 && (
+            <div className="mt-5 border-t border-[var(--ff-card-border)] pt-4" data-testid="admin-manual-payment">
+              <h3 className="font-display text-xl uppercase mb-2">Record offline payment</h3>
+              <p className="text-sm ff-ui-muted mb-3">
+                Only after independently confirming receipt of the full amount.
+                This does not verify or reconcile a PayFast payment.
+              </p>
+              {!manualPaymentOpen ? (
+                <button type="button" className="ff-ui-button ff-ui-button--secondary"
+                  onClick={() => setManualPaymentOpen(true)}>Record manual payment</button>
+              ) : (
+                <form className="grid gap-3 max-w-xl" onSubmit={recordManualPayment}>
+                  <div className="text-sm font-bold">Full amount: {money(order.total)}</div>
+                  <label className="text-sm">Payment method
+                    <select className="ff-ui-input w-full" value={manualPaymentMethod}
+                      onChange={(event) => setManualPaymentMethod(event.target.value)}>
+                      <option value="eft">EFT / bank deposit</option>
+                      <option value="cash">Cash</option>
+                      <option value="card_terminal">Card terminal</option>
+                      <option value="other">Other offline method</option>
+                    </select>
+                  </label>
+                  <label className="text-sm">Receipt or bank reference
+                    <input className="ff-ui-input w-full" required minLength={2} maxLength={160}
+                      value={manualPaymentReference} placeholder="Verified transaction reference"
+                      onChange={(event) => setManualPaymentReference(event.target.value)} />
+                  </label>
+                  <label className="text-sm">Internal verification note (optional)
+                    <textarea className="ff-ui-input w-full" rows={2} maxLength={1000}
+                      value={manualPaymentNote} onChange={(event) => setManualPaymentNote(event.target.value)} />
+                  </label>
+                  <label className="flex items-start gap-2 text-sm">
+                    <input type="checkbox" className="mt-1" checked={manualPaymentConfirmed}
+                      onChange={(event) => setManualPaymentConfirmed(event.target.checked)} />
+                    I have verified receipt of the full {money(order.total)}.
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="ff-ui-button ff-ui-button--primary" type="submit"
+                      disabled={manualPaymentSaving || !manualPaymentConfirmed || manualPaymentReference.trim().length < 2}>
+                      {manualPaymentSaving ? "Recording..." : "Confirm full payment"}
+                    </button>
+                    <button className="ff-ui-button ff-ui-button--secondary" type="button"
+                      disabled={manualPaymentSaving} onClick={() => setManualPaymentOpen(false)}>Cancel</button>
+                  </div>
+                </form>
+              )}
+            </div>
+        )}
+      </Section>
+    )}
 
     {activeTab === "activity" && <ActivityTimeline orderId={id} title="Order Timeline" canAddNote={isAdmin || isPrinter} defaultAudience={isPrinter ? ["admin", "printer"] : isAdmin ? ["admin", "creator", "printer"] : ["admin"]} />}
   </div>;
