@@ -348,7 +348,7 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
                 <form className="grid gap-3 max-w-xl" onSubmit={recordManualPayment}>
                   <div className="text-sm font-bold">Full amount: {money(order.total)}</div>
                   <label className="text-sm">Payment method
-                    <select className="ff-ui-input w-full" value={manualPaymentMethod}
+                    <select className="input-base w-full" value={manualPaymentMethod}
                       onChange={(event) => setManualPaymentMethod(event.target.value)}>
                       <option value="eft">EFT / bank deposit</option>
                       <option value="cash">Cash</option>
@@ -357,12 +357,12 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
                     </select>
                   </label>
                   <label className="text-sm">Receipt or bank reference
-                    <input className="ff-ui-input w-full" required minLength={2} maxLength={160}
+                    <input className="input-base w-full" required minLength={2} maxLength={160}
                       value={manualPaymentReference} placeholder="Verified transaction reference"
                       onChange={(event) => setManualPaymentReference(event.target.value)} />
                   </label>
                   <label className="text-sm">Internal verification note (optional)
-                    <textarea className="ff-ui-input w-full" rows={2} maxLength={1000}
+                    <textarea className="input-base w-full" rows={2} maxLength={1000}
                       value={manualPaymentNote} onChange={(event) => setManualPaymentNote(event.target.value)} />
                   </label>
                   <label className="flex items-start gap-2 text-sm">
