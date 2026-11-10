@@ -151,7 +151,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
         </label>
         <span className="text-xs ff-admin-muted">{filtered.length} matching · {selected.length} selected</span>
       </div>
-      <div className="overflow-x-auto">
+      <div className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain" role="region" aria-label="Admin orders table" tabIndex={0}>
         <table className="table-brutal min-w-[1100px] w-full text-sm">
           <thead><tr>
             <th><input type="checkbox" aria-label="Select eligible orders on this page" checked={visibleFullySelected} disabled={!selectableVisible.length} onChange={togglePage} /></th>
