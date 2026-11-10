@@ -4,6 +4,8 @@ import DashboardLayout from "../components/DashboardLayout";
 import CreatorPayoutSettings from "../components/creator/CreatorPayoutSettings";
 import ProductBuilder from "../components/product-builder/ProductBuilder";
 import { http, assetUrl } from "../lib/api";
+import { usePlatformConfig } from "../lib/platform";
+import { makeMerchIdeasWhatsAppUrl } from "../lib/whatsapp";
 import {
   CREATOR_PRODUCTS_READY_REFRESH_EVENT,
   canPublishCreatorProduct,
@@ -153,6 +155,8 @@ function creatorProductStatusText(product) {
 }
 
 function Overview() {
+  const { platform } = usePlatformConfig();
+  const whatsappUrl = makeMerchIdeasWhatsAppUrl(platform.support_whatsapp);
   const [stats, setStats] = useState(null);
   const [creator, setCreator] = useState(null);
   const [subscription, setSubscription] = useState(null);
@@ -167,6 +171,18 @@ function Overview() {
     <div data-testid="creator-overview">
       <div className="overline mb-2">Creator Dashboard</div>
       <h1 className="font-display text-5xl uppercase mb-8">Overview</h1>
+      {whatsappUrl && (
+        <a href={whatsappUrl} target="_blank" rel="noopener noreferrer"
+          aria-label="WhatsApp us your merch ideas"
+          className="card card-interactive mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-[var(--ff-primary)]">
+          <div>
+            <h2 className="font-display text-2xl uppercase">WhatsApp us your merch ideas</h2>
+            <p className="text-sm ff-ui-muted mt-1">Got an idea? Message us and we will help you get started.</p>
+          </div>
+          <span className="btn-primary whitespace-nowrap">Start on WhatsApp</span>
+        </a>
+      )}
+
 
       {subscription && ["past_due", "suspended", "cancelled"].includes(subscription.status) && (
         <div className="card mb-6 border-[var(--ff-primary)] bg-[var(--ff-surface-bg)]">
