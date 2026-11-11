@@ -32,6 +32,11 @@ from pending_payment_worker import _review_cancellation, ensure_indexes
 
 
 @pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+@pytest.fixture
 async def db():
     uri = os.getenv("FF_PR141_TEST_MONGO_URI")
     if uri != "mongodb://127.0.0.1:27943":
