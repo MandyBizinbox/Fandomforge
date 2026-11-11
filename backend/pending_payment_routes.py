@@ -142,7 +142,8 @@ async def continue_existing_order_payment(token: str, request: Request):
     # Never create a second order, charge reference, or financial ledger row.
     # Reusing the existing merchant reference lets the canonical webhook
     # settle this same order if the buyer completes hosted checkout.
-    origin = base_url(request)
+    from pending_payment_worker import origin as trusted_public_origin
+    origin = trusted_public_origin()
     ref = payment["provider_reference"]
     callback = f"{origin}/order-confirmation/{order['id']}?reference={ref}"
     urls = {
