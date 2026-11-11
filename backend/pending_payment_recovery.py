@@ -162,3 +162,60 @@ Button not opening? Copy this secure link:<br>{escape(recovery_url)}</p>
 FandomForge · Merch made simple<br>This is an email about an order you placed.
 </div></div></body></html>"""
     return {"subject": subject, "body": plain, "html_body": html}
+
+
+def order_received_email(order: Mapping[str, Any], *, recovery_url: str) -> dict[str, str]:
+    """Branded checkout receipt with its saved-order recovery link."""
+    if not recovery_url.startswith("https://") or "?" in recovery_url:
+        raise ValueError("Recovery URL must be a secure capability URL")
+    number = str(order.get("order_number") or "your order")
+    recipient = str((order.get("shipping_address") or {}).get("full_name") or "there").split()[0]
+    total = format_zar(order.get("total"))
+    rows = _line_items(order)
+    plain_lines = "\\n".join(
+        f"- {item['name']} x{item['quantity']}: {format_zar(item['total'])}" for item in rows
+    )
+    plain = (
+        f"Hi {recipient},\\n\\nWe saved your order {number}.\\n"
+        f"{plain_lines}\\nShipping: {format_zar(order.get('shipping_total'))}"
+        f"\\nTotal: {total}\\n\\nYour order is awaiting payment. "
+        f"Review the saved items and continue securely:\\n{recovery_url}\\n\\n"
+        "Already paid? Do not pay twice. Reply to this email so we can check.\\n\\nFandomForge"
+    )
+    table_rows = "".join(
+        f'<tr><td style="padding:12px 0;border-bottom:1px solid #e5e7eb">'
+        f'{escape(item["name"])}<br><small>{escape(item["variant"] or "Standard")} · Qty {item["quantity"]}</small></td>'
+        f'<td style="padding:12px 0;border-bottom:1px solid #e5e7eb;text-align:right">'
+        f'{escape(format_zar(item["total"]))}</td></tr>'
+        for item in rows
+    )
+    subject = f"Your FandomForge order {number} is saved"
+    html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width"></head>
+<body style="background:#f3f4f6;margin:0;color:#111827;font-family:Arial,Helvetica,sans-serif">
+<div style="max-width:640px;margin:36px auto;background:white;border-radius:14px;overflow:hidden">
+<div style="background:#0b0b0d;padding:28px 32px;border-top:5px solid #ff9100">
+<strong style="font-size:21px;color:#ff9100;letter-spacing:1px">FANDOMFORGE</strong>
+<div style="color:#e5e7eb;font-size:12px;letter-spacing:2px;margin-top:6px">MERCH MADE SIMPLE</div></div>
+<div style="padding:32px">
+<div style="color:#b45309;font-size:12px;letter-spacing:2px;font-weight:bold">ORDER RECEIVED</div>
+<h1 style="font-size:28px;line-height:1.15;margin:12px 0">Your merch is on its way to becoming real.</h1>
+<p>Hi {escape(recipient)},</p>
+<p style="line-height:1.7">We've saved your order. Complete payment below so we can start processing it.</p>
+<div style="border:1px solid #e5e7eb;background:#f9fafb;padding:18px;border-radius:8px;margin:24px 0">
+<strong>Order {escape(number)}</strong>
+<table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;margin-top:8px">
+{table_rows}<tr><td style="padding-top:12px">Shipping</td><td style="text-align:right;padding-top:12px">{escape(format_zar(order.get("shipping_total")))}</td></tr>
+<tr><td style="padding-top:12px;font-size:18px;font-weight:bold">Total</td>
+<td style="text-align:right;padding-top:12px;font-size:22px;font-weight:bold">{escape(total)}</td></tr>
+</table></div>
+<a href="{escape(recovery_url, quote=True)}" style="display:block;background:#ff9100;color:#111827;
+border-radius:6px;padding:17px;text-align:center;font-weight:bold;text-decoration:none;text-transform:uppercase">
+Review Your Order &amp; Pay Securely</a>
+<p style="font-size:13px;color:#6b7280;line-height:1.6;margin-top:24px">
+Already paid? Don't pay twice. Reply to this email and we'll investigate.</p>
+<p style="font-size:12px;color:#6b7280;word-break:break-all">
+Copy this secure link if the button does not open:<br>{escape(recovery_url)}</p>
+</div><div style="background:#111827;color:#d1d5db;padding:22px 32px;font-size:12px">
+FandomForge · Merch made simple</div></div></body></html>"""
+    return {"subject": subject, "body": plain, "html_body": html}
