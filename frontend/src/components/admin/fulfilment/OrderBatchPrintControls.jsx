@@ -37,7 +37,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
   const pickingOrders = chosen.filter(productionOrder);
   const setSelectedSafe = (ids) => setSelected([...new Set(ids)]);
   const filtered = useMemo(() => orders.filter(order => {
-    const haystack = [order.order_number, order.buyer_email, order.status, order.payment_status, order.shipping_method_name, order.group_delivery_point_name, order.group_delivery_batch_date]
+    const haystack = [order.order_number, order.buyer_email, order.status, order.payment_status, order.payment_provider, order.shipping_method_name, order.group_delivery_point_name, order.group_delivery_batch_date]
       .map(value => String(value || "").toLowerCase()).join(" ");
     const matchesText = haystack.includes(query.trim().toLowerCase());
     const matchesFilter = filter === "all" ||
@@ -101,7 +101,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
     if (!openPrintDocument(html)) window.alert("Your browser blocked the print window. Enable pop-ups for FandomForge and retry.");
   };
   return (
-    <section className="ff-admin-card space-y-3" data-testid="order-batch-print-controls">
+    <section className="ff-admin-card space-y-3 w-full min-w-0 max-w-full" data-testid="order-batch-print-controls">
       <div className="flex flex-wrap gap-2 items-center justify-between">
         <div>
           <div className="font-semibold">Production printing</div>
@@ -151,11 +151,11 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
         </label>
         <span className="text-xs ff-admin-muted">{filtered.length} matching · {selected.length} selected</span>
       </div>
-      <div className="overflow-x-auto">
+      <div className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain" role="region" aria-label="Admin orders table" tabIndex={0}>
         <table className="table-brutal min-w-[1100px] w-full text-sm">
           <thead><tr>
             <th><input type="checkbox" aria-label="Select eligible orders on this page" checked={visibleFullySelected} disabled={!selectableVisible.length} onChange={togglePage} /></th>
-            <th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Delivery method</th><th>Scheduled batch</th><th>Payment</th><th>Status</th><th>Printer</th><th>Actions</th>
+            <th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Delivery method</th><th>Scheduled batch</th><th>Payment method</th><th>Payment</th><th>Status</th><th>Printer</th><th>Actions</th>
           </tr></thead>
           <tbody>
             {visible.map(order => {
@@ -171,6 +171,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
                 <td>R {Number(order.total || 0).toFixed(2)}</td>
                 <td className="text-xs">{order.shipping_method_name || order.shipping_method_key || "Not specified"}{order.shipping_method_key === "group_delivery" && order.group_delivery_point_name && <div className="ff-admin-muted">{order.group_delivery_point_name}</div>}</td>
                 <td className="text-xs whitespace-nowrap">{order.shipping_method_key === "group_delivery" ? <span className={displayBatchDate(groupDeliveryDate(order)) === "Date missing" ? "text-[var(--ff-primary)] font-bold" : "font-semibold"}>{displayBatchDate(groupDeliveryDate(order))}</span> : "—"}</td>
+                <td className="text-xs whitespace-nowrap">{order.payment_provider || "—"}</td>
                 <td>{order.payment_status || "unknown"}</td>
                 <td>{order.status || "unknown"}</td>
                 <td><select className="ff-admin-control py-1 text-xs" defaultValue="" onChange={event => event.target.value && onReassign?.(order.id, event.target.value)}>
@@ -183,7 +184,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
                 </td>
               </tr>;
             })}
-            {!visible.length && <tr><td colSpan={11} className="p-10 text-center ff-admin-muted">No matching orders</td></tr>}
+            {!visible.length && <tr><td colSpan={12} className="p-10 text-center ff-admin-muted">No matching orders</td></tr>}
           </tbody>
         </table>
       </div>

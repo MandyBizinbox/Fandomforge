@@ -2542,32 +2542,64 @@ class SubscriptionBillingSettingsUpdate(BaseModel):
     clear_secret_key: bool = False
 
 
-async def _mark_order_paid_from_payment(db, payment: dict, provider_payload: Optional[dict] = None) -> Optional[dict]:
+async def _mark_order_paid_from_payment(db, payment: dict, provider_payload: Optional[dict] = None, *, claim_id: Optional[str] = None) -> Optional[dict]:
     from payment_confirmation import validate_payment_confirmation
     if not payment or not payment.get("order_id"):
         if payment:
             validate_payment_confirmation(payment, None, provider_payload)
         return None
     order = await db.orders.find_one({"id": payment["order_id"]}, {"_id": 0})
+    # Do not let an old gateway attempt supersede a newer manual payment,
+    # or allow concurrent webhooks to finalize while an admin holds the claim.
+    if order and order.get("payment_id") and order["payment_id"] != payment.get("id"):
+        raise HTTPException(status_code=409, detail="Payment attempt is no longer active for this order")
+    if order and order.get("manual_payment_claim") and order["manual_payment_claim"] != claim_id:
+        raise HTTPException(status_code=409, detail="Order payment reconciliation is in progress")
     validate_payment_confirmation(payment, order, provider_payload)
     if not order:
         return None
     if order.get("payment_status") == "paid":
         return order
+    if order.get("payment_status") == "refunded" or order.get("status") in {"cancelled", "refunded"}:
+        raise HTTPException(status_code=409, detail="Order cannot be paid in its current state")
+
     now = datetime.now(timezone.utc).isoformat()
+    # Advance only checkout-stage orders; preserve fulfilment already in progress.
+    # Use a conditional update so concurrent webhook/admin confirmations cannot
+    # create duplicate wallet allocations, events, or customer notifications.
+    update_fields = {
+        "payment_status": "paid",
+        "payment_reference": payment.get("provider_reference"),
+        "provider_payment_id": payment.get("provider_payment_id"),
+        "updated_at": now,
+    }
+    if order.get("status") in {"pending_payment", "payment_failed"}:
+        update_fields["status"] = "sent_to_printer"
+
+    condition = {
+        "id": order["id"],
+        "payment_status": {"$nin": ["paid", "refunded"]},
+        "status": {"$nin": ["cancelled", "refunded"]},
+    }
+    if order.get("payment_id"):
+        condition["payment_id"] = payment["id"]
+    if claim_id:
+        condition["manual_payment_claim"] = claim_id
+    else:
+        condition["manual_payment_claim"] = {"$exists": False}
+    if "status" in update_fields:
+        condition["status"] = order.get("status")
+
+    result = await db.orders.update_one(condition, {"$set": update_fields})
+    if result.modified_count != 1:
+        latest = await db.orders.find_one({"id": order["id"]}, {"_id": 0})
+        if latest and latest.get("payment_status") == "paid":
+            return latest
+        raise HTTPException(status_code=409, detail="Order changed during payment confirmation")
+
     await db.payments.update_one(
         {"id": payment["id"]},
         {"$set": {"status": "completed", "completed_at": now, "provider_payload": provider_payload or {}}},
-    )
-    await db.orders.update_one(
-        {"id": order["id"]},
-        {"$set": {
-            "payment_status": "paid",
-            "status": "sent_to_printer",
-            "payment_reference": payment.get("provider_reference"),
-            "provider_payment_id": payment.get("provider_payment_id"),
-            "updated_at": now,
-        }},
     )
     refreshed = await db.orders.find_one({"id": order["id"]}, {"_id": 0})
     if refreshed:
@@ -2613,6 +2645,8 @@ async def _payment_summary_for_order(db, order: dict) -> Optional[dict]:
         "provider_payment_id": payment.get("provider_payment_id"),
         "created_at": payment.get("created_at"),
         "completed_at": payment.get("completed_at"),
+        "manual_method": payment.get("manual_method") if payment.get("provider") == "manual" else None,
+        "manual_reference": payment.get("manual_reference") if payment.get("provider") == "manual" else None,
     }
 
 
@@ -6922,6 +6956,277 @@ async def update_order_status(
     return Order(**doc)
 
 
+class ManualOrderPaymentRecord(BaseModel):
+    """Admin attestation of full offline funds received; NOT a gateway verification."""
+    method: str = Field(min_length=1)
+    reference: str = Field(min_length=2, max_length=160)
+    note: str = Field(default="", max_length=1000)
+    confirmed_received: bool = False
+
+
+@orders_router.get("/{order_id}/payment-history")
+async def admin_order_payment_history(
+    order_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    """Return a safe, ordered view of payment attempts for admin reconciliation.
+
+    Do not expose gateway secrets, full raw webhook payloads or customer banking data.
+    """
+    db = request.app.state.db
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    payments = await db.payments.find(
+        {"order_id": order_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return {
+        "order_id": order_id,
+        "order_number": order.get("order_number"),
+        "payment_status": order.get("payment_status"),
+        "order_total": order.get("total"),
+        "payments": [{
+            "id": payment.get("id"),
+            "provider": payment.get("provider"),
+            "status": payment.get("status"),
+            "amount": payment.get("amount"),
+            "currency": payment.get("currency") or "ZAR",
+            "reference": payment.get("provider_reference"),
+            "provider_payment_id": payment.get("provider_payment_id"),
+            "manual_method": payment.get("manual_method"),
+            "manual_reference": payment.get("manual_reference"),
+            "recorded_by": payment.get("recorded_by"),
+            "created_at": payment.get("created_at"),
+            "completed_at": payment.get("completed_at"),
+            "is_active": order.get("payment_id") == payment.get("id"),
+        } for payment in payments],
+    }
+
+
+@orders_router.post("/{order_id}/reconcile-payfast")
+async def admin_reconcile_order_payfast(
+    order_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    """Verify the original PayFast attempt with merchant transaction history.
+
+    A local payment ID or user-entered transaction number is not evidence.
+    Only a confirmed PayFast FUNDS_RECEIVED credit with matching amount and
+    currency can finalize an order. Missing history leaves the order unpaid.
+    """
+    db = request.app.state.db
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("payment_status") in {"paid", "refunded"}:
+        raise HTTPException(status_code=409, detail="Order is already paid or refunded")
+    if order.get("status") in {"cancelled", "refunded", "completed"}:
+        raise HTTPException(status_code=409, detail="Order status prevents payment reconciliation")
+
+    payment = await db.payments.find_one(
+        {"order_id": order_id, "provider": "payfast", "id": order.get("payment_id")},
+        {"_id": 0},
+    )
+    if not payment:
+        raise HTTPException(status_code=409, detail="No active PayFast payment attempt is linked to this order")
+
+    reference = str(payment.get("provider_reference") or "").strip()
+    if not reference:
+        raise HTTPException(status_code=409, detail="PayFast payment is missing its merchant reference")
+
+    claim = uid()
+    reserved = await db.orders.update_one(
+        {
+            "id": order_id,
+            "payment_id": payment["id"],
+            "payment_status": {"$nin": ["paid", "refunded"]},
+            "status": {"$nin": ["cancelled", "refunded", "completed"]},
+            "manual_payment_claim": {"$exists": False},
+        },
+        {"$set": {"manual_payment_claim": claim}},
+    )
+    if not reserved.modified_count:
+        raise HTTPException(status_code=409, detail="Order payment changed or is being reconciled")
+
+    try:
+        gateway = await _get_gateway_config(db, "payfast", masked=False)
+        adapter = get_payment_gateway_adapter("payfast")
+        try:
+            result = await adapter.verify_payment(reference, gateway)
+        except PaymentGatewayError as exc:
+            raise HTTPException(status_code=502, detail=f"PayFast verification unavailable: {exc}") from exc
+
+        if not result.get("paid"):
+            await add_order_event(
+                db, order=order, actor=user, kind="payment_updated",
+                title="PayFast reconciliation attempted",
+                message="No confirmed matching PayFast settlement was found. Order remains unpaid.",
+                audience=["admin"],
+                metadata={"provider": "payfast", "reference": reference, "result": "unconfirmed"},
+            )
+            return {
+                "verified": False,
+                "payment_status": order.get("payment_status"),
+                "message": "No confirmed PayFast credit found. No order changes made.",
+            }
+
+        # Independently enforce PayFast amount/order/currency checks before mutation.
+        from payment_confirmation import validate_payment_confirmation
+        current = await db.orders.find_one(
+            {"id": order_id, "payment_id": payment["id"], "manual_payment_claim": claim},
+            {"_id": 0},
+        )
+        if not current or current.get("payment_status") in {"paid", "refunded"}:
+            raise HTTPException(status_code=409, detail="Order changed during reconciliation")
+        validate_payment_confirmation(payment, current, result)
+        updated = await _mark_order_paid_from_payment(db, payment, result, claim_id=claim)
+        if not updated:
+            raise HTTPException(status_code=500, detail="Verified PayFast payment could not be applied")
+        await add_order_event(
+            db, order=updated, actor=user, kind="payment_updated",
+            title="PayFast payment reconciled",
+            message="Admin reconciled the order using verified PayFast merchant transaction history.",
+            audience=["admin"],
+            metadata={
+                "provider": "payfast", "reference": reference,
+                "payment_id": payment["id"], "verified_by": user.id,
+            },
+        )
+        return {
+            "verified": True,
+            "payment_status": updated.get("payment_status"),
+            "message": "PayFast credit verified and order marked paid.",
+        }
+    finally:
+        await db.orders.update_one(
+            {"id": order_id, "manual_payment_claim": claim},
+            {"$unset": {"manual_payment_claim": ""}},
+        )
+
+
+@orders_router.post("/{order_id}/manual-payment", response_model=Order)
+async def record_manual_order_payment(
+    order_id: str,
+    payload: ManualOrderPaymentRecord,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    """Record a full payment received externally, preserving gateway history.
+
+    This is deliberately not a PayFast reconciliation action: staff must verify
+    actual receipt through independent bank, cash or POS evidence.
+    """
+    method = payload.method.strip().lower()
+    reference = payload.reference.strip()
+    note = payload.note.strip()
+    if method not in {"eft", "cash", "card_terminal", "other"}:
+        raise HTTPException(status_code=422, detail="Select EFT, cash, card terminal or other")
+    if len(reference) < 2:
+        raise HTTPException(status_code=422, detail="A receipt or bank reference is required")
+    if not payload.confirmed_received:
+        raise HTTPException(status_code=422, detail="Confirm that full payment was independently received")
+
+    db = request.app.state.db
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("payment_status") == "paid":
+        raise HTTPException(status_code=409, detail="Order has already been paid")
+    if order.get("payment_status") == "refunded" or order.get("status") in {"cancelled", "refunded", "completed"}:
+        raise HTTPException(status_code=409, detail="Order status does not permit a manual payment")
+    if float(order.get("total") or 0) <= 0:
+        raise HTTPException(status_code=422, detail="Order must have a positive total")
+
+    # A claim prevents two admins from recording the same offline payment.
+    claim = uid()
+    reserved = await db.orders.update_one(
+        {
+            "id": order_id,
+            "payment_status": {"$nin": ["paid", "refunded"]},
+            "status": {"$nin": ["cancelled", "refunded", "completed"]},
+            "manual_payment_claim": {"$exists": False},
+        },
+        {"$set": {"manual_payment_claim": claim}},
+    )
+    if not reserved.modified_count:
+        raise HTTPException(status_code=409, detail="Order payment is being recorded or has changed")
+
+    try:
+        current = await db.orders.find_one({"id": order_id}, {"_id": 0})
+        if not current or current.get("payment_status") in {"paid", "refunded"}:
+            raise HTTPException(status_code=409, detail="Order payment status changed; reload the order")
+
+        now = datetime.now(timezone.utc).isoformat()
+        payment = Payment(
+            order_id=order_id,
+            user_id=user.id,
+            amount=float(current["total"]),
+            currency="ZAR",
+            provider="manual",
+            provider_reference=f"manual-{uid()}",
+            status="completed",
+            kind="order",
+        )
+        payment_doc = iso_dates(payment.model_dump())
+        payment_doc.update({
+            "completed_at": now,
+            "manual_method": method,
+            "manual_reference": reference,
+            "manual_note": note,
+            "recorded_by": user.id,
+            "recorded_at": now,
+            "previous_provider": current.get("payment_provider"),
+            "previous_payment_id": current.get("payment_id"),
+            "previous_reference": current.get("payment_reference"),
+        })
+        await db.payments.insert_one(payment_doc)
+        await db.orders.update_one(
+            {"id": order_id, "manual_payment_claim": claim},
+            {"$set": {
+                "payment_id": payment.id,
+                "payment_provider": "manual",
+                "payment_reference": payment.provider_reference,
+                "provider_payment_id": None,
+                "manual_payment_method": method,
+                "manual_payment_reference": reference,
+                "updated_at": now,
+            }},
+        )
+        updated = await _mark_order_paid_from_payment(db, payment_doc, {
+            "source": "admin_offline_payment",
+            "method": method,
+            "reference": reference,
+            "recorded_by": user.id,
+        }, claim_id=claim)
+        if not updated:
+            raise HTTPException(status_code=500, detail="Could not finalize offline payment")
+
+        await add_order_event(
+            db,
+            order=updated,
+            actor=user,
+            kind="payment_updated",
+            title="Offline payment recorded by admin",
+            message=f"Full payment confirmed by {user.id} ({method}), receipt: {reference}.",
+            audience=["admin"],
+            metadata={
+                "method": method, "reference": reference, "note": note,
+                "payment_id": payment.id, "recorded_by": user.id,
+                "amount": payment.amount,
+                "previous_provider": current.get("payment_provider"),
+            },
+        )
+        return Order(**(await _attach_order_payment_summary(db, updated)))
+    finally:
+        await db.orders.update_one(
+            {"id": order_id, "manual_payment_claim": claim},
+            {"$unset": {"manual_payment_claim": ""}},
+        )
+
+
 @orders_router.post("/{order_id}/assign-printer")
 async def assign_printer(
     order_id: str,
@@ -7134,7 +7439,7 @@ async def gateway_payment_webhook(gateway_key: str, request: Request):
                 {"$set": {"status": "failed", "completed_at": None, "provider_payload": payload, "provider_payment_id": provider_payment_id}},
             )
             if payment.get("order_id"):
-                await db.orders.update_one({"id": payment["order_id"]}, {"$set": {"payment_status": "failed", "provider_payment_id": provider_payment_id, "updated_at": now}})
+                await db.orders.update_one({"id": payment["order_id"], "payment_id": payment["id"], "payment_status": {"$nin": ["paid", "refunded"]}}, {"$set": {"payment_status": "failed", "provider_payment_id": provider_payment_id, "updated_at": now}})
         else:
             await db.payments.update_one(
                 {"id": payment["id"]},
@@ -7226,7 +7531,7 @@ async def gateway_payment_webhook(gateway_key: str, request: Request):
         if payment:
             await db.payments.update_one({"id": payment["id"]}, {"$set": {"status": "failed", "completed_at": None, "provider_payload": payload}})
             if payment.get("order_id"):
-                await db.orders.update_one({"id": payment["order_id"]}, {"$set": {"payment_status": "failed", "updated_at": now}})
+                await db.orders.update_one({"id": payment["order_id"], "payment_id": payment["id"], "payment_status": {"$nin": ["paid", "refunded"]}}, {"$set": {"payment_status": "failed", "updated_at": now}})
         if subscription:
             await _mark_subscription_failed_from_paystack(db, subscription, event, payload)
 
@@ -7296,7 +7601,7 @@ async def paystack_shop_checkout_callback(request: Request, reference: Optional[
             now = datetime.now(timezone.utc).isoformat()
             await db.payments.update_one({"id": payment["id"]}, {"$set": {"status": "failed", "provider_payload": result, "updated_at": now}})
             if payment.get("order_id"):
-                await db.orders.update_one({"id": payment["order_id"]}, {"$set": {"payment_status": "failed", "updated_at": now}})
+                await db.orders.update_one({"id": payment["order_id"], "payment_id": payment["id"], "payment_status": {"$nin": ["paid", "refunded"]}}, {"$set": {"payment_status": "failed", "updated_at": now}})
             status = "failed"
     except Exception as exc:
         logging.exception("Paystack shop callback verification failed for %s", payment_reference)

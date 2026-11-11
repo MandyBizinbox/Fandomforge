@@ -429,8 +429,8 @@ def install_finance_integrity(routes_main_module: Any) -> None:
     original_mark_paid = routes_main_module._mark_order_paid_from_payment
     original_manual = routes_main_module._finalize_paid_manual_order
 
-    async def wrapped_mark_paid(db, payment, provider_payload=None):
-        order = await original_mark_paid(db, payment, provider_payload)
+    async def wrapped_mark_paid(db, payment, provider_payload=None, *, claim_id=None):
+        order = await original_mark_paid(db, payment, provider_payload, claim_id=claim_id)
         if order:
             from .pricing import finalize_order_allocations
             order = await finalize_order_allocations(db, order)
