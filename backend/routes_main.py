@@ -7466,6 +7466,41 @@ async def gateway_payment_webhook(gateway_key: str, request: Request):
             from payment_confirmation import validate_payment_confirmation
             order = await db.orders.find_one({"id": payment.get("order_id")}, {"_id": 0})
             validate_payment_confirmation(payment, order, payload)
+            if order.get("status") == "cancelled":
+                # A hosted PayFast checkout can complete after a timed cancellation.
+                # Never book Creator/Printer earnings for a cancelled sale. Preserve
+                # verified funds as a manual refund/reinstatement exception instead.
+                now = datetime.now(timezone.utc).isoformat()
+                await db.payments.update_one(
+                    {"id": payment["id"]},
+                    {"$set": {
+                        "status": "completed",
+                        "completed_at": now,
+                        "provider_payment_id": provider_payment_id,
+                        "late_payment_requires_review": True,
+                        "provider_payload": payload,
+                    }},
+                )
+                await db.payment_reconciliation_exceptions.update_one(
+                    {"idempotency_key": f"late-credit:{payment['id']}"},
+                    {"$setOnInsert": {
+                        "idempotency_key": f"late-credit:{payment['id']}",
+                        "kind": "paid_after_cancellation",
+                        "order_id": order["id"],
+                        "payment_id": payment["id"],
+                        "status": "open",
+                        "amount": payment.get("amount"),
+                        "provider": gateway_key,
+                        "created_at": now,
+                    }},
+                    upsert=True,
+                )
+                return {
+                    "ok": True,
+                    "processed": True,
+                    "status": "late_paid_requires_review",
+                    "event": result.get("event"),
+                }
 
         now = datetime.now(timezone.utc).isoformat()
         if result.get("paid"):
