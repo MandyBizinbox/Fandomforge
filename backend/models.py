@@ -1388,6 +1388,14 @@ class Order(BaseModel):
     payment_status: Literal["pending", "paid", "failed", "refunded"] = "pending"
     payment_provider: str = "mock"
     payment_reference: Optional[str] = None
+    # Reminder state is deliberately distinct from the accounting payment_status.
+    payment_recovery_enabled: bool = False
+    payment_reminder_stage: int = 0
+    reminder_1_delivery: Optional[str] = None
+    reminder_1_sent_at: Optional[str] = None
+    reminder_2_delivery: Optional[str] = None
+    reminder_2_sent_at: Optional[str] = None
+    cancellation_review_required: bool = False
     provider_payment_id: Optional[str] = None
     payment_details: Optional[Dict[str, Any]] = None
     created_at: datetime = Field(default_factory=utcnow)
