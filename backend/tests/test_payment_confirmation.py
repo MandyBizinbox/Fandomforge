@@ -14,14 +14,32 @@ class Collection:
     def __init__(self, document):
         self.document = deepcopy(document)
 
+    def matches(self, query):
+        """Mimic the Mongo predicates used by order settlement."""
+        for key, expected in query.items():
+            actual = self.document.get(key)
+            if isinstance(expected, dict):
+                if "$exists" in expected and (key in self.document) != expected["$exists"]:
+                    return False
+                if "$nin" in expected and actual in expected["$nin"]:
+                    return False
+                if not set(expected).issubset({"$exists", "$nin"}):
+                    raise AssertionError(f"Unsupported test query operator for {key}")
+            elif actual != expected:
+                return False
+        return True
+
     async def find_one(self, query, projection=None, **kwargs):
-        if all(self.document.get(key) == value for key, value in query.items()):
-            return deepcopy(self.document)
-        return None
+        return deepcopy(self.document) if self.matches(query) else None
 
     async def update_one(self, query, update):
-        if all(self.document.get(key) == value for key, value in query.items()):
-            self.document.update(deepcopy(update.get('$set', {})))
+        if not self.matches(query):
+            return SimpleNamespace(matched_count=0, modified_count=0)
+        for key, value in deepcopy(update.get("$set", {})).items():
+            self.document[key] = value
+        for key in update.get("$unset", {}):
+            self.document.pop(key, None)
+        return SimpleNamespace(matched_count=1, modified_count=1)
 
 
 def database(provider='payfast'):
