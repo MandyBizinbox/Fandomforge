@@ -1217,6 +1217,7 @@ async def ensure_order_tracking_token(db, order: dict) -> dict:
 def customer_order_status_label(status: str) -> str:
     return {
         "pending_payment": "Awaiting payment",
+        "payment_overdue": "Payment overdue",
         "paid": "Order received",
         "awaiting_artwork_review": "Preparing artwork",
         "sent_to_printer": "Sent to production",
