@@ -115,6 +115,7 @@ async def health(request: Request):
 
 from auth import auth_router
 from password_recovery import password_recovery_router
+from pending_payment_routes import recovery_router
 import routes_main as routes_main_module
 from order_finance_patches import install_order_finance_patches
 install_order_finance_patches(routes_main_module)
