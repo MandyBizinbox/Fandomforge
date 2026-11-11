@@ -124,6 +124,9 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
   const [manualPaymentNote, setManualPaymentNote] = useState("");
   const [manualPaymentConfirmed, setManualPaymentConfirmed] = useState(false);
   const [manualPaymentSaving, setManualPaymentSaving] = useState(false);
+  const [paymentHistory, setPaymentHistory] = useState(null);
+  const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
+  const [reconcilingPayfast, setReconcilingPayfast] = useState(false);
 
   const load = async () => {
     const endpoint = isPrinter ? `/printer-dash/orders/${id}` : `/orders/${id}`;
@@ -182,6 +185,37 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
     finally { setSendingHelp(false); }
   };
 
+  const loadPaymentHistory = async () => {
+    if (!isAdmin || user?.role !== "super_admin") return;
+    setPaymentHistoryLoading(true);
+    try {
+      const response = await http.get(`/orders/${id}/payment-history`);
+      setPaymentHistory(response.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Could not load payment history");
+    } finally {
+      setPaymentHistoryLoading(false);
+    }
+  };
+
+  const reconcilePayfast = async () => {
+    if (reconcilingPayfast || !window.confirm(
+      "Check PayFast transaction history for this order? The order will only be marked paid if the matching PayFast credit is verified."
+    )) return;
+    setReconcilingPayfast(true);
+    try {
+      const response = await http.post(`/orders/${id}/reconcile-payfast`);
+      if (response.data?.verified) toast.success("PayFast payment verified and reconciled");
+      else toast.info(response.data?.message || "No matching PayFast credit confirmed");
+      await load();
+      await loadPaymentHistory();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "PayFast reconciliation could not be completed");
+    } finally {
+      setReconcilingPayfast(false);
+    }
+  };
+
   const recordManualPayment = async (event) => {
     event.preventDefault();
     if (manualPaymentSaving || !manualPaymentConfirmed || manualPaymentReference.trim().length < 2) return;
@@ -199,6 +233,7 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
       setManualPaymentNote("");
       setManualPaymentConfirmed(false);
       await load();
+      await loadPaymentHistory();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Could not record offline payment");
       await load().catch(() => {});
@@ -319,6 +354,48 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
 
     {activeTab === "payment" && (
       <Section title="Payment">
+        {isAdmin && user?.role === "super_admin" && (
+          <div className="mb-5 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <button type="button" className="ff-ui-button ff-ui-button--secondary"
+              disabled={paymentHistoryLoading} onClick={loadPaymentHistory}>
+              {paymentHistoryLoading ? "Loading payments..." : "View payment attempts"}
+            </button>
+            {order.payment_status !== "paid" &&
+              order.payment_status !== "refunded" &&
+              !["cancelled", "refunded", "completed"].includes(order.status) &&
+              order.payment_provider === "payfast" && (
+                <button type="button" className="ff-ui-button ff-ui-button--primary"
+                  disabled={reconcilingPayfast} onClick={reconcilePayfast}>
+                  {reconcilingPayfast ? "Checking PayFast..." : "Verify payment with PayFast"}
+                </button>
+              )}
+          </div>
+        )}
+        {isAdmin && user?.role === "super_admin" && paymentHistory && (
+          <div className="mb-5" data-testid="admin-payment-history">
+            <h3 className="font-display text-xl uppercase mb-2">Payment attempts</h3>
+            <p className="text-xs ff-ui-muted mb-3">Only the active, verified payment can settle the order. Previous checkout attempts are retained.</p>
+            <div className="max-w-full overflow-x-auto" role="region" aria-label="Order payment history" tabIndex={0}>
+              <table className="table-brutal min-w-[700px] text-sm w-full">
+                <thead><tr><th>Recorded</th><th>Provider</th><th>Status</th><th>Amount</th><th>Reference</th><th>Active</th></tr></thead>
+                <tbody>
+                  {(paymentHistory.payments || []).map((payment) => (
+                    <tr key={payment.id}>
+                      <td className="whitespace-nowrap">{payment.created_at ? new Date(payment.created_at).toLocaleString("en-ZA") : "—"}</td>
+                      <td>{payment.provider || "—"}{payment.manual_method ? ` (${payment.manual_method.replaceAll("_", " ")})` : ""}</td>
+                      <td>{payment.status || "—"}</td>
+                      <td>{money(payment.amount)}</td>
+                      <td className="font-mono text-xs">{payment.manual_reference || payment.reference || "—"}</td>
+                      <td>{payment.is_active ? "Yes" : "No"}</td>
+                    </tr>
+                  ))}
+                  {!(paymentHistory.payments || []).length && <tr><td colSpan={6} className="text-center ff-ui-muted">No payment attempts recorded</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
           <Stat label="Provider" value={order.payment_details?.provider || order.payment_provider || "—"} />
           <Stat label="Status" value={order.payment_details?.status || order.payment_status || "—"} />
