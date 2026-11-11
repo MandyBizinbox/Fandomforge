@@ -70,6 +70,13 @@ async def lifespan(app: FastAPI):
         worker_id = f"api-{os.getpid()}"
         email_task = asyncio.create_task(dashboard_email_delivery_loop(app.state.db, worker_id), name=f"fandomforge-email-{worker_id}")
         app.state.email_delivery_task = email_task
+        from pending_payment_worker import enabled as payment_recovery_enabled, pending_payment_recovery_loop
+        if payment_recovery_enabled():
+            payment_recovery_task = asyncio.create_task(
+                pending_payment_recovery_loop(app.state.db),
+                name=f"fandomforge-payment-recovery-{worker_id}",
+            )
+            app.state.payment_recovery_task = payment_recovery_task
         logger.info("Seed, launch-integrity indexes and email-delivery startup checks complete")
     except Exception as exc:
         logger.exception("Startup checks failed: %s", exc)
