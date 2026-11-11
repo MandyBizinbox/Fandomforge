@@ -15,6 +15,18 @@ from test_manual_order_payment import Collection, example_order
 
 def payment_fixture(monkeypatch, status="pending_payment", provider="manual"):
     order = example_order()
+    # Use a commercially balanced order: runtime launch-integrity finance
+    # rejects a non-zero subtotal paired with an empty item list.
+    order["items"] = [{
+        "id": "item-1", "product_id": "product-1",
+        "product_title": "Isolated test garment",
+        "band_id": "creator-1", "printer_id": "printer-1",
+        "variation_id": "variation-1", "size": "M", "color": "Black",
+        "quantity": 1, "unit_price": 250.0, "print_cost_unit": 90.0,
+        "commission_rate": 0.1, "commission_amount": 25.0,
+        "band_earnings": 45.0, "printer_payout": 180.0,
+        "production_snapshot": {},
+    }]
     order["status"] = status
     order["payment_status"] = "pending"
     order["payment_id"] = "pay-1"
@@ -42,6 +54,31 @@ def payment_fixture(monkeypatch, status="pending_payment", provider="manual"):
     monkeypatch.setattr(routes, "ensure_wallet_transactions_for_order", wallet)
     monkeypatch.setattr(routes, "add_order_event", audit)
     monkeypatch.setattr(routes, "queue_customer_order_email", email)
+
+    # These tests target core payment state transitions. The launch-integrity
+    # wrappers are installed during full-suite collection, so suppress unrelated
+    # ledger/job/legacy payout mutations in this minimal in-memory fixture.
+    from launch_integrity import finance as finance_module
+    from launch_integrity import install as install_module
+    import order_finance_patches
+
+    async def pass_through_allocation(database, settled):
+        return settled
+
+    async def no_financial_side_effects(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "launch_integrity.pricing.finalize_order_allocations",
+        pass_through_allocation,
+    )
+    monkeypatch.setattr(finance_module, "post_paid_order_events", no_financial_side_effects)
+    monkeypatch.setattr(install_module, "ensure_job_for_item", no_financial_side_effects)
+    monkeypatch.setattr(
+        order_finance_patches,
+        "_ensure_legacy_commission_and_payout_records",
+        no_financial_side_effects,
+    )
     return db, payment, events, wallet_calls, emails
 
 
