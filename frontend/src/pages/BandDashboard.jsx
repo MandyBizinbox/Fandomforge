@@ -26,6 +26,8 @@ import {
   Copy,
   Clock3,
   Bell,
+  MessageCircle,
+  ArrowUpRight,
 } from "lucide-react";
 import StatusBadge from "../components/StatusBadge";
 import OrderDetail from "../components/OrderDetail";
@@ -171,19 +173,6 @@ function Overview() {
     <div data-testid="creator-overview">
       <div className="overline mb-2">Creator Dashboard</div>
       <h1 className="font-display text-5xl uppercase mb-8">Overview</h1>
-      {whatsappUrl && (
-        <a href={whatsappUrl} target="_blank" rel="noopener noreferrer"
-          aria-label="WhatsApp us your merch ideas"
-          className="card card-interactive mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-[var(--ff-primary)]">
-          <div>
-            <h2 className="font-display text-2xl uppercase">WhatsApp us your merch ideas</h2>
-            <p className="text-sm ff-ui-muted mt-1">Got an idea? Message us and we will help you get started.</p>
-          </div>
-          <span className="btn-primary whitespace-nowrap">Start on WhatsApp</span>
-        </a>
-      )}
-
-
       {subscription && ["past_due", "suspended", "cancelled"].includes(subscription.status) && (
         <div className="card mb-6 border-[var(--ff-primary)] bg-[var(--ff-surface-bg)]">
           <div className="overline mb-2">Subscription Attention</div>
@@ -240,7 +229,7 @@ function Overview() {
         ))}
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6 mt-8">
+      <div className={`grid gap-6 mt-8 ${whatsappUrl ? "md:grid-cols-2 xl:grid-cols-3" : "md:grid-cols-2"}`}>
         <Link to="/creator/products/new" className="card card-interactive">
           <Package className="text-[var(--ff-primary)] mb-4" />
           <h2 className="font-display text-3xl uppercase mb-2">Add Product</h2>
@@ -252,12 +241,29 @@ function Overview() {
           <h2 className="font-display text-3xl uppercase mb-2">Edit Storefront</h2>
           <p className="text-[var(--ff-muted-text)] text-sm">Update creator name, bio, logo, banner and socials.</p>
         </Link>
+
+        {whatsappUrl && (
+          <a href={whatsappUrl} target="_blank" rel="noopener noreferrer"
+            aria-label="WhatsApp us your merch ideas"
+            className="card card-interactive border-[var(--ff-primary)]">
+            <MessageCircle className="text-[var(--ff-primary)] mb-4" aria-hidden="true" />
+            <h2 className="font-display text-3xl uppercase mb-2">Merch Idea? Chat to Us</h2>
+            <p className="text-[var(--ff-muted-text)] text-sm">
+              Have a design in mind? Send us your idea on WhatsApp and we will help you get started.
+            </p>
+            <span className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--ff-primary)] mt-4">
+              Start on WhatsApp <ArrowUpRight size={14} aria-hidden="true" />
+            </span>
+          </a>
+        )}
       </div>
     </div>
   );
 }
 
 function ProductsList() {
+  const { platform } = usePlatformConfig();
+  const whatsappUrl = makeMerchIdeasWhatsAppUrl(platform.support_whatsapp);
   const [products, setProducts] = useState([]);
   const [q, setQ] = useState("");
   const [publishingProductId, setPublishingProductId] = useState("");
@@ -333,13 +339,24 @@ function ProductsList() {
           <h1 className="font-display text-5xl uppercase">Products</h1>
         </div>
 
-        <button
-          type="button"
-          onClick={() => navigate("/creator/products/new")}
-          className="btn-primary"
-        >
-          <Plus size={14} /> New Product
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {whatsappUrl && (
+            <a href={whatsappUrl} target="_blank" rel="noopener noreferrer"
+              aria-label="WhatsApp us your merch ideas"
+              className="btn-secondary inline-flex items-center gap-2">
+              <MessageCircle size={14} aria-hidden="true" />
+              WhatsApp Your Merch Idea
+              <ArrowUpRight size={14} aria-hidden="true" />
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => navigate("/creator/products/new")}
+            className="btn-primary"
+          >
+            <Plus size={14} /> New Product
+          </button>
+        </div>
       </div>
 
       <div className="mb-6 max-w-md">
