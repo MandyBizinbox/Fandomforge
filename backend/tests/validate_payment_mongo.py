@@ -31,10 +31,26 @@ async def run():
     if prefix == production or len(prefix) < 28:
         raise SystemExit("Refusing database test: database name is not safely isolated")
     database_name = prefix + "_" + uuid4().hex[:12]
+
+    # Match backend/server.py's real production installation order, not the
+    # unwrapped routes_main functions. Server import does NOT run lifespan,
+    # background workers, migrations, email delivery or gateway requests.
+    # Override the DB target before import so all created clients point to
+    # the disposable test DB, never to the production DB name.
+    os.environ["MONGO_URL"] = uri
+    os.environ["DB_NAME"] = database_name
+    os.environ["E2E_TEST_MODE"] = "0"
+    import server
+    assert server.db_name == database_name
+    assert routes._launch_integrity_installed
+    assert routes._launch_finance_integrity_installed
+    assert routes._order_finance_patches_installed
+
     client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=5000)
     db = client[database_name]
     events = []
     emails = []
+    job_calls = []
 
     async def event_stub(database, **kwargs):
         events.append(kwargs)
@@ -42,9 +58,18 @@ async def run():
     async def email_stub(database, **kwargs):
         emails.append(kwargs)
 
+    async def production_job_stub(database, **kwargs):
+        # Exercise the installed job dispatch wrapper without creating real
+        # production work or requiring printer operations settings.
+        job_calls.append(kwargs)
+        return None
+
+    from launch_integrity import install as launch_install
     real_event, real_email = routes.add_order_event, routes.queue_customer_order_email
+    real_job = launch_install.ensure_job_for_item
     routes.add_order_event = event_stub
     routes.queue_customer_order_email = email_stub
+    launch_install.ensure_job_for_item = production_job_stub
 
     def make_order(number, status="in_production", provider="payfast"):
         item = OrderItem(
@@ -91,7 +116,13 @@ async def run():
             "order_id": order["id"], "provider": "payfast", "status": "pending"
         }) == 1
         wallet_count = await db.wallet_transactions.count_documents({"order_id": order["id"]})
-        assert wallet_count == 3, f"Expected exactly 3 distinct wallet entries, found {wallet_count}"
+        assert wallet_count >= 3, f"Expected creator, printer and platform ledger entries; found {wallet_count}"
+        assert await db.commissions.count_documents({"order_id": order["id"]}) == 1
+        assert await db.payouts.count_documents({"order_id": order["id"]}) == 1
+        assert await db.orders.count_documents({
+            "id": order["id"], "financial_snapshot_status": "allocated"
+        }) == 1
+        assert len(job_calls) == 1, "Installed production wrapper must dispatch one job"
         try:
             await routes.record_manual_order_payment(order["id"], payload, request, user)
         except HTTPException as exc:
@@ -102,7 +133,7 @@ async def run():
         await routes.ensure_wallet_transactions_for_order(db, await db.orders.find_one({"id": order["id"]}))
         assert await db.wallet_transactions.count_documents({"order_id": order["id"]}) == wallet_count
         assert not (await db.orders.find_one({"id": order["id"]})).get("manual_payment_claim")
-        print("PASS: real Mongo EFT settlement, preserved fulfilment, gateway history, duplicate guard, wallet idempotence")
+        print("PASS: installed runtime EFT settlement, finance ledger, payouts, printer-job dispatch, status preservation, duplicate guard")
 
         second = make_order("MF-ISOLATED-PF", status="sent_to_printer")
         second.update(payment_id="payfast-active", payment_reference="PF-ACTIVE")
@@ -120,16 +151,23 @@ async def run():
         settled = await routes._mark_order_paid_from_payment(db, payfast, payload)
         assert settled["payment_status"] == "paid"
         assert settled["status"] == "sent_to_printer"
-        assert await db.wallet_transactions.count_documents({"order_id": second["id"]}) == 3
+        payfast_wallet_count = await db.wallet_transactions.count_documents({"order_id": second["id"]})
+        assert payfast_wallet_count >= 3
+        assert await db.commissions.count_documents({"order_id": second["id"]}) == 1
+        assert await db.payouts.count_documents({"order_id": second["id"]}) == 1
+        assert len(job_calls) == 2, "Installed production wrapper should dispatch a job for both orders"
         await routes._mark_order_paid_from_payment(db, payfast, payload)
-        assert await db.wallet_transactions.count_documents({"order_id": second["id"]}) == 3
+        assert await db.wallet_transactions.count_documents({"order_id": second["id"]}) == payfast_wallet_count
+        assert await db.commissions.count_documents({"order_id": second["id"]}) == 1
+        assert await db.payouts.count_documents({"order_id": second["id"]}) == 1
         assert await db.payments.count_documents({"order_id": second["id"]}) == 1
-        print("PASS: real Mongo PayFast settlement, progress preservation and repeated confirmation")
+        print("PASS: installed runtime PayFast settlement, immutable finance snapshot, idempotent ledger and confirmation")
         print(f"PASS: {len(events)} internal audit event calls and {len(emails)} outbound-email calls were stubbed")
-        print("NO LIVE ORDERS, PAYMENTS, EMAILS OR GATEWAY REQUESTS WERE TOUCHED")
+        print("NO LIVE ORDERS, PAYMENTS, EMAILS, PRINTER JOBS OR GATEWAY REQUESTS WERE TOUCHED")
     finally:
         routes.add_order_event = real_event
         routes.queue_customer_order_email = real_email
+        launch_install.ensure_job_for_item = real_job
         if database_name.startswith("fandomforge_disposable_test_") and database_name != production:
             await client.drop_database(database_name)
             print("Disposable test database removed:", database_name)
