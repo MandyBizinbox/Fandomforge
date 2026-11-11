@@ -1366,7 +1366,7 @@ def customer_order_payload(order: dict, request: Request) -> dict:
     }
 
 
-async def queue_customer_order_email(db, *, order: dict, subject: str, body: str) -> None:
+async def queue_customer_order_email(db, *, order: dict, subject: str, body: str, html_body: str = "") -> None:
     try:
         email_address = order.get("buyer_email")
         if not email_address:
@@ -1380,7 +1380,10 @@ async def queue_customer_order_email(db, *, order: dict, subject: str, body: str
             status="queued",
             created_at=utcnow(),
         )
-        await db.notification_emails.insert_one(notification_email_doc(email))
+        email_doc = notification_email_doc(email)
+        if html_body:
+            email_doc["html_body"] = html_body
+        await db.notification_emails.insert_one(email_doc)
     except Exception:
         logging.getLogger("fandomforge.customer_emails").exception("Failed to queue customer email")
 
@@ -6566,12 +6569,8 @@ async def checkout(
         audience=["admin", "creator", "printer", "all"],
         metadata={"source": "checkout", "total": order.total},
     )
-    await queue_customer_order_email(
-        db,
-        order=doc,
-        subject=f"Order {order.order_number} received",
-        body=f"Your order {order.order_number} has been received. Track it here: {tracking_url_for_order(request, doc)}",
-    )
+    # Receipt is queued only after the gateway attempt and existing-order
+    # recovery link have been prepared successfully.
 
     gateway_key = (payload.payment_provider or "manual_eft").strip()
     gateway = await _get_gateway_config(db, gateway_key, masked=False)
@@ -6693,6 +6692,24 @@ async def checkout(
                 "payment_reminder_stage": 0,
                 "payment_recovery_version": "v1",
             }},
+        )
+        from pending_payment_recovery import order_received_email
+        from pending_payment_routes import make_recovery_link
+        saved_order = await db.orders.find_one({"id": order.id}, {"_id": 0})
+        recovery_link = await make_recovery_link(
+            db, saved_order, stage=0, origin=public_base_url(request),
+        )
+        mail = order_received_email(saved_order, recovery_url=recovery_link)
+        await queue_customer_order_email(
+            db, order=saved_order, subject=mail["subject"],
+            body=mail["body"], html_body=mail["html_body"],
+        )
+    else:
+        await queue_customer_order_email(
+            db,
+            order=doc,
+            subject=f"Order {order.order_number} received",
+            body=f"Your order {order.order_number} has been received. Track it here: {tracking_url_for_order(request, doc)}",
         )
     return checkout_response
 
