@@ -2560,20 +2560,46 @@ async def _mark_order_paid_from_payment(db, payment: dict, provider_payload: Opt
         return None
     if order.get("payment_status") == "paid":
         return order
+    if order.get("payment_status") == "refunded" or order.get("status") in {"cancelled", "refunded"}:
+        raise HTTPException(status_code=409, detail="Order cannot be paid in its current state")
+
     now = datetime.now(timezone.utc).isoformat()
+    # Advance only checkout-stage orders; preserve fulfilment already in progress.
+    # Use a conditional update so concurrent webhook/admin confirmations cannot
+    # create duplicate wallet allocations, events, or customer notifications.
+    update_fields = {
+        "payment_status": "paid",
+        "payment_reference": payment.get("provider_reference"),
+        "provider_payment_id": payment.get("provider_payment_id"),
+        "updated_at": now,
+    }
+    if order.get("status") in {"pending_payment", "payment_failed"}:
+        update_fields["status"] = "sent_to_printer"
+
+    condition = {
+        "id": order["id"],
+        "payment_status": {"$nin": ["paid", "refunded"]},
+        "status": {"$nin": ["cancelled", "refunded"]},
+    }
+    if order.get("payment_id"):
+        condition["payment_id"] = payment["id"]
+    if claim_id:
+        condition["manual_payment_claim"] = claim_id
+    else:
+        condition["manual_payment_claim"] = {"$exists": False}
+    if "status" in update_fields:
+        condition["status"] = order.get("status")
+
+    result = await db.orders.update_one(condition, {"$set": update_fields})
+    if result.modified_count != 1:
+        latest = await db.orders.find_one({"id": order["id"]}, {"_id": 0})
+        if latest and latest.get("payment_status") == "paid":
+            return latest
+        raise HTTPException(status_code=409, detail="Order changed during payment confirmation")
+
     await db.payments.update_one(
         {"id": payment["id"]},
         {"$set": {"status": "completed", "completed_at": now, "provider_payload": provider_payload or {}}},
-    )
-    await db.orders.update_one(
-        {"id": order["id"]},
-        {"$set": {
-            "payment_status": "paid",
-            "status": "sent_to_printer",
-            "payment_reference": payment.get("provider_reference"),
-            "provider_payment_id": payment.get("provider_payment_id"),
-            "updated_at": now,
-        }},
     )
     refreshed = await db.orders.find_one({"id": order["id"]}, {"_id": 0})
     if refreshed:
