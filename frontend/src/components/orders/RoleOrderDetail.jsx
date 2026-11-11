@@ -306,7 +306,19 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
         {backTo && <button type="button" onClick={() => navigate(backTo)} className="text-xs uppercase tracking-widest ff-ui-muted hover:text-[var(--ff-card-text)] mb-4 inline-flex items-center gap-2"><ArrowLeft size={14} /> Back</button>}
         <div className="overline mb-1">Order</div>
         <h1 className="font-display text-4xl md:text-5xl uppercase" data-testid={`${testidPrefix}-number`}>{order.order_number}</h1>
-        <div className="flex flex-wrap items-center gap-2 mt-3"><StatusBadge status={order.status} testId={`${testidPrefix}-status`} /><StatusBadge status={order.payment_status} /><span className="text-xs ff-ui-muted">{new Date(order.created_at).toLocaleString()}</span></div>
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <StatusBadge status={order.status} testId={`${testidPrefix}-status`} />
+          <StatusBadge status={order.payment_status} />
+          {order.payment_reminder_stage > 0 && (
+            <span className="badge-warning">
+              Payment reminder {order.payment_reminder_stage} of 2
+            </span>
+          )}
+          {order.cancellation_review_required && (
+            <span className="badge-error">Payment cancellation review</span>
+          )}
+          <span className="text-xs ff-ui-muted">{new Date(order.created_at).toLocaleString()}</span>
+        </div>
       </div>
       <div className="flex flex-wrap gap-2">
         {(isAdmin || isCreator) && <button type="button" className="ff-ui-button ff-ui-button--secondary" onClick={printDispatchInvoice}><FileText size={14} /> Print / PDF invoice</button>}
