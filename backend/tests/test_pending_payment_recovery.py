@@ -55,6 +55,7 @@ def test_second_reminder_requires_first_delivery():
     order = sample_order(age_hours=48, stage=1)
     assert recovery_due_stage(order, datetime.now(timezone.utc)) == 0
     order["reminder_1_delivery"] = "sent"
+    order["reminder_1_sent_at"] = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     assert recovery_due_stage(order, datetime.now(timezone.utc)) == 2
 
 
@@ -64,6 +65,7 @@ def test_cancellation_review_requires_both_confirmed_email_deliveries():
     order["reminder_1_delivery"] = "sent"
     assert recovery_due_stage(order, datetime.now(timezone.utc)) == 0
     order["reminder_2_delivery"] = "sent"
+    order["reminder_2_sent_at"] = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     assert recovery_due_stage(order, datetime.now(timezone.utc)) == 3
 
 
@@ -84,3 +86,17 @@ def test_reminder_email_has_plain_and_html_and_escapes_products():
 def test_recovery_link_requires_safe_format(url):
     with pytest.raises(ValueError):
         payment_reminder_email(sample_order(), stage=1, recovery_url=url)
+
+
+def test_second_notice_cannot_follow_immediately_after_delayed_first():
+    order = sample_order(age_hours=100, stage=1)
+    order["reminder_1_delivery"] = "sent"
+    order["reminder_1_sent_at"] = datetime.now(timezone.utc).isoformat()
+    assert recovery_due_stage(order, datetime.now(timezone.utc)) == 0
+
+
+def test_cancellation_cannot_follow_immediately_after_delayed_second():
+    order = sample_order(age_hours=100, stage=2)
+    order["reminder_2_delivery"] = "sent"
+    order["reminder_2_sent_at"] = datetime.now(timezone.utc).isoformat()
+    assert recovery_due_stage(order, datetime.now(timezone.utc)) == 0
