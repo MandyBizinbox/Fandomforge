@@ -2542,13 +2542,19 @@ class SubscriptionBillingSettingsUpdate(BaseModel):
     clear_secret_key: bool = False
 
 
-async def _mark_order_paid_from_payment(db, payment: dict, provider_payload: Optional[dict] = None) -> Optional[dict]:
+async def _mark_order_paid_from_payment(db, payment: dict, provider_payload: Optional[dict] = None, *, claim_id: Optional[str] = None) -> Optional[dict]:
     from payment_confirmation import validate_payment_confirmation
     if not payment or not payment.get("order_id"):
         if payment:
             validate_payment_confirmation(payment, None, provider_payload)
         return None
     order = await db.orders.find_one({"id": payment["order_id"]}, {"_id": 0})
+    # Do not let an old gateway attempt supersede a newer manual payment,
+    # or allow concurrent webhooks to finalize while an admin holds the claim.
+    if order and order.get("payment_id") and order["payment_id"] != payment.get("id"):
+        raise HTTPException(status_code=409, detail="Payment attempt is no longer active for this order")
+    if order and order.get("manual_payment_claim") and order["manual_payment_claim"] != claim_id:
+        raise HTTPException(status_code=409, detail="Order payment reconciliation is in progress")
     validate_payment_confirmation(payment, order, provider_payload)
     if not order:
         return None
@@ -7050,7 +7056,7 @@ async def admin_reconcile_order_payfast(
         if not current or current.get("payment_status") in {"paid", "refunded"}:
             raise HTTPException(status_code=409, detail="Order changed during reconciliation")
         validate_payment_confirmation(payment, current, result)
-        updated = await _mark_order_paid_from_payment(db, payment, result)
+        updated = await _mark_order_paid_from_payment(db, payment, result, claim_id=claim)
         if not updated:
             raise HTTPException(status_code=500, detail="Verified PayFast payment could not be applied")
         await add_order_event(
@@ -7168,7 +7174,7 @@ async def record_manual_order_payment(
             "method": method,
             "reference": reference,
             "recorded_by": user.id,
-        })
+        }, claim_id=claim)
         if not updated:
             raise HTTPException(status_code=500, detail="Could not finalize offline payment")
 
