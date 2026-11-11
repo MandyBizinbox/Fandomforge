@@ -27,11 +27,6 @@ def payment_fixture(monkeypatch, status="pending_payment", provider="manual"):
         "band_earnings": 45.0, "printer_payout": 180.0,
         "production_snapshot": None,
     }]
-    # Preserve the real-world optional snapshot shape so the allocator's
-    # null-handling regression remains represented by this fixture.
-    assert order["items"][0]["production_snapshot"] is None or isinstance(
-        order["items"][0]["production_snapshot"], dict
-    )
     order["status"] = status
     order["payment_status"] = "pending"
     order["payment_id"] = "pay-1"
@@ -161,3 +156,25 @@ def test_cancelled_order_does_not_settle(monkeypatch):
     assert error.value.status_code == 409
     assert db.orders.docs[0]["payment_status"] == "pending"
     assert not wallet_calls
+
+
+def test_finance_allocator_accepts_nullable_production_snapshot():
+    """The real OrderItem model permits None; a paid order must still allocate."""
+    from launch_integrity.pricing import finalize_order_allocations
+
+    order = example_order()
+    order["items"] = [{
+        "id": "item-null-snapshot", "product_id": "product-1",
+        "product_title": "Test Shirt", "band_id": "creator-1",
+        "printer_id": "printer-1", "variation_id": "variation-1",
+        "size": "M", "color": "Black", "quantity": 1,
+        "unit_price": 250.0, "commission_amount": 25.0,
+        "band_earnings": 45.0, "printer_payout": 180.0,
+        "production_snapshot": None,
+    }]
+    db = SimpleNamespace(orders=Collection([order]))
+    settled = asyncio.run(finalize_order_allocations(db, order))
+    item = settled["items"][0]
+    assert item["production_snapshot"]["commercial_snapshot"]["subtotal"] == 250.0
+    assert item["financial_snapshot"]["allocation_status"] == "allocated"
+    assert settled["financial_snapshot_status"] == "allocated"
