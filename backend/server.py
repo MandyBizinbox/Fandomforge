@@ -28,6 +28,7 @@ logger = logging.getLogger("fandomforge")
 async def lifespan(app: FastAPI):
     app.state.db = client[db_name]
     email_task = None
+    payment_recovery_task = None
     try:
         from seed import seed_if_empty
         from seed_production_operations import seed_production_operations
