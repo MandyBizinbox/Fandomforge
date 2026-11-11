@@ -1260,6 +1260,7 @@ class CartItem(BaseModel):
 # ------------ ORDER ------------
 OrderStatus = Literal[
     "pending_payment",
+    "payment_overdue",
     "paid",
     "awaiting_artwork_review",
     "sent_to_printer",
