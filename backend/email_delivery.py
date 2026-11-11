@@ -248,6 +248,23 @@ async def deliver_claimed_email(db, row: dict, settings: EmailDeliverySettings) 
     query = {"id": message_id} if message_id else {"_id": row.get("_id")}
     attempts = int(row.get("attempt_count") or 0) + 1
 
+    # An email may sit in the SMTP queue while the buyer completes payment.
+    # Never send a stale payment demand after settlement or cancellation.
+    if row.get("recovery_order_id"):
+        order = await db.orders.find_one(
+            {"id": row["recovery_order_id"]},
+            {"_id": 0, "payment_status": 1, "status": 1},
+        )
+        if not order or order.get("payment_status") != "pending" or order.get("status") not in {"pending_payment", "payment_overdue"}:
+            patch = {
+                "status": "suppressed",
+                "error": "Payment reminder no longer applies to this order",
+                "claimed_at": None,
+                "claimed_by": None,
+            }
+            await db.notification_emails.update_one(query, {"$set": patch})
+            return patch
+
     try:
         await asyncio.to_thread(_send_message, row, settings)
     except Exception as exc:
