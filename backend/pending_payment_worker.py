@@ -54,16 +54,22 @@ async def _update_delivery_status(db, order: dict) -> dict:
     for stage in (1, 2):
         row = await db.notification_emails.find_one(
             {"recovery_key": f"pending-payment:{order['id']}:{stage}"},
-            {"_id": 0, "status": 1},
+            {"_id": 0, "status": 1, "sent_at": 1},
         )
         delivery = (row or {}).get("status")
         key = f"reminder_{stage}_delivery"
+        sent_key = f"reminder_{stage}_sent_at"
+        patch = {}
         if delivery and delivery != refreshed.get(key):
+            patch[key] = delivery
+        if delivery == "sent" and row.get("sent_at") and row["sent_at"] != refreshed.get(sent_key):
+            patch[sent_key] = row["sent_at"]
+        if patch:
             await db.orders.update_one(
                 {"id": order["id"], "payment_status": "pending"},
-                {"$set": {key: delivery}},
+                {"$set": patch},
             )
-            refreshed[key] = delivery
+            refreshed.update(patch)
     return refreshed
 
 
