@@ -6932,6 +6932,149 @@ class ManualOrderPaymentRecord(BaseModel):
     confirmed_received: bool = False
 
 
+@orders_router.get("/{order_id}/payment-history")
+async def admin_order_payment_history(
+    order_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    """Return a safe, ordered view of payment attempts for admin reconciliation.
+
+    Do not expose gateway secrets, full raw webhook payloads or customer banking data.
+    """
+    db = request.app.state.db
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    payments = await db.payments.find(
+        {"order_id": order_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return {
+        "order_id": order_id,
+        "order_number": order.get("order_number"),
+        "payment_status": order.get("payment_status"),
+        "order_total": order.get("total"),
+        "payments": [{
+            "id": payment.get("id"),
+            "provider": payment.get("provider"),
+            "status": payment.get("status"),
+            "amount": payment.get("amount"),
+            "currency": payment.get("currency") or "ZAR",
+            "reference": payment.get("provider_reference"),
+            "provider_payment_id": payment.get("provider_payment_id"),
+            "manual_method": payment.get("manual_method"),
+            "manual_reference": payment.get("manual_reference"),
+            "recorded_by": payment.get("recorded_by"),
+            "created_at": payment.get("created_at"),
+            "completed_at": payment.get("completed_at"),
+            "is_active": order.get("payment_id") == payment.get("id"),
+        } for payment in payments],
+    }
+
+
+@orders_router.post("/{order_id}/reconcile-payfast")
+async def admin_reconcile_order_payfast(
+    order_id: str,
+    request: Request,
+    user: User = Depends(require_role("super_admin")),
+):
+    """Verify the original PayFast attempt with merchant transaction history.
+
+    A local payment ID or user-entered transaction number is not evidence.
+    Only a confirmed PayFast FUNDS_RECEIVED credit with matching amount and
+    currency can finalize an order. Missing history leaves the order unpaid.
+    """
+    db = request.app.state.db
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("payment_status") in {"paid", "refunded"}:
+        raise HTTPException(status_code=409, detail="Order is already paid or refunded")
+    if order.get("status") in {"cancelled", "refunded", "completed"}:
+        raise HTTPException(status_code=409, detail="Order status prevents payment reconciliation")
+
+    payment = await db.payments.find_one(
+        {"order_id": order_id, "provider": "payfast", "id": order.get("payment_id")},
+        {"_id": 0},
+    )
+    if not payment:
+        raise HTTPException(status_code=409, detail="No active PayFast payment attempt is linked to this order")
+
+    reference = str(payment.get("provider_reference") or "").strip()
+    if not reference:
+        raise HTTPException(status_code=409, detail="PayFast payment is missing its merchant reference")
+
+    claim = uid()
+    reserved = await db.orders.update_one(
+        {
+            "id": order_id,
+            "payment_id": payment["id"],
+            "payment_status": {"$nin": ["paid", "refunded"]},
+            "status": {"$nin": ["cancelled", "refunded", "completed"]},
+            "manual_payment_claim": {"$exists": False},
+        },
+        {"$set": {"manual_payment_claim": claim}},
+    )
+    if not reserved.modified_count:
+        raise HTTPException(status_code=409, detail="Order payment changed or is being reconciled")
+
+    try:
+        gateway = await _get_gateway_config(db, "payfast", masked=False)
+        adapter = get_payment_gateway_adapter("payfast")
+        try:
+            result = await adapter.verify_payment(reference, gateway)
+        except PaymentGatewayError as exc:
+            raise HTTPException(status_code=502, detail=f"PayFast verification unavailable: {exc}") from exc
+
+        if not result.get("paid"):
+            await add_order_event(
+                db, order=order, actor=user, kind="payment_updated",
+                title="PayFast reconciliation attempted",
+                message="No confirmed matching PayFast settlement was found. Order remains unpaid.",
+                audience=["admin"],
+                metadata={"provider": "payfast", "reference": reference, "result": "unconfirmed"},
+            )
+            return {
+                "verified": False,
+                "payment_status": order.get("payment_status"),
+                "message": "No confirmed PayFast credit found. No order changes made.",
+            }
+
+        # Independently enforce PayFast amount/order/currency checks before mutation.
+        from payment_confirmation import validate_payment_confirmation
+        current = await db.orders.find_one(
+            {"id": order_id, "payment_id": payment["id"], "manual_payment_claim": claim},
+            {"_id": 0},
+        )
+        if not current or current.get("payment_status") in {"paid", "refunded"}:
+            raise HTTPException(status_code=409, detail="Order changed during reconciliation")
+        validate_payment_confirmation(payment, current, result)
+        updated = await _mark_order_paid_from_payment(db, payment, result)
+        if not updated:
+            raise HTTPException(status_code=500, detail="Verified PayFast payment could not be applied")
+        await add_order_event(
+            db, order=updated, actor=user, kind="payment_updated",
+            title="PayFast payment reconciled",
+            message="Admin reconciled the order using verified PayFast merchant transaction history.",
+            audience=["admin"],
+            metadata={
+                "provider": "payfast", "reference": reference,
+                "payment_id": payment["id"], "verified_by": user.id,
+            },
+        )
+        return {
+            "verified": True,
+            "payment_status": updated.get("payment_status"),
+            "message": "PayFast credit verified and order marked paid.",
+        }
+    finally:
+        await db.orders.update_one(
+            {"id": order_id, "manual_payment_claim": claim},
+            {"$unset": {"manual_payment_claim": ""}},
+        )
+
+
 @orders_router.post("/{order_id}/manual-payment", response_model=Order)
 async def record_manual_order_payment(
     order_id: str,
