@@ -100,3 +100,31 @@ def test_cancellation_cannot_follow_immediately_after_delayed_second():
     order["reminder_2_delivery"] = "sent"
     order["reminder_2_sent_at"] = datetime.now(timezone.utc).isoformat()
     assert recovery_due_stage(order, datetime.now(timezone.utc)) == 0
+
+
+def test_branded_email_sender_creates_html_and_text_alternatives():
+    from email_delivery import EmailDeliverySettings, _build_message
+
+    settings = EmailDeliverySettings(
+        from_email="support@example.com", from_name="FandomForge",
+        reply_to="support@example.com", smtp_host="smtp.example.com",
+        smtp_port=587, smtp_username="", smtp_password="",
+        smtp_starttls=True, smtp_ssl=False, sendmail_path="",
+        max_attempts=3, poll_seconds=30,
+    )
+    order = sample_order()
+    template = payment_reminder_email(
+        order, stage=1,
+        recovery_url="https://fandomforge.co.za/order-payment/test_secure_token",
+    )
+    message = _build_message(
+        {"id": "reminder-1", "recipient_email": "buyer@example.com", **template},
+        settings,
+    )
+    assert message.get_content_type() == "multipart/alternative"
+    parts = list(message.iter_parts())
+    assert [part.get_content_type() for part in parts] == [
+        "text/plain", "text/html",
+    ]
+    assert "saved order" in parts[0].get_content()
+    assert "<html" in parts[1].get_content()
