@@ -25,8 +25,13 @@ def payment_fixture(monkeypatch, status="pending_payment", provider="manual"):
         "quantity": 1, "unit_price": 250.0, "print_cost_unit": 90.0,
         "commission_rate": 0.1, "commission_amount": 25.0,
         "band_earnings": 45.0, "printer_payout": 180.0,
-        "production_snapshot": {},
+        "production_snapshot": None,
     }]
+    # Preserve the real-world optional snapshot shape so the allocator's
+    # null-handling regression remains represented by this fixture.
+    assert order["items"][0]["production_snapshot"] is None or isinstance(
+        order["items"][0]["production_snapshot"], dict
+    )
     order["status"] = status
     order["payment_status"] = "pending"
     order["payment_id"] = "pay-1"
