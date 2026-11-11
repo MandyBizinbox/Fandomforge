@@ -74,7 +74,7 @@ def setup(monkeypatch):
     )
     events = []
 
-    async def mark_paid(database, payment, provider_payload):
+    async def mark_paid(database, payment, provider_payload, *, claim_id=None):
         await database.orders.update_one(
             {"id": payment["order_id"]},
             {"$set": {"payment_status": "paid", "status": "sent_to_printer"}},
