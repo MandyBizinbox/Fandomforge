@@ -6685,7 +6685,8 @@ async def checkout(
         )
     # Only newly completed gateway checkouts enter the reminder lifecycle.
     # Legacy pending orders are never bulk-enrolled or cancelled.
-    if gateway_key in {"payfast", "paystack", "peach"}:
+    from pending_payment_worker import enabled as payment_recovery_enabled
+    if gateway_key in {"payfast", "paystack", "peach"} and payment_recovery_enabled():
         await db.orders.update_one(
             {"id": order.id, "payment_id": payment.id, "payment_status": "pending"},
             {"$set": {
