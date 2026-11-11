@@ -85,6 +85,10 @@ async def lifespan(app: FastAPI):
         email_task.cancel()
         with suppress(asyncio.CancelledError):
             await email_task
+    if payment_recovery_task:
+        payment_recovery_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await payment_recovery_task
     client.close()
 
 
