@@ -6693,17 +6693,28 @@ async def checkout(
                 "payment_recovery_version": "v1",
             }},
         )
-        from pending_payment_recovery import order_received_email
-        from pending_payment_routes import make_recovery_link
-        saved_order = await db.orders.find_one({"id": order.id}, {"_id": 0})
-        recovery_link = await make_recovery_link(
-            db, saved_order, stage=0, origin=public_base_url(request),
-        )
-        mail = order_received_email(saved_order, recovery_url=recovery_link)
-        await queue_customer_order_email(
-            db, order=saved_order, subject=mail["subject"],
-            body=mail["body"], html_body=mail["html_body"],
-        )
+        try:
+            from pending_payment_recovery import order_received_email
+            from pending_payment_routes import make_recovery_link
+            from pending_payment_worker import origin as payment_recovery_origin
+            saved_order = await db.orders.find_one({"id": order.id}, {"_id": 0})
+            recovery_link = await make_recovery_link(
+                db, saved_order, stage=0, origin=payment_recovery_origin(),
+            )
+            mail = order_received_email(saved_order, recovery_url=recovery_link)
+            await queue_customer_order_email(
+                db, order=saved_order, subject=mail["subject"],
+                body=mail["body"], html_body=mail["html_body"],
+            )
+        except Exception:
+            logging.getLogger("fandomforge.payment_recovery").exception(
+                "Order recovery email failed for %s; checkout payment remains valid", order.id
+            )
+            await queue_customer_order_email(
+                db, order=doc,
+                subject=f"Order {order.order_number} received",
+                body=f"We received your order. Track it here: {tracking_url_for_order(request, doc)}",
+            )
     else:
         await queue_customer_order_email(
             db,
