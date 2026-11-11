@@ -259,7 +259,7 @@ async def test_late_payfast_webhook_creates_one_exception_without_wallets(db):
             routes_main, "ensure_wallet_transactions_for_order",
             new=AsyncMock(),
         ) as wallet,
-        patch("payment_gateways.get_payment_gateway_adapter", return_value=SignedFakePayFast()),
+        patch.object(routes_main, "get_payment_gateway_adapter", return_value=SignedFakePayFast()),
     ):
         first = await routes_main.gateway_payment_webhook("payfast", request)
         second = await routes_main.gateway_payment_webhook("payfast", request)
