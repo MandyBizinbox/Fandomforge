@@ -59,9 +59,13 @@ def recovery_due_stage(order: Mapping[str, Any], now: datetime) -> int:
     if stage == 0 and age >= timedelta(hours=REMINDER_1_HOURS):
         return 1
     if stage == 1 and order.get("reminder_1_delivery") == "sent" and age >= timedelta(hours=REMINDER_2_HOURS):
-        return 2
+        sent_at = order.get("reminder_1_sent_at")
+        if sent_at and now.astimezone(timezone.utc) - utc_date(sent_at) >= timedelta(hours=24):
+            return 2
     if stage == 2 and order.get("reminder_2_delivery") == "sent" and age >= timedelta(hours=CANCELLATION_REVIEW_HOURS):
-        return 3
+        sent_at = order.get("reminder_2_sent_at")
+        if sent_at and now.astimezone(timezone.utc) - utc_date(sent_at) >= timedelta(hours=24):
+            return 3
     return 0
 
 
