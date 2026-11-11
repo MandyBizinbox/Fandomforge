@@ -150,6 +150,7 @@ install_payout_retry_guard(payout_launch_routes_module)
 
 api_router.include_router(auth_router)
 api_router.include_router(password_recovery_router)
+api_router.include_router(recovery_router)
 api_router.include_router(integrity_router)
 api_router.include_router(printer_gate_router)
 api_router.include_router(printer_ops_router)
