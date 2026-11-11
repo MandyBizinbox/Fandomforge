@@ -165,8 +165,8 @@ def install_order_finance_patches(routes_main_module):
         order_items = [_normalise_order_item_finance(item) for item in order_items]
         return order_items, subtotal
 
-    async def patched_mark_order_paid_from_payment(db, payment, payload=None):
-        order = await original_mark_order_paid(db, payment, payload)
+    async def patched_mark_order_paid_from_payment(db, payment, payload=None, *, claim_id=None):
+        order = await original_mark_order_paid(db, payment, payload, claim_id=claim_id)
         if order:
             await _ensure_legacy_commission_and_payout_records(routes_main_module, db, order)
         return order
