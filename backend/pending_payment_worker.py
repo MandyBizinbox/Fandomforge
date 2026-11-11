@@ -43,6 +43,7 @@ def origin() -> str:
 async def ensure_indexes(db):
     await db.order_payment_recovery_links.create_index("token_sha256", unique=True)
     await db.notification_emails.create_index("recovery_key", unique=True, sparse=True)
+    await db.payment_reconciliation_exceptions.create_index("idempotency_key", unique=True)
     await db.orders.create_index([
         ("payment_recovery_enabled", 1), ("payment_status", 1), ("created_at", 1),
     ])
@@ -127,7 +128,8 @@ async def _review_cancellation(db, order: dict, now: datetime):
 
     await db.orders.update_one(
         {"id": order["id"], "payment_status": "pending"},
-        {"$set": {"status": "payment_overdue", "cancellation_review_required": True}},
+        {"$set": {"status": "payment_overdue", "cancellation_review_required": True,
+                  "last_cancellation_review_at": now.isoformat()}},
     )
     payment = await db.payments.find_one(
         {"id": order.get("payment_id"), "order_id": order["id"]},
@@ -159,10 +161,23 @@ async def _review_cancellation(db, order: dict, now: datetime):
             return "review_settlement_failure"
         return "settled"
 
-    # Only an explicitly terminal provider result permits automatic cancellation.
-    if str(result.get("status") or "").lower() not in {
+    # Terminal gateway failures are safe to cancel. PayFast's authenticated
+    # 62-day merchant-history scan can additionally justify cancellation after
+    # the customer's two actually delivered reminders, but this riskier case
+    # needs a separately approved explicit flag. Provider/API errors fail shut.
+    provider_status = str(result.get("status") or "").lower()
+    terminal_unpaid = provider_status in {
         "failed", "cancelled", "canceled", "expired", "declined",
-    }:
+    }
+    payfast_history_checked_unpaid = (
+        provider == "payfast"
+        and provider_status == "pending"
+        and result.get("paid") is False
+        and result.get("reference") == payment.get("provider_reference")
+        and isinstance(result.get("raw"), (dict, list))
+        and os.getenv("FF_PENDING_PAYMENT_CANCEL_UNCONFIRMED_PAYFAST", "false").lower() == "true"
+    )
+    if not terminal_unpaid and not payfast_history_checked_unpaid:
         return "review_unconfirmed_not_paid"
 
     changed = await db.orders.update_one(
@@ -220,6 +235,12 @@ async def process_pending_payment_recovery_once(db, *, now=None, limit=50) -> di
                     {"$set": {"status": "payment_overdue"}},
                 )
         elif stage == 3:
+            last_review = order.get("last_cancellation_review_at")
+            if last_review:
+                from pending_payment_recovery import utc_date
+                if now - utc_date(last_review) < timedelta(hours=6):
+                    results["skipped"] += 1
+                    continue
             outcome = await _review_cancellation(db, order, now)
             results[
                 "cancelled" if outcome == "cancelled"
