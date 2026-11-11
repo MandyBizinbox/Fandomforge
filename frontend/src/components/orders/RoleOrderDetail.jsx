@@ -9,7 +9,7 @@ import ProductionPackSummary from "../production/ProductionPackSummary";
 import ActivityTimeline from "../activity/ActivityTimeline";
 
 const ORDER_STATUS = [
-  "pending_payment", "paid", "awaiting_artwork_review", "sent_to_printer",
+  "pending_payment", "payment_overdue", "paid", "awaiting_artwork_review", "sent_to_printer",
   "in_production", "ready_for_dispatch", "shipped", "completed", "cancelled", "refunded",
 ];
 const ITEM_STATUS = ["pending", "accepted", "in_production", "ready", "shipped", "delivered"];
