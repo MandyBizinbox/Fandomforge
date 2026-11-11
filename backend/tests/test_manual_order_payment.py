@@ -183,3 +183,90 @@ def test_manual_payment_rejects_cancelled_orders(monkeypatch):
         ))
     assert error.value.status_code == 409
     assert db.payments.docs == []
+
+
+def test_payfast_reconciliation_marks_paid_only_with_matching_credit(monkeypatch):
+    db, events, request, user = setup(monkeypatch)
+    payment = {
+        "id": "payfast-1",
+        "order_id": "order-1",
+        "provider": "payfast",
+        "provider_reference": "PF-MERCHANT-1",
+        "amount": 250.0,
+        "currency": "ZAR",
+        "status": "pending",
+        "kind": "order",
+    }
+    db.payments.docs.append(deepcopy(payment))
+    db.orders.docs[0].update({
+        "payment_id": payment["id"], "payment_provider": "payfast",
+        "payment_reference": payment["provider_reference"],
+    })
+
+    async def config(database, key, masked=False):
+        assert key == "payfast"
+        return {"key": "payfast"}
+
+    class VerifiedAdapter:
+        async def verify_payment(self, reference, config):
+            assert reference == "PF-MERCHANT-1"
+            return {
+                "paid": True,
+                "reference": reference,
+                "amount_gross": 250.00,
+                "raw": {"Gross": "250.00", "Type": "FUNDS_RECEIVED", "Sign": "CREDIT"},
+            }
+
+    monkeypatch.setattr(routes, "_get_gateway_config", config)
+    monkeypatch.setattr(routes, "get_payment_gateway_adapter", lambda key: VerifiedAdapter())
+    result = asyncio.run(routes.admin_reconcile_order_payfast("order-1", request, user))
+    assert result["verified"] is True
+    assert db.orders.docs[0]["payment_status"] == "paid"
+    assert any(event["title"] == "PayFast payment reconciled" for event in events)
+
+
+def test_payfast_reconciliation_unconfirmed_leaves_order_unpaid(monkeypatch):
+    db, events, request, user = setup(monkeypatch)
+    db.payments.docs.append({
+        "id": "payfast-2", "order_id": "order-1", "provider": "payfast",
+        "provider_reference": "PF-MERCHANT-2", "amount": 250.0,
+        "currency": "ZAR", "status": "pending",
+    })
+    db.orders.docs[0].update({
+        "payment_id": "payfast-2", "payment_provider": "payfast",
+    })
+    async def config(database, key, masked=False):
+        return {"key": "payfast"}
+    class UnconfirmedAdapter:
+        async def verify_payment(self, reference, config):
+            return {"paid": False, "status": "pending", "reference": reference}
+    monkeypatch.setattr(routes, "_get_gateway_config", config)
+    monkeypatch.setattr(routes, "get_payment_gateway_adapter", lambda key: UnconfirmedAdapter())
+    result = asyncio.run(routes.admin_reconcile_order_payfast("order-1", request, user))
+    assert result["verified"] is False
+    assert db.orders.docs[0]["payment_status"] == "pending"
+    assert "manual_payment_claim" not in db.orders.docs[0]
+
+
+def test_payfast_reconciliation_rejects_amount_mismatch(monkeypatch):
+    db, events, request, user = setup(monkeypatch)
+    db.payments.docs.append({
+        "id": "payfast-3", "order_id": "order-1", "provider": "payfast",
+        "provider_reference": "PF-MERCHANT-3", "amount": 250.0,
+        "currency": "ZAR", "status": "pending",
+    })
+    db.orders.docs[0].update({
+        "payment_id": "payfast-3", "payment_provider": "payfast",
+    })
+    async def config(database, key, masked=False):
+        return {"key": "payfast"}
+    class WrongAmountAdapter:
+        async def verify_payment(self, reference, config):
+            return {"paid": True, "amount_gross": 200.0, "raw": {"Gross": "200.00"}}
+    monkeypatch.setattr(routes, "_get_gateway_config", config)
+    monkeypatch.setattr(routes, "get_payment_gateway_adapter", lambda key: WrongAmountAdapter())
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(routes.admin_reconcile_order_payfast("order-1", request, user))
+    assert error.value.status_code == 409
+    assert db.orders.docs[0]["payment_status"] == "pending"
+    assert "manual_payment_claim" not in db.orders.docs[0]
