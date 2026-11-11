@@ -176,15 +176,15 @@ def order_received_email(order: Mapping[str, Any], *, recovery_url: str) -> dict
     recipient = str((order.get("shipping_address") or {}).get("full_name") or "there").split()[0]
     total = format_zar(order.get("total"))
     rows = _line_items(order)
-    plain_lines = "\\n".join(
+    plain_lines = "\n".join(
         f"- {item['name']} x{item['quantity']}: {format_zar(item['total'])}" for item in rows
     )
     plain = (
-        f"Hi {recipient},\\n\\nWe saved your order {number}.\\n"
-        f"{plain_lines}\\nShipping: {format_zar(order.get('shipping_total'))}"
-        f"\\nTotal: {total}\\n\\nYour order is awaiting payment. "
-        f"Review the saved items and continue securely:\\n{recovery_url}\\n\\n"
-        "Already paid? Do not pay twice. Reply to this email so we can check.\\n\\nFandomForge"
+        f"Hi {recipient},\n\nWe saved your order {number}.\n"
+        f"{plain_lines}\nShipping: {format_zar(order.get('shipping_total'))}"
+        f"\nTotal: {total}\n\nYour order is awaiting payment. "
+        f"Review the saved items and continue securely:\n{recovery_url}\n\n"
+        "Already paid? Do not pay twice. Reply to this email so we can check.\n\nFandomForge"
     )
     table_rows = "".join(
         f'<tr><td style="padding:12px 0;border-bottom:1px solid #e5e7eb">'
