@@ -167,8 +167,8 @@ def install_launch_integrity(app: Any, core: Any) -> None:
 
     marked_paid = core._mark_order_paid_from_payment
 
-    async def marked_paid_with_jobs(db, payment, provider_payload=None):
-        order = await marked_paid(db, payment, provider_payload)
+    async def marked_paid_with_jobs(db, payment, provider_payload=None, *, claim_id=None):
+        order = await marked_paid(db, payment, provider_payload, claim_id=claim_id)
         if not order:
             return order
 
