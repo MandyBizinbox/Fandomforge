@@ -150,6 +150,9 @@ def _build_message(row: dict, settings: EmailDeliverySettings) -> EmailMessage:
         message["Reply-To"] = settings.reply_to
     message["X-FandomForge-Message-ID"] = str(row.get("id") or row.get("notification_id") or "")
     message.set_content(body or subject)
+    html_body = str(row.get("html_body") or "").strip()
+    if html_body:
+        message.add_alternative(html_body, subtype="html")
     return message
 
 
