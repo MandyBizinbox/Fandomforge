@@ -416,7 +416,11 @@ async def finalize_order_allocations(db, order: Dict[str, Any]) -> Dict[str, Any
             "allocation_status": "allocated",
         })
         snapshot["allocation_sha256"] = stable_hash(snapshot)
-        # Pydantic OrderItem serializes an absent optional snapshot as None.\n        # setdefault does not replace an existing None, so normalize it here.\n        production_snapshot = row.get("production_snapshot") or {}\n        row["production_snapshot"] = production_snapshot\n        production_snapshot["commercial_snapshot"] = snapshot
+        # Pydantic OrderItem serializes an absent optional snapshot as None.
+        # setdefault does not replace an existing None, so normalize it here.
+        production_snapshot = row.get("production_snapshot") or {}
+        row["production_snapshot"] = production_snapshot
+        production_snapshot["commercial_snapshot"] = snapshot
         row["financial_snapshot"] = snapshot
         item_totals.append(subtotal)
     expected_subtotal = money(order.get("subtotal"))
