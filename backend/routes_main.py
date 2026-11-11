@@ -2577,7 +2577,7 @@ async def _mark_order_paid_from_payment(db, payment: dict, provider_payload: Opt
         "provider_payment_id": payment.get("provider_payment_id"),
         "updated_at": now,
     }
-    if order.get("status") in {"pending_payment", "payment_failed"}:
+    if order.get("status") in {"pending_payment", "payment_overdue", "payment_failed"}:
         update_fields["status"] = "sent_to_printer"
 
     condition = {
