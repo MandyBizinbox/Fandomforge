@@ -10465,6 +10465,34 @@ async def admin_set_printer_status(
     return {"ok": True}
 
 
+class InternalStockOrderedUpdate(BaseModel):
+    stock_ordered: bool
+
+
+@admin_router.patch("/orders/{order_id}/stock-ordered")
+async def admin_update_stock_ordered(
+    order_id: str,
+    payload: InternalStockOrderedUpdate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Internal procurement marker only: no order-status or customer email event."""
+    _require_manager_permission(user, "manage_orders")
+    db = request.app.state.db
+    now = datetime.now(timezone.utc).isoformat()
+    updates = {
+        "stock_ordered": payload.stock_ordered,
+        "stock_ordered_at": now if payload.stock_ordered else None,
+        "stock_ordered_by": user.id if payload.stock_ordered else None,
+    }
+    result = await db.orders.update_one(
+        {"id": order_id, "archived": {"$ne": True}}, {"$set": updates},
+    )
+    if result.matched_count != 1:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return {"order_id": order_id, **updates}
+
+
 @admin_router.get("/orders", response_model=List[Order])
 async def admin_orders(
     request: Request,
