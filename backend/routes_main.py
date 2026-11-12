@@ -7405,7 +7405,6 @@ async def payment_webhook(request: Request):
     return await gateway_payment_webhook("payfast", request)
 
 
-@payments_router.post("/webhooks/{gateway_key}")
 async def _record_late_verified_payfast_credit(db, payment: dict, order: dict, provider_payment_id, payload: dict, event: str | None):
     """Retain verified funds as a single manual-review item, never creator/printer earnings."""
     now = datetime.now(timezone.utc).isoformat()
@@ -7436,6 +7435,7 @@ async def _record_late_verified_payfast_credit(db, payment: dict, order: dict, p
     return {"ok": True, "processed": True, "status": "late_paid_requires_review", "event": event}
 
 
+@payments_router.post("/webhooks/{gateway_key}")
 async def gateway_payment_webhook(gateway_key: str, request: Request):
     db = request.app.state.db
     gateway_key = (gateway_key or "").strip().lower()
