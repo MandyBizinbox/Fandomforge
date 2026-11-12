@@ -74,6 +74,17 @@ function OrdersPage({ basePath }) {
     return { successful, failed };
   };
 
+  const updateStockOrdered = async (order, stockOrdered) => {
+    try {
+      await http.patch(`/admin/orders/${encodeURIComponent(order.id)}/stock-ordered`, { stock_ordered: stockOrdered });
+      setRows(current => current.map(item => item.id === order.id ? { ...item, stock_ordered: stockOrdered } : item));
+      toast.success(stockOrdered ? "Stock marked as ordered (internal only)" : "Stock marked as not ordered");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Could not update stock status");
+      throw error;
+    }
+  };
+
   const remove = async (order) => {
     if (!window.confirm(`Delete order ${order.order_number}? This is permanent and should never be used for payment reconciliation.`)) return;
     try {
@@ -98,6 +109,7 @@ function OrdersPage({ basePath }) {
         onReassign={reassign}
         onDelete={remove}
         onBulkStatusUpdate={updateBulkStatus}
+        onStockOrdered={updateStockOrdered}
       />
     </div>
   );
