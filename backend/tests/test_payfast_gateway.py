@@ -163,3 +163,44 @@ def test_api_signature_excludes_testing_parameter():
     with_testing = adapter._api_signature(values, cfg)
     without_testing = adapter._api_signature({k: v for k, v in values.items() if k != "testing"}, cfg)
     assert with_testing == without_testing
+
+
+def test_itn_signature_includes_blank_fields_in_original_order():
+    """PayFast signs blank ITN fields; checkout signing still omits them."""
+    adapter = PayFastPaymentGateway()
+    payload = {
+        "m_payment_id": "MF123",
+        "pf_payment_id": "123456",
+        "payment_status": "COMPLETE",
+        "item_name": "FandomForge Tee",
+        "item_description": "",
+        "amount_gross": "145.00",
+        "amount_fee": "-3.00",
+        "custom_str1": "",
+        "custom_str2": "MF123",
+        "name_first": "",
+        "name_last": "",
+        "merchant_id": "10000100",
+    }
+    import hashlib
+    from urllib.parse import quote_plus
+    canonical = "&".join(
+        f"{key}={quote_plus(value)}" for key, value in payload.items()
+    ) + "&passphrase=secret-passphrase"
+    payload["signature"] = hashlib.md5(canonical.encode("utf-8")).hexdigest()
+    payload["__request_url"] = "https://fandomforge.co.za/api/payments/webhooks/payfast"
+
+    assert adapter._verify_signature(payload, config()) is True
+    assert "item_description=&" in adapter._itn_payload_string(payload)
+    assert "name_first=&" in adapter._itn_payload_string(payload)
+    assert "__request_url" not in adapter._itn_payload_string(payload)
+    assert adapter._signature(payload, "secret-passphrase") != payload["signature"]
+
+
+def test_itn_rejects_tampered_blank_field_signature():
+    adapter = PayFastPaymentGateway()
+    payload = {"m_payment_id": "MF123", "custom_str1": "", "merchant_id": "10000100"}
+    payload["signature"] = adapter._itn_signature(payload, "secret-passphrase")
+    assert adapter._verify_signature(payload, config()) is True
+    payload["custom_str1"] = "altered"
+    assert adapter._verify_signature(payload, config()) is False
