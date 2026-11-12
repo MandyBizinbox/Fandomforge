@@ -276,3 +276,52 @@ async def test_late_payfast_webhook_creates_one_exception_without_wallets(db):
     payment = await db.payments.find_one({"id": "payment-LATE"})
     assert payment["status"] == "completed"
     assert payment["late_payment_requires_review"] is True
+
+
+@pytest.mark.anyio
+async def test_cancellation_between_webhook_validation_and_order_settlement(db):
+    """A concurrent cancellation must create a late-credit review, not orphan funds."""
+    await db.orders.insert_one(order_doc("WEBHOOK-RACE", status="payment_overdue"))
+    await db.payments.insert_one(payment_doc("WEBHOOK-RACE"))
+
+    class SignedFakePayFast:
+        async def handle_webhook(self, payload, headers, config, raw):
+            return {
+                "reference": "ref-WEBHOOK-RACE",
+                "payment_id": "provider-WEBHOOK-RACE",
+                "order_id": "WEBHOOK-RACE",
+                "paid": True,
+                "status": "completed",
+                "event": "payfast.complete",
+            }
+
+    async def cancellation_race(db_arg, payment, payload):
+        await db.orders.update_one(
+            {"id": "WEBHOOK-RACE"},
+            {"$set": {"status": "cancelled", "payment_status": "failed"}},
+        )
+        raise HTTPException(status_code=409, detail="Order changed during confirmation")
+
+    body = urlencode({
+        "m_payment_id": "ref-WEBHOOK-RACE",
+        "amount_gross": "250.00",
+        "payment_status": "COMPLETE",
+    }).encode("utf-8")
+    request = request_for(db, body=body)
+    with (
+        patch.object(routes_main, "_get_gateway_config", new=AsyncMock(return_value={"enabled": True})),
+        patch.object(routes_main, "get_payment_gateway_adapter", return_value=SignedFakePayFast()),
+        patch.object(routes_main, "_mark_order_paid_from_payment", new=cancellation_race),
+        patch.object(routes_main, "ensure_wallet_transactions_for_order", new=AsyncMock()) as wallet,
+    ):
+        response = await routes_main.gateway_payment_webhook("payfast", request)
+        wallet.assert_not_awaited()
+    assert response["status"] == "late_paid_requires_review"
+    assert await db.payment_reconciliation_exceptions.count_documents({
+        "idempotency_key": "late-credit:payment-WEBHOOK-RACE"
+    }) == 1
+    payment = await db.payments.find_one({"id": "payment-WEBHOOK-RACE"})
+    assert payment["status"] == "completed"
+    assert payment["late_payment_requires_review"] is True
+    order = await db.orders.find_one({"id": "WEBHOOK-RACE"})
+    assert order["status"] == "cancelled"
