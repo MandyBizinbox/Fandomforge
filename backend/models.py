@@ -1384,6 +1384,10 @@ class Order(BaseModel):
     shipped_at: Optional[datetime] = None
     shipping_address: ShippingAddress
     status: OrderStatus = "pending_payment"
+    # Internal procurement flag, distinct from customer-facing fulfilment status.
+    stock_ordered: bool = False
+    stock_ordered_at: Optional[datetime] = None
+    stock_ordered_by: Optional[str] = None
     payment_id: Optional[str] = None
     payment_status: Literal["pending", "paid", "failed", "refunded"] = "pending"
     payment_provider: str = "mock"
