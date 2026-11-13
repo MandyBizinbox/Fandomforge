@@ -7,11 +7,11 @@ connects to MongoDB, calls PayFast, or sends email.
 from __future__ import annotations
 
 import hashlib
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import quote_plus, urlencode
 
-import httpx
 import pytest
 from fastapi import FastAPI
 
@@ -42,6 +42,50 @@ def _signed_itn():
     canonical = "&".join(f"{key}={quote_plus(value)}" for key, value in fields)
     signature = hashlib.md5((canonical + "&passphrase=test-passphrase").encode()).hexdigest()
     return urlencode([*fields, ("signature", signature)]).encode()
+
+
+async def _post_asgi(app, body: bytes):
+    """Exercise the real ASGI route without httpx or an HTTP listener."""
+    responses = []
+    received = False
+
+    async def receive():
+        nonlocal received
+        if not received:
+            received = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        # Starlette's disconnect listener expects receive() to keep waiting.
+        import asyncio
+        await asyncio.Event().wait()
+
+    async def send(message):
+        responses.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/payments/webhooks/payfast",
+        "raw_path": b"/api/payments/webhooks/payfast",
+        "root_path": "",
+        "query_string": b"",
+        "server": ("isolated.invalid", 80),
+        "client": ("127.0.0.1", 12345),
+        "headers": [
+            (b"host", b"isolated.invalid"),
+            (b"content-type", b"application/x-www-form-urlencoded"),
+        ],
+    }
+    await app(scope, receive, send)
+    start = next(m for m in responses if m["type"] == "http.response.start")
+    data = b"".join(
+        m.get("body", b"")
+        for m in responses
+        if m["type"] == "http.response.body"
+    )
+    return start["status"], json.loads(data.decode("utf-8"))
 
 
 @pytest.fixture
@@ -77,16 +121,10 @@ async def test_valid_signed_blank_field_itn_reaches_http_endpoint_without_db_wri
         patch.object(routes_main, "get_payment_gateway_adapter", return_value=adapter),
         patch.object(adapter, "_verify_server_confirmation", confirm),
     ):
-        transport = httpx.ASGITransport(app=isolated_app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://isolated.invalid") as client:
-            response = await client.post(
-                "/api/payments/webhooks/payfast",
-                content=body,
-                headers={"content-type": "application/x-www-form-urlencoded"},
-            )
+        status, result = await _post_asgi(isolated_app, body)
 
-    assert response.status_code == 200, response.text
-    assert response.json()["status"] == "payment_not_found"
+    assert status == 200, result
+    assert result["status"] == "payment_not_found"
     confirm.assert_called_once()
     passed_payload = confirm.call_args.args[0]
     assert passed_payload["item_description"] == ""
@@ -115,15 +153,9 @@ async def test_tampered_itn_gets_403_before_server_confirmation(isolated_app):
         patch.object(routes_main, "get_payment_gateway_adapter", return_value=adapter),
         patch.object(adapter, "_verify_server_confirmation", confirm),
     ):
-        transport = httpx.ASGITransport(app=isolated_app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://isolated.invalid") as client:
-            response = await client.post(
-                "/api/payments/webhooks/payfast",
-                content=body,
-                headers={"content-type": "application/x-www-form-urlencoded"},
-            )
+        status, result = await _post_asgi(isolated_app, body)
 
-    assert response.status_code == 403
+    assert status == 403
     confirm.assert_not_called()
     isolated_app.state.db.payments.update_one.assert_not_awaited()
     isolated_app.state.db.payments.insert_one.assert_not_awaited()
