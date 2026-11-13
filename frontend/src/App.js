@@ -29,6 +29,7 @@ const Cart = lazy(() => import("./pages/Cart"));
 const Checkout = lazy(() => import("./pages/Checkout"));
 const OrderConfirmation = lazy(() => import("./pages/OrderConfirmation"));
 const OrderTracking = lazy(() => import("./pages/OrderTracking"));
+const OrderPaymentRecovery = lazy(() => import("./pages/OrderPaymentRecovery"));
 const ApplyPrinter = lazy(() => import("./pages/ApplyPrinter"));
 const BandProfileSetup = lazy(() => import("./pages/BandProfileSetup"));
 const BandDashboard = lazy(() => import("./routes/CreatorDashboardRoute"));
@@ -140,6 +141,7 @@ function AppRoutes() {
           <Route path="/checkout" element={<Checkout />} />
           <Route path="/order-confirmation/:id" element={<OrderConfirmation />} />
           <Route path="/order-tracking/:token" element={<OrderTracking />} />
+          <Route path="/order-payment/:token" element={<OrderPaymentRecovery />} />
           <Route path="/legal" element={<LegalIndex />} />
           <Route path="/terms" element={<PolicyPage policyKeyOverride="terms_and_conditions" />} />
           <Route path="/shop-terms" element={<PolicyPage policyKeyOverride="terms_and_conditions" />} />

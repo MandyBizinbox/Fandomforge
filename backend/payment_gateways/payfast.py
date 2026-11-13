@@ -125,9 +125,32 @@ class PayFastPaymentGateway(PaymentGatewayAdapter):
         payload = self._signature_payload(data, passphrase)
         return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _itn_pairs(payload: Dict[str, Any]) -> Iterable[tuple[str, str]]:
+        """Preserve PayFast's POST field order and blank fields.
+
+        ITN canonicalization differs from hosted-checkout signature creation:
+        PayFast signs every posted field, including blank values. Never include
+        the signature itself or internal request metadata.
+        """
+        for key, value in (payload or {}).items():
+            if key == "signature" or str(key).startswith("__"):
+                continue
+            if value is None:
+                value = ""
+            yield str(key), str(value)
+
     def _itn_payload_string(self, payload: Dict[str, Any]) -> str:
-        """Build the exact form body PayFast expects at /eng/query/validate."""
-        return "&".join(f"{key}={quote_plus(value)}" for key, value in self._clean_payment_pairs(payload))
+        """Build the canonical PayFast ITN form string including blank values."""
+        return "&".join(
+            f"{key}={quote_plus(value)}" for key, value in self._itn_pairs(payload)
+        )
+
+    def _itn_signature(self, payload: Dict[str, Any], passphrase: str = "") -> str:
+        canonical = self._itn_payload_string(payload)
+        if passphrase:
+            canonical += f"&passphrase={quote_plus(str(passphrase).strip())}"
+        return hashlib.md5(canonical.encode("utf-8")).hexdigest()
 
     def _verify_server_confirmation(self, payload: Dict[str, Any], config: Dict[str, Any]) -> None:
         body = self._itn_payload_string(payload)
@@ -391,7 +414,7 @@ class PayFastPaymentGateway(PaymentGatewayAdapter):
         if not supplied:
             return False
         passphrase = self._setting(config, "passphrase")
-        expected = self._signature(payload, passphrase)
+        expected = self._itn_signature(payload, passphrase)
         return hmac.compare_digest(expected, supplied)
 
     async def handle_webhook(self, payload: Dict[str, Any], headers: Dict[str, str], config: Dict[str, Any], raw_body: str | bytes | None = None) -> Dict[str, Any]:

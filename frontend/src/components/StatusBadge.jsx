@@ -2,6 +2,7 @@ import React from "react";
 
 const STATUS_STYLES = {
   pending_payment: "badge-warning",
+  payment_overdue: "badge-error",
   paid: "badge-success",
   awaiting_artwork_review: "badge-warning",
   sent_to_printer: "badge-info",

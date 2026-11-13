@@ -1260,6 +1260,7 @@ class CartItem(BaseModel):
 # ------------ ORDER ------------
 OrderStatus = Literal[
     "pending_payment",
+    "payment_overdue",
     "paid",
     "awaiting_artwork_review",
     "sent_to_printer",
@@ -1383,10 +1384,22 @@ class Order(BaseModel):
     shipped_at: Optional[datetime] = None
     shipping_address: ShippingAddress
     status: OrderStatus = "pending_payment"
+    # Internal procurement flag, distinct from customer-facing fulfilment status.
+    stock_ordered: bool = False
+    stock_ordered_at: Optional[datetime] = None
+    stock_ordered_by: Optional[str] = None
     payment_id: Optional[str] = None
     payment_status: Literal["pending", "paid", "failed", "refunded"] = "pending"
     payment_provider: str = "mock"
     payment_reference: Optional[str] = None
+    # Reminder state is deliberately distinct from the accounting payment_status.
+    payment_recovery_enabled: bool = False
+    payment_reminder_stage: int = 0
+    reminder_1_delivery: Optional[str] = None
+    reminder_1_sent_at: Optional[str] = None
+    reminder_2_delivery: Optional[str] = None
+    reminder_2_sent_at: Optional[str] = None
+    cancellation_review_required: bool = False
     provider_payment_id: Optional[str] = None
     payment_details: Optional[Dict[str, Any]] = None
     created_at: datetime = Field(default_factory=utcnow)

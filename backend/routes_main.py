@@ -1217,6 +1217,7 @@ async def ensure_order_tracking_token(db, order: dict) -> dict:
 def customer_order_status_label(status: str) -> str:
     return {
         "pending_payment": "Awaiting payment",
+        "payment_overdue": "Payment overdue",
         "paid": "Order received",
         "awaiting_artwork_review": "Preparing artwork",
         "sent_to_printer": "Sent to production",
@@ -1366,7 +1367,7 @@ def customer_order_payload(order: dict, request: Request) -> dict:
     }
 
 
-async def queue_customer_order_email(db, *, order: dict, subject: str, body: str) -> None:
+async def queue_customer_order_email(db, *, order: dict, subject: str, body: str, html_body: str = "") -> None:
     try:
         email_address = order.get("buyer_email")
         if not email_address:
@@ -1380,7 +1381,10 @@ async def queue_customer_order_email(db, *, order: dict, subject: str, body: str
             status="queued",
             created_at=utcnow(),
         )
-        await db.notification_emails.insert_one(notification_email_doc(email))
+        email_doc = notification_email_doc(email)
+        if html_body:
+            email_doc["html_body"] = html_body
+        await db.notification_emails.insert_one(email_doc)
     except Exception:
         logging.getLogger("fandomforge.customer_emails").exception("Failed to queue customer email")
 
@@ -2573,7 +2577,7 @@ async def _mark_order_paid_from_payment(db, payment: dict, provider_payload: Opt
         "provider_payment_id": payment.get("provider_payment_id"),
         "updated_at": now,
     }
-    if order.get("status") in {"pending_payment", "payment_failed"}:
+    if order.get("status") in {"pending_payment", "payment_overdue", "payment_failed"}:
         update_fields["status"] = "sent_to_printer"
 
     condition = {
@@ -6566,12 +6570,8 @@ async def checkout(
         audience=["admin", "creator", "printer", "all"],
         metadata={"source": "checkout", "total": order.total},
     )
-    await queue_customer_order_email(
-        db,
-        order=doc,
-        subject=f"Order {order.order_number} received",
-        body=f"Your order {order.order_number} has been received. Track it here: {tracking_url_for_order(request, doc)}",
-    )
+    # Receipt is queued only after the gateway attempt and existing-order
+    # recovery link have been prepared successfully.
 
     gateway_key = (payload.payment_provider or "manual_eft").strip()
     gateway = await _get_gateway_config(db, gateway_key, masked=False)
@@ -6682,6 +6682,47 @@ async def checkout(
                 "state": "completed", "response": checkout_response,
                 "completed_at": utcnow().isoformat(),
             }},
+        )
+    # Only newly completed gateway checkouts enter the reminder lifecycle.
+    # Legacy pending orders are never bulk-enrolled or cancelled.
+    from pending_payment_worker import enabled as payment_recovery_enabled
+    if gateway_key in {"payfast", "paystack", "peach"} and payment_recovery_enabled():
+        await db.orders.update_one(
+            {"id": order.id, "payment_id": payment.id, "payment_status": "pending"},
+            {"$set": {
+                "payment_recovery_enabled": True,
+                "payment_reminder_stage": 0,
+                "payment_recovery_version": "v1",
+            }},
+        )
+        try:
+            from pending_payment_recovery import order_received_email
+            from pending_payment_routes import make_recovery_link
+            from pending_payment_worker import origin as payment_recovery_origin
+            saved_order = await db.orders.find_one({"id": order.id}, {"_id": 0})
+            recovery_link = await make_recovery_link(
+                db, saved_order, stage=0, origin=payment_recovery_origin(),
+            )
+            mail = order_received_email(saved_order, recovery_url=recovery_link)
+            await queue_customer_order_email(
+                db, order=saved_order, subject=mail["subject"],
+                body=mail["body"], html_body=mail["html_body"],
+            )
+        except Exception:
+            logging.getLogger("fandomforge.payment_recovery").exception(
+                "Order recovery email failed for %s; checkout payment remains valid", order.id
+            )
+            await queue_customer_order_email(
+                db, order=doc,
+                subject=f"Order {order.order_number} received",
+                body=f"We received your order. Track it here: {tracking_url_for_order(request, doc)}",
+            )
+    else:
+        await queue_customer_order_email(
+            db,
+            order=doc,
+            subject=f"Order {order.order_number} received",
+            body=f"Your order {order.order_number} has been received. Track it here: {tracking_url_for_order(request, doc)}",
         )
     return checkout_response
 
@@ -7364,6 +7405,36 @@ async def payment_webhook(request: Request):
     return await gateway_payment_webhook("payfast", request)
 
 
+async def _record_late_verified_payfast_credit(db, payment: dict, order: dict, provider_payment_id, payload: dict, event: str | None):
+    """Retain verified funds as a single manual-review item, never creator/printer earnings."""
+    now = datetime.now(timezone.utc).isoformat()
+    await db.payments.update_one(
+        {"id": payment["id"]},
+        {"$set": {
+            "status": "completed",
+            "completed_at": now,
+            "provider_payment_id": provider_payment_id,
+            "late_payment_requires_review": True,
+            "provider_payload": payload,
+        }},
+    )
+    await db.payment_reconciliation_exceptions.update_one(
+        {"idempotency_key": f"late-credit:{payment['id']}"},
+        {"$setOnInsert": {
+            "idempotency_key": f"late-credit:{payment['id']}",
+            "kind": "paid_after_cancellation",
+            "order_id": order["id"],
+            "payment_id": payment["id"],
+            "status": "open",
+            "amount": payment.get("amount"),
+            "provider": "payfast",
+            "created_at": now,
+        }},
+        upsert=True,
+    )
+    return {"ok": True, "processed": True, "status": "late_paid_requires_review", "event": event}
+
+
 @payments_router.post("/webhooks/{gateway_key}")
 async def gateway_payment_webhook(gateway_key: str, request: Request):
     db = request.app.state.db
@@ -7425,14 +7496,29 @@ async def gateway_payment_webhook(gateway_key: str, request: Request):
             from payment_confirmation import validate_payment_confirmation
             order = await db.orders.find_one({"id": payment.get("order_id")}, {"_id": 0})
             validate_payment_confirmation(payment, order, payload)
+            if order.get("status") == "cancelled":
+                return await _record_late_verified_payfast_credit(
+                    db, payment, order, provider_payment_id, payload, result.get("event")
+                )
 
         now = datetime.now(timezone.utc).isoformat()
         if result.get("paid"):
-            await db.payments.update_one(
-                {"id": payment["id"]},
-                {"$set": {"status": "completed", "completed_at": now, "provider_payload": payload, "provider_payment_id": provider_payment_id}},
-            )
-            await _mark_order_paid_from_payment(db, payment, payload)
+            # The order CAS is authoritative: do not mark the payment completed
+            # before we know the order can still accept it. This also closes the
+            # window where a cancellation races between payment and order writes.
+            try:
+                await _mark_order_paid_from_payment(db, payment, payload)
+            except HTTPException as exc:
+                if gateway_key != "payfast" or exc.status_code != 409:
+                    raise
+                latest = await db.orders.find_one({"id": payment.get("order_id")}, {"_id": 0})
+                if not latest or latest.get("status") != "cancelled":
+                    raise
+                from payment_confirmation import validate_payment_confirmation
+                validate_payment_confirmation(payment, latest, payload)
+                return await _record_late_verified_payfast_credit(
+                    db, payment, latest, provider_payment_id, payload, result.get("event")
+                )
         elif result.get("status") == "failed":
             await db.payments.update_one(
                 {"id": payment["id"]},
@@ -10377,6 +10463,34 @@ async def admin_set_printer_status(
     db = request.app.state.db
     await db.printers.update_one({"id": printer_id}, {"$set": {"status": status}})
     return {"ok": True}
+
+
+class InternalStockOrderedUpdate(BaseModel):
+    stock_ordered: bool
+
+
+@admin_router.patch("/orders/{order_id}/stock-ordered")
+async def admin_update_stock_ordered(
+    order_id: str,
+    payload: InternalStockOrderedUpdate,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Internal procurement marker only: no order-status or customer email event."""
+    _require_manager_permission(user, "manage_orders")
+    db = request.app.state.db
+    now = datetime.now(timezone.utc).isoformat()
+    updates = {
+        "stock_ordered": payload.stock_ordered,
+        "stock_ordered_at": now if payload.stock_ordered else None,
+        "stock_ordered_by": user.id if payload.stock_ordered else None,
+    }
+    result = await db.orders.update_one(
+        {"id": order_id, "archived": {"$ne": True}}, {"$set": updates},
+    )
+    if result.matched_count != 1:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return {"order_id": order_id, **updates}
 
 
 @admin_router.get("/orders", response_model=List[Order])

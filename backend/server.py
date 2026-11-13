@@ -28,6 +28,7 @@ logger = logging.getLogger("fandomforge")
 async def lifespan(app: FastAPI):
     app.state.db = client[db_name]
     email_task = None
+    payment_recovery_task = None
     try:
         from seed import seed_if_empty
         from seed_production_operations import seed_production_operations
@@ -69,6 +70,13 @@ async def lifespan(app: FastAPI):
         worker_id = f"api-{os.getpid()}"
         email_task = asyncio.create_task(dashboard_email_delivery_loop(app.state.db, worker_id), name=f"fandomforge-email-{worker_id}")
         app.state.email_delivery_task = email_task
+        from pending_payment_worker import enabled as payment_recovery_enabled, pending_payment_recovery_loop
+        if payment_recovery_enabled():
+            payment_recovery_task = asyncio.create_task(
+                pending_payment_recovery_loop(app.state.db),
+                name=f"fandomforge-payment-recovery-{worker_id}",
+            )
+            app.state.payment_recovery_task = payment_recovery_task
         logger.info("Seed, launch-integrity indexes and email-delivery startup checks complete")
     except Exception as exc:
         logger.exception("Startup checks failed: %s", exc)
@@ -77,6 +85,10 @@ async def lifespan(app: FastAPI):
         email_task.cancel()
         with suppress(asyncio.CancelledError):
             await email_task
+    if payment_recovery_task:
+        payment_recovery_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await payment_recovery_task
     client.close()
 
 
@@ -103,6 +115,7 @@ async def health(request: Request):
 
 from auth import auth_router
 from password_recovery import password_recovery_router
+from pending_payment_routes import recovery_router
 import routes_main as routes_main_module
 from order_finance_patches import install_order_finance_patches
 install_order_finance_patches(routes_main_module)
@@ -137,6 +150,7 @@ install_payout_retry_guard(payout_launch_routes_module)
 
 api_router.include_router(auth_router)
 api_router.include_router(password_recovery_router)
+api_router.include_router(recovery_router)
 api_router.include_router(integrity_router)
 api_router.include_router(printer_gate_router)
 api_router.include_router(printer_ops_router)
