@@ -110,10 +110,11 @@ export default function ShippingMethodSelector({
       color: item.color,
       unit_price: Number(item.unit_price || 0),
       quantity: Number(item.quantity || 1),
-      mockup_url: item.mockup_url,
-      customization: item.customization || null,
+      customization: null,
     })),
   }), [items, subtotal, shippingAddress, addressIsReady]);
+
+  const quotePayloadKey = JSON.stringify(quotePayload);
 
   useEffect(() => {
     let mounted = true;
@@ -121,7 +122,7 @@ export default function ShippingMethodSelector({
     setLoading(true);
     setError("");
 
-    http.post("/orders/shipping-methods/checkout", quotePayload)
+    http.post("/orders/shipping-methods/checkout", JSON.parse(quotePayloadKey))
       .then((res) => {
         if (!mounted) return;
 
@@ -155,7 +156,7 @@ export default function ShippingMethodSelector({
     return () => {
       mounted = false;
     };
-  }, [quotePayload, value]);
+  }, [quotePayloadKey]);
 
   const selectedMethod = methods.find((method) => method.key === value);
   const selectedMethodSlots = Array.isArray(selectedMethod?.slots) ? selectedMethod.slots : [];
