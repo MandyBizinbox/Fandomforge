@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { ArrowLeft, CheckCircle2, Eraser, Search, ShieldCheck } from "lucide-react";
 import { http } from "../lib/api";
 
@@ -82,6 +83,8 @@ function SignaturePad({ onSigned, resetKey }) {
 }
 
 export default function MobileOrderCollection() {
+  const { user } = useAuth();
+  const ordersPath = user?.role === "manager" ? "/manager/fulfilment/orders" : "/admin/fulfilment/orders";
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [order, setOrder] = useState(null);
@@ -164,7 +167,7 @@ export default function MobileOrderCollection() {
       <div className="flex items-center justify-between gap-3 mb-8">
         <div><div className="overline">FandomForge / Fulfilment</div>
           <h1 className="font-display text-3xl sm:text-5xl uppercase">Order Collection</h1></div>
-        <Link to="/admin/fulfilment/orders" className="ff-admin-button text-sm"><ArrowLeft size={16} /> Orders</Link>
+        <Link to={ordersPath} className="ff-admin-button text-sm"><ArrowLeft size={16} /> Orders</Link>
       </div>
 
       {success && <div role="status" className="bg-green-900/30 border-2 border-green-600 p-6 mb-6 rounded">
