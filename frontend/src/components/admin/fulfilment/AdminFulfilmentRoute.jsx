@@ -103,7 +103,10 @@ function OrdersPage({ basePath }) {
     <div data-testid="admin-orders-page" className="space-y-6">
       <div className="flex items-end justify-between gap-4">
         <div><div className="overline mb-2">Orders</div><h2 className="font-display text-4xl uppercase">Order Queue</h2></div>
-        <button onClick={() => navigate(`${basePath}/fulfilment/manual`)} className="ff-admin-button ff-admin-button--primary"><Plus size={14} /> New Order</button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => navigate("/collection")} className="ff-admin-button ff-admin-button--primary">Mobile Collection Counter</button>
+          <button onClick={() => navigate(`${basePath}/fulfilment/manual`)} className="ff-admin-button"><Plus size={14} /> New Order</button>
+        </div>
       </div>
       <OrderBatchPrintControls
         orders={rows}
