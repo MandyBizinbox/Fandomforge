@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Copy, Download, FileText, Printer as PrinterIcon } from "lucide-react";
 import { toast } from "sonner";
 import { http, assetUrl } from "../../lib/api";
+import { usePlatformConfig } from "../../lib/platform";
 import { useAuth } from "../../context/AuthContext";
 import StatusBadge from "../StatusBadge";
 import ProductionPackSummary from "../production/ProductionPackSummary";
@@ -109,6 +110,7 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { platform } = usePlatformConfig();
   const isAdmin = mode === "admin" || mode === "edit";
   const isCreator = mode === "creator" || String(testidPrefix || "").startsWith("creator");
   const isPrinter = mode === "printer";
@@ -243,6 +245,21 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
   };
 
   const printDispatchInvoice = () => {
+    // Always render seller identity from the saved Platform Settings, not
+    // hard-coded deployment values. Empty optional registration is omitted.
+    const businessName = platform?.business_name || platform?.platform_name || "FandomForge";
+    const businessDetails = [
+      ["Business registration", platform?.business_registration],
+      ["Email", platform?.public_contact_email || platform?.support_email],
+      ["Phone", platform?.public_contact_phone || platform?.support_phone],
+      ["Support email", platform?.support_email],
+      ["Support phone", platform?.support_phone],
+      ["WhatsApp", platform?.support_whatsapp],
+      ["Country", platform?.country],
+    ].filter(([, value]) => String(value || "").trim() !== "");
+    const sellerDetails = businessDetails.map(([label, value]) =>
+      `<div><span class="muted">${htmlEscape(label)}:</span> ${htmlEscape(value)}</div>`
+    ).join("");
     const itemRows = (order.items || []).map((item) => `
       <tr>
         <td>${htmlEscape(item.product_title)}</td>
@@ -254,9 +271,10 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
     const popup = window.open("", "_blank", "width=980,height=800");
     if (!popup) return toast.error("Pop-ups are blocked. Allow pop-ups to print the invoice.");
     popup.document.write(`<!doctype html><html><head><title>${htmlEscape(order.order_number)} Dispatch Invoice</title><style>
-      body{font-family:Arial,sans-serif;color:#111;margin:32px;font-size:12px}.top{display:flex;justify-content:space-between;gap:32px}.title{font-size:28px;font-weight:800;margin:0}.muted{color:#666}.block{margin-top:24px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{padding:9px 8px;border-bottom:1px solid #ddd;text-align:left}th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;background:#f4f4f4}.num{text-align:right}.totals{margin-left:auto;width:320px}.totals td:first-child{color:#666}.total{font-size:16px;font-weight:800}.dispatch{border:1px solid #bbb;padding:14px}.footer{margin-top:36px;padding-top:12px;border-top:1px solid #ddd;color:#777;font-size:10px}@media print{body{margin:12mm}.no-print{display:none}}
+      body{font-family:Arial,sans-serif;color:#111;margin:32px;font-size:12px}.top{display:flex;justify-content:space-between;gap:32px}.title{font-size:28px;font-weight:800;margin:0}.muted{color:#666}.block{margin-top:24px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{padding:9px 8px;border-bottom:1px solid #ddd;text-align:left}th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;background:#f4f4f4}.num{text-align:right}.totals{margin-left:auto;width:320px}.totals td:first-child{color:#666}.total{font-size:16px;font-weight:800}.dispatch{border:1px solid #bbb;padding:14px}.seller{border:1px solid #ddd;padding:14px;line-height:1.6}.seller-name{font-size:16px;font-weight:700;margin-bottom:4px}.footer{margin-top:36px;padding-top:12px;border-top:1px solid #ddd;color:#777;font-size:10px}@media print{body{margin:12mm}.no-print{display:none}}
     </style></head><body>
-      <div class="top"><div><div class="muted">FandomForge</div><h1 class="title">Dispatch Invoice</h1><div>Order ${htmlEscape(order.order_number)}</div></div><div><strong>${htmlEscape(new Date(order.created_at).toLocaleDateString())}</strong><br><span class="muted">Status: ${htmlEscape(order.status?.replaceAll("_", " "))}</span></div></div>
+      <div class="top"><div><div class="muted">${htmlEscape(platform?.platform_name || "FandomForge")}</div><h1 class="title">Dispatch Invoice</h1><div>Order ${htmlEscape(order.order_number)}</div></div><div><strong>${htmlEscape(new Date(order.created_at).toLocaleDateString())}</strong><br><span class="muted">Status: ${htmlEscape(order.status?.replaceAll("_", " "))}</span></div></div>
+      <div class="seller block"><div class="seller-name">${htmlEscape(businessName)}</div>${sellerDetails}</div>
       <div class="grid block"><div><strong>Deliver to</strong><br>${htmlEscape(shipping.full_name)}<br>${addressLines(shipping).map(htmlEscape).join("<br>")}<br>${htmlEscape(shipping.phone || "")}<br>${htmlEscape(shipping.email || "")}</div><div class="dispatch"><strong>Dispatch</strong><br>Method: ${htmlEscape(order.shipping_method_name || "—")}<br>Courier: ${htmlEscape(courier || "—")}<br>Tracking: ${htmlEscape(tracking || "—")}${order.shipping_method_key === "group_delivery" ? `<br>Group batch: ${htmlEscape(batchDateLabel(order.group_delivery_batch_date))}<br>Collection point: ${htmlEscape(order.group_delivery_point_name || "—")}` : ""}</div></div>
       <div class="block"><strong>Items</strong><table><thead><tr><th>Product</th><th>Variation</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line total</th></tr></thead><tbody>${itemRows}</tbody></table></div>
       <table class="totals block"><tr><td>Subtotal</td><td class="num">${htmlEscape(money(order.subtotal))}</td></tr><tr><td>Shipping</td><td class="num">${number(order.shipping_total) === 0 ? "Free" : htmlEscape(money(order.shipping_total))}</td></tr><tr class="total"><td>Total</td><td class="num">${htmlEscape(money(order.total))}</td></tr></table>
