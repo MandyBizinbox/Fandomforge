@@ -22,15 +22,18 @@ function canAccess({ permission, moduleKey, modules, user, mode }) {
 function OrdersPage({ basePath }) {
   const [rows, setRows] = useState([]);
   const [printers, setPrinters] = useState([]);
+  const [creators, setCreators] = useState([]);
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
-    const [ordersRes, printersRes] = await Promise.all([
+    const [ordersRes, printersRes, creatorsRes] = await Promise.all([
       http.get("/admin/orders"),
       http.get("/printers").catch(() => ({ data: [] })),
+      http.get("/admin/creators").catch(() => http.get("/bands").catch(() => ({ data: [] }))),
     ]);
     setRows(Array.isArray(ordersRes.data) ? ordersRes.data : []);
     setPrinters(Array.isArray(printersRes.data) ? printersRes.data : []);
+    setCreators(Array.isArray(creatorsRes.data) ? creatorsRes.data : []);
   }, []);
 
   useEffect(() => { load().catch(() => setRows([])); }, [load]);
@@ -105,6 +108,7 @@ function OrdersPage({ basePath }) {
       <OrderBatchPrintControls
         orders={rows}
         printers={printers}
+        creators={creators}
         onView={(id) => navigate(`${basePath}/fulfilment/orders/${id}`)}
         onReassign={reassign}
         onDelete={remove}
