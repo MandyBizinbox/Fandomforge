@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import urlencode
 
 import pytest
 
@@ -163,3 +164,54 @@ def test_api_signature_excludes_testing_parameter():
     with_testing = adapter._api_signature(values, cfg)
     without_testing = adapter._api_signature({k: v for k, v in values.items() if k != "testing"}, cfg)
     assert with_testing == without_testing
+
+
+def test_itn_raw_body_verification_preserves_order_and_encoding():
+    adapter = PayFastPaymentGateway()
+    data = {
+        "m_payment_id": "REF123",
+        "item_name": "A+B & C / limited",
+        "empty_note": "",
+        "payment_status": "COMPLETE",
+        "amount_gross": "100.00",
+        "merchant_id": "10000100",
+    }
+    signature = adapter._signature(data, "secret-passphrase")
+    raw_body = urlencode({**data, "signature": signature}).encode("utf-8")
+    routed = {**data, "signature": signature, "__request_url": "https://fandomforge.co.za/api/payments/webhooks/payfast"}
+
+    assert adapter._verify_signature(routed, config(), raw_body) is True
+
+
+def test_itn_rejects_modified_fields_after_signature_verification():
+    adapter = PayFastPaymentGateway()
+    original = {"m_payment_id": "REF123", "amount_gross": "100.00"}
+    signed = {**original, "signature": adapter._signature(original, "secret-passphrase")}
+    raw_body = urlencode(signed).encode("utf-8")
+    mutated = {**signed, "amount_gross": "1.00"}
+
+    assert adapter._verify_signature(mutated, config(), raw_body) is False
+
+
+def test_itn_rejects_duplicate_signature_fields():
+    adapter = PayFastPaymentGateway()
+    payload = {"m_payment_id": "REF123", "amount_gross": "100.00"}
+    signature = adapter._signature(payload, "secret-passphrase")
+    raw_body = (urlencode(payload) + "&signature=" + signature + "&signature=" + signature).encode("utf-8")
+
+    with pytest.raises(PaymentGatewayError, match="form fields"):
+        adapter._verify_signature({**payload, "signature": signature}, config(), raw_body)
+
+
+def test_itn_rejects_invalid_form_encoding():
+    adapter = PayFastPaymentGateway()
+    with pytest.raises(PaymentGatewayError, match="form encoding"):
+        adapter._verify_signature({}, config(), b"m_payment_id=%FF")
+
+
+def test_itn_rejects_wrong_passphrase():
+    adapter = PayFastPaymentGateway()
+    payload = {"m_payment_id": "REF123", "amount_gross": "100.00"}
+    signature = adapter._signature(payload, "different-passphrase")
+    data = {**payload, "signature": signature}
+    assert adapter._verify_signature(data, config(), urlencode(data).encode("utf-8")) is False
