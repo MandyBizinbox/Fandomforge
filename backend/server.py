@@ -129,6 +129,7 @@ from routes_main import (
     orders_router, admin_router, payments_router, platform_billing_router, files_router, public_router,
     band_dash_router, printer_dash_router, categories_router, attributes_router, print_options_router,
 )
+from order_collection_routes import collection_router
 from routes_public_platform import public_platform_router
 from public_homepage_privacy import public_homepage_router
 import payout_launch_routes as payout_launch_routes_module
@@ -168,6 +169,7 @@ api_router.include_router(builder_drafts_router)
 api_router.include_router(products_router)
 api_router.include_router(artworks_router)
 api_router.include_router(orders_router)
+api_router.include_router(collection_router)
 api_router.include_router(payments_router)
 api_router.include_router(platform_billing_router)
 api_router.include_router(admin_router)
