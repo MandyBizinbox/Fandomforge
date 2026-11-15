@@ -7,7 +7,7 @@ import hmac
 import io
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Optional
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import parse_qsl, quote_plus, urlencode
 
 import requests
 
@@ -386,16 +386,53 @@ class PayFastPaymentGateway(PaymentGatewayAdapter):
             "raw": row,
         }
 
-    def _verify_signature(self, payload: Dict[str, Any], config: Dict[str, Any]) -> bool:
-        supplied = str(payload.get("signature") or "").strip()
+    @staticmethod
+    def _parse_itn_body(raw_body: str | bytes) -> Dict[str, str]:
+        """Decode the actual form submission without losing field order.
+
+        A dict assembled elsewhere can hide duplicated fields. Reject those rather
+        than guessing which value PayFast signed. Keep blank fields in the decoded
+        form; PayFast's signature algorithm excludes them when hashing.
+        """
+        try:
+            body = raw_body.decode("utf-8", errors="strict") if isinstance(raw_body, bytes) else raw_body
+            fields = parse_qsl(body, keep_blank_values=True, encoding="utf-8", errors="strict")
+        except (UnicodeError, ValueError, TypeError) as exc:
+            raise PaymentGatewayError("Invalid PayFast ITN form encoding.") from exc
+
+        parsed: Dict[str, str] = {}
+        for key, value in fields:
+            if key in parsed or key.startswith("__"):
+                raise PaymentGatewayError("Invalid PayFast ITN form fields.")
+            parsed[key] = value
+        return parsed
+
+    def _verify_signature(
+        self,
+        payload: Dict[str, Any],
+        config: Dict[str, Any],
+        raw_body: str | bytes | None = None,
+    ) -> bool:
+        # Prefer the original form body to preserve the signed ordering and reject
+        # duplicated field names. The fallback is for internal callers/tests only.
+        signed_payload = self._parse_itn_body(raw_body) if raw_body is not None else payload
+        supplied = str(signed_payload.get("signature") or "").strip()
         if not supplied:
             return False
+        if raw_body is not None:
+            # Never verify one set of fields and process a different one.
+            routed_payload = {
+                key: str(value) for key, value in payload.items()
+                if not str(key).startswith("__")
+            }
+            if routed_payload != signed_payload:
+                return False
         passphrase = self._setting(config, "passphrase")
-        expected = self._signature(payload, passphrase)
+        expected = self._signature(signed_payload, passphrase)
         return hmac.compare_digest(expected, supplied)
 
     async def handle_webhook(self, payload: Dict[str, Any], headers: Dict[str, str], config: Dict[str, Any], raw_body: str | bytes | None = None) -> Dict[str, Any]:
-        if not self._verify_signature(payload, config):
+        if not self._verify_signature(payload, config, raw_body):
             raise PaymentGatewayError("Invalid PayFast ITN signature.")
 
         configured_merchant_id = self._setting(config, "merchant_id")
