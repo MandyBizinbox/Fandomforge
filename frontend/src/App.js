@@ -27,6 +27,7 @@ const BandStorefront = lazy(() => import("./pages/BandStorefront"));
 const ProductDetail = lazy(() => import("./pages/ProductDetail"));
 const Cart = lazy(() => import("./pages/Cart"));
 const Checkout = lazy(() => import("./pages/Checkout"));
+const MobileOrderCollection = lazy(() => import("./pages/MobileOrderCollection"));
 const OrderConfirmation = lazy(() => import("./pages/OrderConfirmation"));
 const OrderTracking = lazy(() => import("./pages/OrderTracking"));
 const OrderPaymentRecovery = lazy(() => import("./pages/OrderPaymentRecovery"));
@@ -105,6 +106,7 @@ function PlatformToaster() {
 }
 
 function AppRoutes() {
+  const location = useLocation();
   const accountRoles = ["buyer", "customer", "creator", "printer", "manager", "admin", "super_admin", "owner"];
   const platformRoles = ["owner", "super_admin", "admin"];
   return (
@@ -139,6 +141,7 @@ function AppRoutes() {
           <Route path="/product/:id" element={<ProductDetail />} />
           <Route path="/cart" element={<Cart />} />
           <Route path="/checkout" element={<Checkout />} />
+          <Route path="/collection" element={<Protected roles={platformRoles}><MobileOrderCollection /></Protected>} />
           <Route path="/order-confirmation/:id" element={<OrderConfirmation />} />
           <Route path="/order-tracking/:token" element={<OrderTracking />} />
           <Route path="/order-payment/:token" element={<OrderPaymentRecovery />} />
@@ -179,7 +182,7 @@ function AppRoutes() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
-      <Footer />
+      {!location.pathname.startsWith("/collection") && <Footer />}
     </>
   );
 }
