@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
-import { bulkInvoicesHtml, paidOrder, pickingListHtml, productionOrder } from "../../../lib/orderPrintUtils";
+import { bulkInvoicesHtml, creatorCollectionGroups, creatorCollectionSheetHtml, paidOrder, pickingListHtml, productionOrder } from "../../../lib/orderPrintUtils";
+import { usePlatformConfig } from "../../../lib/platform";
 
 function groupDeliveryDate(order) {
   return order?.shipping_method_key === "group_delivery" ? String(order.group_delivery_batch_date || "").trim() : "";
@@ -21,7 +22,8 @@ function openPrintDocument(html) {
   return true;
 }
 
-export default function OrderBatchPrintControls({ orders = [], printers = [], onView, onReassign, onDelete, onBulkStatusUpdate, onStockOrdered }) {
+export default function OrderBatchPrintControls({ orders = [], printers = [], creators = [], onView, onReassign, onDelete, onBulkStatusUpdate, onStockOrdered }) {
+  const { platform } = usePlatformConfig();
   const [selected, setSelected] = useState([]);
   const [bulkStatus, setBulkStatus] = useState("");
   const [updating, setUpdating] = useState(false);
@@ -29,10 +31,27 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
   const [stockUpdating, setStockUpdating] = useState([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
+  const [productFilter, setProductFilter] = useState("all");
+  const [creatorFilter, setCreatorFilter] = useState("all");
   const [deliverySort, setDeliverySort] = useState("newest");
   const [page, setPage] = useState(1);
   const pageSize = 25;
   const eligible = orders.filter(productionOrder);
+  const creatorNames = useMemo(() => Object.fromEntries(
+    creators.filter(creator => creator.id).map(creator => [
+      creator.id, creator.name || creator.display_name || creator.slug || creator.id,
+    ])
+  ), [creators]);
+  const productOptions = useMemo(() => {
+    const products = new Map();
+    orders.forEach(order => (order.items || []).forEach(item => {
+      const id = String(item.product_id || item.product_title || "").trim();
+      if (id && !products.has(id)) products.set(id, item.product_title || id);
+    }));
+    return [...products.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [orders]);
+  const creatorOptions = useMemo(() => creatorCollectionGroups(orders, creatorNames)
+    .map(group => ({ id: group.id, name: group.name })), [orders, creatorNames]);
   const chosen = orders.filter((order) => selected.includes(order.id) && paidOrder(order));
   const invoiceOrders = chosen.filter(paidOrder);
   const pickingOrders = chosen.filter(productionOrder);
@@ -49,8 +68,10 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
       (filter === "stock_not_ordered" && order.stock_ordered !== true) ||
       (filter === "group_delivery" && order.shipping_method_key === "group_delivery") ||
       (filter === "missing_date" && order.shipping_method_key === "group_delivery" && displayBatchDate(groupDeliveryDate(order)) === "Date missing");
-    return matchesText && matchesFilter;
-  }), [orders, query, filter]);
+    const matchesProduct = productFilter === "all" || (order.items || []).some(item =>
+      String(item.product_id || item.product_title || "").trim() === productFilter);
+    return matchesText && matchesFilter && matchesProduct;
+  }), [orders, query, filter, productFilter]);
   const sorted = useMemo(() => {
     if (deliverySort === "newest") return filtered;
     return [...filtered].sort((a, b) => {
@@ -63,6 +84,20 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
       return deliverySort === "latest" ? right.localeCompare(left) : left.localeCompare(right);
     });
   }, [filtered, deliverySort]);
+  const collectionOrders = useMemo(() => sorted.filter(order =>
+    paidOrder(order) && (order.items || []).some(item =>
+      (creatorFilter === "all" || String(item.band_id || "").trim() === creatorFilter) &&
+      (productFilter === "all" || String(item.product_id || item.product_title || "").trim() === productFilter)
+    )
+  ).map(order => ({
+    ...order,
+    items: (order.items || []).filter(item =>
+      (creatorFilter === "all" || String(item.band_id || "").trim() === creatorFilter) &&
+      (productFilter === "all" || String(item.product_id || item.product_title || "").trim() === productFilter)
+    ),
+  })), [sorted, creatorFilter, productFilter]);
+  const collectionPieceCount = collectionOrders.reduce((total, order) =>
+    total + (order.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0), 0);
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, pageCount);
   const visible = sorted.slice((safePage - 1) * pageSize, safePage * pageSize);
@@ -123,7 +158,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
           <button type="button" className="ff-admin-button" onClick={() => setSelectedSafe(eligible.map((order) => order.id))}>Select paid for production</button>
           <button type="button" className="ff-admin-button" onClick={() => setSelectedSafe([])}>Clear</button>
           <button type="button" className="ff-admin-button ff-admin-button--primary" disabled={!pickingOrders.length} onClick={() => print(pickingListHtml(pickingOrders))}>Print picking list ({pickingOrders.length})</button>
-          <button type="button" className="ff-admin-button ff-admin-button--primary" disabled={!invoiceOrders.length} onClick={() => print(bulkInvoicesHtml(invoiceOrders))}>Bulk print invoices ({invoiceOrders.length})</button>
+          <button type="button" className="ff-admin-button ff-admin-button--primary" disabled={!invoiceOrders.length} onClick={() => print(bulkInvoicesHtml(invoiceOrders, platform))}>Bulk print invoices ({invoiceOrders.length})</button>
           <span className="mx-1 h-6 border-l border-current opacity-20" aria-hidden="true" />
           <label className="text-xs">Bulk status
             <select aria-label="Bulk order status" className="ff-admin-control ml-2" value={bulkStatus} disabled={updating} onChange={event => setBulkStatus(event.target.value)}>
@@ -137,7 +172,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
         </div>
       </div>
       {bulkResult && <p role="status" className="text-sm">{bulkResult}</p>}
-      <p className="text-xs ff-admin-muted">Only paid orders are selectable. Completed and shipped orders are excluded from picking. Printable invoices are order summaries until legal invoice details are implemented.</p>
+      <p className="text-xs ff-admin-muted">Only paid orders are selectable. Completed and shipped orders are excluded from production picking. Invoice PDFs use business identity from Platform Settings.</p>
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-xs">Search orders
           <input className="ff-admin-control ml-2" value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="Order number, email or status" />
@@ -154,6 +189,12 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
             <option value="missing_date">Group delivery: date missing</option>
           </select>
         </label>
+        <label className="text-xs">Product on order
+          <select aria-label="Filter orders by product" className="ff-admin-control ml-2 max-w-[260px]" value={productFilter} onChange={event => { setProductFilter(event.target.value); setPage(1); }}>
+            <option value="all">All products</option>
+            {productOptions.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
+          </select>
+        </label>
         <label className="text-xs">Order by
           <select className="ff-admin-control ml-2" value={deliverySort} onChange={event => { setDeliverySort(event.target.value); setPage(1); }}>
             <option value="newest">Newest orders</option>
@@ -162,6 +203,21 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], on
           </select>
         </label>
         <span className="text-xs ff-admin-muted">{filtered.length} matching · {selected.length} selected</span>
+      </div>
+      <div className="flex flex-wrap items-end gap-3 border-t border-[var(--ff-card-border)] pt-4" data-testid="creator-order-collection-controls">
+        <div className="min-w-[200px]">
+          <div className="font-semibold text-sm">Order collection sheet by creator</div>
+          <div className="text-xs ff-admin-muted">{collectionOrders.length} paid orders · {collectionPieceCount} pieces · current order/product filters</div>
+        </div>
+        <label className="text-xs">Creator
+          <select aria-label="Collection sheet creator" className="ff-admin-control ml-2 max-w-[260px]" value={creatorFilter} onChange={event => setCreatorFilter(event.target.value)}>
+            <option value="all">All creators (separate sheets)</option>
+            {creatorOptions.map(creator => <option key={creator.id} value={creator.id}>{creator.name}</option>)}
+          </select>
+        </label>
+        <button type="button" className="ff-admin-button ff-admin-button--primary" disabled={!collectionOrders.length} onClick={() =>
+          print(creatorCollectionSheetHtml(collectionOrders, creatorNames, creatorFilter))
+        }>Print / save PDF collection sheet</button>
       </div>
       <div className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain" role="region" aria-label="Admin orders table" tabIndex={0}>
         <table className="table-brutal min-w-[920px] w-full text-xs">
