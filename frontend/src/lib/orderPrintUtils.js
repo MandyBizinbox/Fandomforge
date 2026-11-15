@@ -82,7 +82,23 @@ export function pickingListHtml(orders) {
   <div class="summary">Paid production orders: ${eligible.length} | Total pieces: ${lines.reduce((sum,l)=>sum+l.quantity,0)}</div>
   <table><thead><tr><th>Product</th><th>Size</th><th>Colour</th><th>Qty</th><th>Order(s)</th><th>Picked</th></tr></thead><tbody>${rows}</tbody></table>`);
 }
-export function bulkInvoicesHtml(orders) {
+function sellerDetailsHtml(platform = {}) {
+  const business = asText(platform.business_name) || asText(platform.platform_name) || "FandomForge";
+  const fields = [
+    ["Business registration", platform.business_registration],
+    ["Public email", platform.public_contact_email || platform.support_email],
+    ["Public phone", platform.public_contact_phone || platform.support_phone],
+    ["Support email", platform.support_email],
+    ["Support phone", platform.support_phone],
+    ["WhatsApp", platform.support_whatsapp],
+    ["Country", platform.country],
+  ].filter(([, value]) => asText(value));
+  return `<div class="summary"><strong>${escapePrintHtml(business)}</strong><br>${fields.map(([label, value]) =>
+    `${escapePrintHtml(label)}: ${escapePrintHtml(value)}`
+  ).join("<br>")}</div>`;
+}
+
+export function bulkInvoicesHtml(orders, platform = {}) {
   const eligible = asArray(orders).filter(paidOrder);
   return documentShell("Order invoices", eligible.map((order) => {
     const lineItems = asArray(order.items).map(item => `<tr>
@@ -91,6 +107,7 @@ export function bulkInvoicesHtml(orders) {
       <td>${escapePrintHtml(currency(item.unit_price))}</td>
       <td>${escapePrintHtml(currency(Number(item.unit_price || 0)*Number(item.quantity || 0)))}</td></tr>`).join("");
     return `<section class="invoice"><h1>Order invoice</h1>
+      ${sellerDetailsHtml(platform)}
       <p>Order: <strong>${escapePrintHtml(order.order_number)}</strong><br>
       Date: ${escapePrintHtml(String(order.created_at || "").slice(0,10))}<br>
       Buyer: ${escapePrintHtml(order.buyer_email)}<br>
@@ -99,7 +116,68 @@ export function bulkInvoicesHtml(orders) {
       <div class="totals">Subtotal: ${escapePrintHtml(currency(order.subtotal))}<br>
       Shipping: ${escapePrintHtml(currency(order.shipping_total))}<br>
       Total: ${escapePrintHtml(currency(order.total))}</div>
-      <p class="muted">Order record for fulfilment. Tax invoice status, VAT details and legal invoice numbering must be confirmed before use as a statutory tax invoice.</p>
     </section>`;
   }).join(""));
+}
+
+// All items are grouped by their own creator, not by the order's first item.
+// An order containing products from two creators therefore appears on both
+// creator sheets, but each sheet contains only its own products.
+export function creatorCollectionGroups(orders, creatorNames = {}) {
+  const groups = new Map();
+  for (const order of asArray(orders)) {
+    if (!paidOrder(order) || ["cancelled", "canceled", "refunded"].includes(asText(order.status).toLowerCase())) continue;
+    for (const item of asArray(order.items)) {
+      const creatorId = asText(item.band_id);
+      const creatorName = asText(creatorNames[creatorId]) || asText(item.creator_name) ||
+        asText(item.band_name) || (creatorId ? `Creator ${creatorId}` : "Unassigned creator");
+      const groupKey = creatorId || "__unassigned__";
+      if (!groups.has(groupKey)) groups.set(groupKey, { id: groupKey, name: creatorName, lines: [] });
+      groups.get(groupKey).lines.push({
+        orderNumber: asText(order.order_number) || asText(order.id),
+        orderDate: asText(order.created_at).slice(0, 10),
+        buyer: asText(order.shipping_address?.full_name) || asText(order.buyer_email),
+        product: asText(item.product_title) || "Untitled product",
+        size: asText(item.size),
+        color: asText(item.color),
+        quantity: Number(item.quantity || 0),
+        shippingMethod: asText(order.shipping_method_name || order.shipping_method_key),
+        status: asText(order.status),
+      });
+    }
+  }
+  return [...groups.values()].map(group => ({
+    ...group,
+    lines: group.lines.sort((a, b) => a.orderNumber.localeCompare(b.orderNumber) ||
+      a.product.localeCompare(b.product) || a.size.localeCompare(b.size)),
+  })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function creatorCollectionSheetHtml(orders, creatorNames = {}, creatorId = "all") {
+  const groups = creatorCollectionGroups(orders, creatorNames)
+    .filter(group => creatorId === "all" || group.id === creatorId);
+  const contents = groups.map(group => {
+    const rows = group.lines.map(line => `<tr>
+      <td>${escapePrintHtml(line.orderNumber)}</td>
+      <td>${escapePrintHtml(line.buyer)}</td>
+      <td>${escapePrintHtml(line.product)}</td>
+      <td>${escapePrintHtml(line.size)}</td>
+      <td>${escapePrintHtml(line.color)}</td>
+      <td>${line.quantity}</td>
+      <td>${escapePrintHtml(line.shippingMethod)}</td>
+      <td>□</td>
+    </tr>`).join("");
+    const pieces = group.lines.reduce((total, line) => total + line.quantity, 0);
+    const orderCount = new Set(group.lines.map(line => line.orderNumber)).size;
+    return `<section class="invoice">
+      <h1>Order collection sheet — ${escapePrintHtml(group.name)}</h1>
+      <div class="summary">Orders: ${orderCount} | Product lines: ${group.lines.length} | Total pieces: ${pieces}<br>
+      Generated: ${escapePrintHtml(new Date().toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg" }))}</div>
+      <table><thead><tr><th>Order</th><th>Customer</th><th>Product</th><th>Size</th><th>Colour</th><th>Qty</th><th>Delivery</th><th>Collected</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <div class="summary">Collected by: _____________________ &nbsp; Date: ______________</div>
+    </section>`;
+  }).join("");
+  return documentShell("Creator order collection sheets",
+    contents || "<h1>Order collection sheet</h1><p>No eligible paid order items match this selection.</p>");
 }
