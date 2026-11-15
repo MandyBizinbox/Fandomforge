@@ -85,7 +85,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], cr
     });
   }, [filtered, deliverySort]);
   const collectionOrders = useMemo(() => sorted.filter(order =>
-    paidOrder(order) && (order.items || []).some(item =>
+    paidOrder(order) && !["cancelled", "canceled", "refunded"].includes(String(order.status || "").toLowerCase()) && (order.items || []).some(item =>
       (creatorFilter === "all" || String(item.band_id || "").trim() === creatorFilter) &&
       (productFilter === "all" || String(item.product_id || item.product_title || "").trim() === productFilter)
     )
