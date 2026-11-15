@@ -1,4 +1,4 @@
-import { aggregatePickingLines, bulkInvoicesHtml, duplicateOrderFlags, paidOrder, pickingListHtml, productionOrder } from "./orderPrintUtils";
+import { aggregatePickingLines, bulkInvoicesHtml, creatorCollectionGroups, creatorCollectionSheetCsv, creatorCollectionSheetHtml, duplicateOrderFlags, paidOrder, pickingListHtml, productionOrder } from "./orderPrintUtils";
 
 const sample = (id, time, overrides = {}) => ({
   id, order_number: "MF-"+id, buyer_email: "shop@example.com",
@@ -46,4 +46,49 @@ test("invoice print escapes user content and excludes unpaid orders", () => {
   expect(html).not.toContain("<script>");
   expect(html).toContain("MF-1");
   expect(html).not.toContain("MF-2");
+});
+
+
+test("bulk invoices use platform identity and omit old statutory disclaimer", () => {
+  const html = bulkInvoicesHtml([sample("9", "2026-11-15T10:00:00Z")], {
+    business_name: "FandomForge (PTY) ltd.",
+    public_contact_email: "info@fandomforge.co.za",
+    support_whatsapp: "+27712116050",
+  });
+  expect(html).toContain("FandomForge (PTY) ltd.");
+  expect(html).toContain("info@fandomforge.co.za");
+  expect(html).toContain("+27712116050");
+  expect(html).not.toContain("Tax invoice status, VAT details");
+});
+
+test("creator collection groups split mixed-creator orders without copying other creators' items", () => {
+  const multi = sample("10", "2026-11-15T10:00:00Z", {
+    items: [
+      { band_id: "creator-a", product_id: "tee", product_title: "Tee", size: "L", color: "Black", quantity: 2 },
+      { band_id: "creator-b", product_id: "cap", product_title: "Cap", size: "One size", color: "Blue", quantity: 3 },
+    ],
+  });
+  const groups = creatorCollectionGroups([
+    multi, sample("11", "2026-11-15T10:00:00Z", { payment_status: "pending", items: multi.items }),
+  ], { "creator-a": "Alpha", "creator-b": "Beta" });
+  expect(groups.map(group => group.name)).toEqual(["Alpha", "Beta"]);
+  expect(groups[0].lines).toHaveLength(1);
+  expect(groups[0].lines[0].product).toBe("Tee");
+  expect(groups[1].lines[0].product).toBe("Cap");
+  expect(groups[1].lines[0].quantity).toBe(3);
+  const html = creatorCollectionSheetHtml([multi], { "creator-a": "Alpha", "creator-b": "Beta" }, "creator-a");
+  expect(html).toContain("Alpha");
+  expect(html).toContain("Tee");
+  expect(html).not.toContain("Cap");
+  expect(html).not.toContain("Beta");
+});
+
+test("download CSV escapes formula-like values and has separate creator rows", () => {
+  const order = sample("12", "2026-11-15T10:00:00Z", {
+    items: [{ band_id: "creator-a", product_id: "sku", product_title: "=SUM(1,2)", quantity: 1 }],
+  });
+  const csv = creatorCollectionSheetCsv([order], { "creator-a": "Alpha" });
+  expect(csv).toContain("Alpha");
+  expect(csv).toContain("'=SUM(1,2)");
+  expect(csv).toContain("Collected by");
 });
