@@ -72,6 +72,23 @@ function documentShell(title, inner) {
   th,td{text-align:left;border-bottom:1px solid #bbb;padding:7px 5px;vertical-align:top}th{background:#eee}
   .invoice{break-after:page;page-break-after:always}.invoice:last-child{break-after:auto;page-break-after:auto}
   .totals{text-align:right;font-weight:bold;margin-top:12px}.alert{border:2px solid #a00;padding:9px;margin:12px 0}
+  .invoice-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:18px}
+  .invoice-heading h1{margin:2px 0 0;font-size:26px}.eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:#666}
+  .invoice-reference{text-align:right;line-height:1.7;font-size:12px}
+  .invoice-parties{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin:0 0 18px;align-items:stretch}
+  .party-card{border:1px solid #ccc;border-top:3px solid #111;padding:13px;min-width:0;overflow-wrap:anywhere;line-height:1.45}
+  .party-label{font-size:10px;letter-spacing:1.1px;text-transform:uppercase;color:#666;font-weight:bold;margin-bottom:8px}
+  .party-name{font-weight:bold;font-size:15px;margin-bottom:8px}
+  .detail-row{display:grid;grid-template-columns:70px minmax(0,1fr);gap:6px;margin:4px 0}
+  .detail-label{font-size:10px;color:#666}.detail-value{white-space:pre-line}
+  .invoice-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;background:#f5f5f5;border:1px solid #ddd;padding:10px;margin-bottom:16px;font-size:11px}
+  .invoice-meta strong{font-size:10px;text-transform:uppercase;color:#555}.invoice-items{margin-top:0}
+  .invoice-items td.number,.invoice-items th.number{text-align:right}
+  .invoice-totals{width:270px;max-width:100%;margin:14px 0 0 auto}
+  .invoice-totals>div{display:flex;justify-content:space-between;gap:20px;padding:5px 0}
+  .invoice-totals .grand-total{font-size:16px;border-top:2px solid #111;margin-top:6px;padding-top:10px}
+  .invoice-footer{border-top:1px solid #ddd;margin-top:32px;padding-top:10px;font-size:10px;color:#666}
+  @media print{.invoice-parties{grid-template-columns:1fr 1fr}.invoice{break-after:page}.party-card,.invoice-heading,.invoice-meta,.invoice-totals{break-inside:avoid}}
   </style></head><body>${inner}</body></html>`;
 }
 export function pickingListHtml(orders) {
@@ -82,20 +99,40 @@ export function pickingListHtml(orders) {
   <div class="summary">Paid production orders: ${eligible.length} | Total pieces: ${lines.reduce((sum,l)=>sum+l.quantity,0)}</div>
   <table><thead><tr><th>Product</th><th>Size</th><th>Colour</th><th>Qty</th><th>Order(s)</th><th>Picked</th></tr></thead><tbody>${rows}</tbody></table>`);
 }
+function invoiceDetailRows(entries) {
+  return entries.filter(([, value]) => asText(value)).map(([label, value]) =>
+    `<div class="detail-row"><span class="detail-label">${escapePrintHtml(label)}</span><span class="detail-value">${escapePrintHtml(value)}</span></div>`
+  ).join("");
+}
+
 function sellerDetailsHtml(platform = {}) {
   const business = asText(platform.business_name) || asText(platform.platform_name) || "FandomForge";
-  const fields = [
-    ["Business registration", platform.business_registration],
-    ["Public email", platform.public_contact_email || platform.support_email],
-    ["Public phone", platform.public_contact_phone || platform.support_phone],
-    ["Support email", platform.support_email],
-    ["Support phone", platform.support_phone],
+  const rows = invoiceDetailRows([
+    ["Registration", platform.business_registration],
+    ["Email", platform.public_contact_email || platform.support_email],
+    ["Phone", platform.public_contact_phone || platform.support_phone],
     ["WhatsApp", platform.support_whatsapp],
     ["Country", platform.country],
-  ].filter(([, value]) => asText(value));
-  return `<div class="summary"><strong>${escapePrintHtml(business)}</strong><br>${fields.map(([label, value]) =>
-    `${escapePrintHtml(label)}: ${escapePrintHtml(value)}`
-  ).join("<br>")}</div>`;
+  ]);
+  return `<div class="party-card"><div class="party-label">From / Seller</div>
+    <div class="party-name">${escapePrintHtml(business)}</div>${rows}</div>`;
+}
+
+function buyerDetailsHtml(order) {
+  const address = order.shipping_address || {};
+  const name = asText(address.full_name) || asText(order.buyer_name) || asText(order.buyer_email) || "Buyer";
+  const lines = [
+    address.line1, address.line2,
+    [address.city, address.state, address.postal_code].filter(value => asText(value)).join(", "),
+    address.country,
+  ].filter(value => asText(value));
+  return `<div class="party-card"><div class="party-label">Bill To / Customer</div>
+    <div class="party-name">${escapePrintHtml(name)}</div>
+    ${invoiceDetailRows([
+      ["Email", address.email || order.buyer_email],
+      ["Phone", address.phone || order.buyer_phone],
+      ["Address", lines.join("\\n")],
+    ])}</div>`;
 }
 
 export function bulkInvoicesHtml(orders, platform = {}) {
@@ -106,16 +143,25 @@ export function bulkInvoicesHtml(orders, platform = {}) {
       <td>${escapePrintHtml(item.color)}</td><td>${Number(item.quantity || 0)}</td>
       <td>${escapePrintHtml(currency(item.unit_price))}</td>
       <td>${escapePrintHtml(currency(Number(item.unit_price || 0)*Number(item.quantity || 0)))}</td></tr>`).join("");
-    return `<section class="invoice"><h1>Order invoice</h1>
-      ${sellerDetailsHtml(platform)}
-      <p>Order: <strong>${escapePrintHtml(order.order_number)}</strong><br>
-      Date: ${escapePrintHtml(String(order.created_at || "").slice(0,10))}<br>
-      Buyer: ${escapePrintHtml(order.buyer_email)}<br>
-      Payment: ${escapePrintHtml(order.payment_status)} (${escapePrintHtml(order.payment_provider)})</p>
-      <table><thead><tr><th>Product</th><th>Size</th><th>Colour</th><th>Qty</th><th>Unit</th><th>Line total</th></tr></thead><tbody>${lineItems}</tbody></table>
-      <div class="totals">Subtotal: ${escapePrintHtml(currency(order.subtotal))}<br>
-      Shipping: ${escapePrintHtml(currency(order.shipping_total))}<br>
-      Total: ${escapePrintHtml(currency(order.total))}</div>
+    return `<section class="invoice">
+      <div class="invoice-heading"><div><div class="eyebrow">${escapePrintHtml(platform.platform_name || "FandomForge")}</div>
+        <h1>Order invoice</h1></div><div class="invoice-reference">
+        <strong>${escapePrintHtml(order.order_number)}</strong><br>
+        <span class="muted">${escapePrintHtml(String(order.created_at || "").slice(0,10))}</span></div></div>
+      <div class="invoice-parties">${sellerDetailsHtml(platform)}${buyerDetailsHtml(order)}</div>
+      <div class="invoice-meta">
+        <div><strong>Order</strong><br>${escapePrintHtml(order.order_number)}</div>
+        <div><strong>Payment status</strong><br>${escapePrintHtml(order.payment_status)}</div>
+        <div><strong>Payment method</strong><br>${escapePrintHtml(order.payment_provider)}</div>
+        <div><strong>Delivery</strong><br>${escapePrintHtml(order.shipping_method_name || order.shipping_method_key || "Not specified")}</div>
+      </div>
+      <table class="invoice-items"><thead><tr><th>Product</th><th>Size</th><th>Colour</th><th class="number">Qty</th><th class="number">Unit</th><th class="number">Line total</th></tr></thead><tbody>${lineItems}</tbody></table>
+      <div class="invoice-totals">
+        <div><span>Subtotal</span><strong>${escapePrintHtml(currency(order.subtotal))}</strong></div>
+        <div><span>Shipping</span><strong>${escapePrintHtml(currency(order.shipping_total))}</strong></div>
+        <div class="grand-total"><span>Total</span><strong>${escapePrintHtml(currency(order.total))}</strong></div>
+      </div>
+      <div class="invoice-footer">Order reference: ${escapePrintHtml(order.order_number)}</div>
     </section>`;
   }).join(""));
 }
