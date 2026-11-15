@@ -181,3 +181,25 @@ export function creatorCollectionSheetHtml(orders, creatorNames = {}, creatorId 
   return documentShell("Creator order collection sheets",
     contents || "<h1>Order collection sheet</h1><p>No eligible paid order items match this selection.</p>");
 }
+
+function safeSpreadsheetCell(value) {
+  const text = asText(value);
+  // Prevent spreadsheet formula execution when an untrusted customer/product
+  // field starts with a spreadsheet formula trigger.
+  const safe = /^[=+@\-\t\r]/.test(text) ? "'" + text : text;
+  return '"' + safe.replace(/"/g, '""') + '"';
+}
+
+export function creatorCollectionSheetCsv(orders, creatorNames = {}, creatorId = "all") {
+  const header = ["Creator", "Order", "Order date", "Customer", "Product", "Size",
+    "Colour", "Quantity", "Delivery", "Order status", "Collected", "Collected by"];
+  const rows = [header];
+  for (const group of creatorCollectionGroups(orders, creatorNames)) {
+    if (creatorId !== "all" && group.id !== creatorId) continue;
+    for (const line of group.lines) {
+      rows.push([group.name, line.orderNumber, line.orderDate, line.buyer, line.product,
+        line.size, line.color, line.quantity, line.shippingMethod, line.status, "", ""]);
+    }
+  }
+  return "\uFEFF" + rows.map(row => row.map(safeSpreadsheetCell).join(",")).join("\r\n") + "\r\n";
+}
