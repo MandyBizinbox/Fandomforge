@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { bulkInvoicesHtml, creatorCollectionGroups, creatorCollectionSheetHtml, paidOrder, pickingListHtml, productionOrder } from "../../../lib/orderPrintUtils";
+import { bulkInvoicesHtml, creatorCollectionGroups, creatorCollectionSheetCsv, creatorCollectionSheetHtml, paidOrder, pickingListHtml, productionOrder } from "../../../lib/orderPrintUtils";
 import { usePlatformConfig } from "../../../lib/platform";
 
 function groupDeliveryDate(order) {
@@ -142,6 +142,18 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], cr
     catch (error) { /* Notification handled by parent */ }
     finally { setStockUpdating(current => current.filter(id => id !== order.id)); }
   };
+  const downloadCollectionCsv = () => {
+    const contents = creatorCollectionSheetCsv(collectionOrders, creatorNames, creatorFilter);
+    const blob = new Blob([contents], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `fandomforge-creator-collection-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
   const print = (html) => {
     if (!openPrintDocument(html)) window.alert("Your browser blocked the print window. Enable pop-ups for FandomForge and retry.");
   };
@@ -218,6 +230,7 @@ export default function OrderBatchPrintControls({ orders = [], printers = [], cr
         <button type="button" className="ff-admin-button ff-admin-button--primary" disabled={!collectionOrders.length} onClick={() =>
           print(creatorCollectionSheetHtml(collectionOrders, creatorNames, creatorFilter))
         }>Print / save PDF collection sheet</button>
+        <button type="button" className="ff-admin-button" disabled={!collectionOrders.length} onClick={downloadCollectionCsv}>Download collection CSV</button>
       </div>
       <div className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain" role="region" aria-label="Admin orders table" tabIndex={0}>
         <table className="table-brutal min-w-[920px] w-full text-xs">
