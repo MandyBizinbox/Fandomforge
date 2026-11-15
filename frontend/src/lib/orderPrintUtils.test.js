@@ -92,3 +92,52 @@ test("download CSV escapes formula-like values and has separate creator rows", (
   expect(csv).toContain("'=SUM(1,2)");
   expect(csv).toContain("Collected by");
 });
+
+
+test("invoice has a two-column seller and buyer block with full delivery details", () => {
+  const order = sample("23", "2026-11-15T10:00:00Z", {
+    shipping_address: {
+      full_name: "Jane Example",
+      email: "jane@example.co.za",
+      phone: "0712345678",
+      line1: "22 Test Street",
+      line2: "Unit 4",
+      city: "Bellville",
+      state: "Western Cape",
+      postal_code: "7530",
+      country: "ZA",
+    },
+  });
+  const html = bulkInvoicesHtml([order], {
+    business_name: "FandomForge (PTY) ltd.",
+    public_contact_email: "info@fandomforge.co.za",
+  });
+  expect(html).toContain("invoice-parties");
+  expect(html).toContain("grid-template-columns:minmax(0,1fr) minmax(0,1fr)");
+  expect(html).toContain("From / Seller");
+  expect(html).toContain("Bill To / Customer");
+  expect(html).toContain("Jane Example");
+  expect(html).toContain("jane@example.co.za");
+  expect(html).toContain("0712345678");
+  expect(html).toContain("22 Test Street");
+  expect(html).toContain("Unit 4");
+  expect(html).toContain("Bellville, Western Cape, 7530");
+  expect(html).toContain("FandomForge (PTY) ltd.");
+  expect(html).not.toContain("Order record for fulfilment");
+});
+
+test("invoice safely handles orders without a delivery address", () => {
+  const html = bulkInvoicesHtml([sample("24", "2026-11-15T10:00:00Z")]);
+  expect(html).toContain("Bill To / Customer");
+  expect(html).toContain("shop@example.com");
+  expect(html).not.toContain("undefined");
+});
+
+test("invoice escapes customer and address HTML input", () => {
+  const html = bulkInvoicesHtml([sample("25", "2026-11-15T10:00:00Z", {
+    shipping_address: { full_name: "<img src=x onerror=alert(1)>", line1: "<script>bad</script>" },
+  })]);
+  expect(html).not.toContain("<img src=x");
+  expect(html).not.toContain("<script>bad</script>");
+  expect(html).toContain("&lt;script&gt;bad&lt;/script&gt;");
+});
