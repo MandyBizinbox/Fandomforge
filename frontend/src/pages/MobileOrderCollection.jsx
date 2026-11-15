@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Eraser, Search, Signature, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Eraser, Search, ShieldCheck } from "lucide-react";
 import { http } from "../lib/api";
 
 const formatStatus = (value) => String(value || "").replaceAll("_", " ");
@@ -93,7 +93,6 @@ export default function MobileOrderCollection() {
   const [handoverConfirmed, setHandoverConfirmed] = useState(false);
   const [success, setSuccess] = useState(null);
   const [padKey, setPadKey] = useState(0);
-  const canvasRef = useRef(null);
   // Stable callback avoids erasing an in-progress signature on re-render.
   const onSigned = useCallback((present) => setSignaturePresent(present), []);
 
