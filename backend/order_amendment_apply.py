@@ -61,6 +61,8 @@ async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
         raise HTTPException(status_code=409, detail="Only paid, unfulfilled orders may receive automated additions")
     if order.get("collection_receipt"):
         raise HTTPException(status_code=409, detail="Already collected orders need a separate fulfilment amendment")
+    if order.get("active_order_amendment_id") != amendment["id"]:
+        raise HTTPException(status_code=409, detail="Order is not held for this paid amendment")
     if order.get("updated_at") != amendment.get("source_order_updated_at"):
         raise HTTPException(status_code=409, detail="Order changed since amendment was drafted")
     from routes_main import _build_order_items, ensure_wallet_transactions_for_order
@@ -104,6 +106,7 @@ async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
         {"id": order["id"], "updated_at": order["updated_at"],
          "payment_status": "paid", "status": order["status"],
          "collection_receipt": {"$exists": False},
+         "active_order_amendment_id": amendment["id"],
          "applied_amendment_ids": {"$ne": amendment["id"]}},
         {"$set": {
             "items": new_order_items,
@@ -111,7 +114,8 @@ async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
             "total": float(new_total),
             "amendment_base_total": order.get("amendment_base_total", float(old_total)),
             "updated_at": now,
-        }, "$addToSet": {"applied_amendment_ids": amendment["id"]}},
+        }, "$addToSet": {"applied_amendment_ids": amendment["id"]},
+        "$unset": {"active_order_amendment_id": ""}},
     )
     if update.modified_count != 1:
         raise HTTPException(status_code=409, detail="Order changed during amendment application")
