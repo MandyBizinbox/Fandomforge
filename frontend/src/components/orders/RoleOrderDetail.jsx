@@ -9,6 +9,7 @@ import StatusBadge from "../StatusBadge";
 import ProductionPackSummary from "../production/ProductionPackSummary";
 import ActivityTimeline from "../activity/ActivityTimeline";
 import SuperAdminOrderEditor from "./SuperAdminOrderEditor";
+import OrderAmendmentWorkspace from "./OrderAmendmentWorkspace";
 
 const ORDER_STATUS = [
   "pending_payment", "payment_overdue", "paid", "awaiting_artwork_review", "sent_to_printer",
@@ -346,6 +347,7 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
     </div>
 
     {isAdmin && ["super_admin", "owner"].includes(user?.role) && <SuperAdminOrderEditor order={order} onSaved={load} />}
+    {isAdmin && ["super_admin", "owner"].includes(user?.role) && <OrderAmendmentWorkspace order={order} />}
 
     {isGroupDelivery && <section className="ff-ui-card p-4 md:p-5 border-2 border-[var(--ff-primary)]" data-testid="group-delivery-schedule-banner">
       <div className="overline mb-2">Group delivery schedule</div>
