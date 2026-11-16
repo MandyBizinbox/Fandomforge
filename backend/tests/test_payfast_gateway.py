@@ -29,7 +29,7 @@ def test_internal_route_metadata_is_excluded_from_itn_signature():
         "amount_gross": "100.00",
         "merchant_id": "10000100",
     }
-    payload["signature"] = adapter._signature(payload, "secret-passphrase")
+    payload["signature"] = adapter._itn_signature(payload, "secret-passphrase")
     payload["__request_url"] = "https://fandomforge.co.za/api/payments/webhooks/payfast"
 
     assert adapter._verify_signature(payload, config()) is True
@@ -44,7 +44,7 @@ def test_handle_webhook_requires_server_confirmation(monkeypatch):
         "amount_gross": "100.00",
         "merchant_id": "10000100",
     }
-    payload["signature"] = adapter._signature(payload, "secret-passphrase")
+    payload["signature"] = adapter._itn_signature(payload, "secret-passphrase")
     payload["__request_url"] = "https://fandomforge.co.za/api/payments/webhooks/payfast"
 
     class Response:
@@ -69,7 +69,7 @@ def test_handle_webhook_rejects_failed_server_confirmation(monkeypatch):
         "amount_gross": "100.00",
         "merchant_id": "10000100",
     }
-    payload["signature"] = adapter._signature(payload, "secret-passphrase")
+    payload["signature"] = adapter._itn_signature(payload, "secret-passphrase")
 
     class Response:
         status_code = 200
@@ -176,7 +176,7 @@ def test_itn_raw_body_verification_preserves_order_and_encoding():
         "amount_gross": "100.00",
         "merchant_id": "10000100",
     }
-    signature = adapter._signature(data, "secret-passphrase")
+    signature = adapter._itn_signature(data, "secret-passphrase")
     raw_body = urlencode({**data, "signature": signature}).encode("utf-8")
     routed = {**data, "signature": signature, "__request_url": "https://fandomforge.co.za/api/payments/webhooks/payfast"}
 
@@ -186,7 +186,7 @@ def test_itn_raw_body_verification_preserves_order_and_encoding():
 def test_itn_rejects_modified_fields_after_signature_verification():
     adapter = PayFastPaymentGateway()
     original = {"m_payment_id": "REF123", "amount_gross": "100.00"}
-    signed = {**original, "signature": adapter._signature(original, "secret-passphrase")}
+    signed = {**original, "signature": adapter._itn_signature(original, "secret-passphrase")}
     raw_body = urlencode(signed).encode("utf-8")
     mutated = {**signed, "amount_gross": "1.00"}
 
@@ -196,7 +196,7 @@ def test_itn_rejects_modified_fields_after_signature_verification():
 def test_itn_rejects_duplicate_signature_fields():
     adapter = PayFastPaymentGateway()
     payload = {"m_payment_id": "REF123", "amount_gross": "100.00"}
-    signature = adapter._signature(payload, "secret-passphrase")
+    signature = adapter._itn_signature(payload, "secret-passphrase")
     raw_body = (urlencode(payload) + "&signature=" + signature + "&signature=" + signature).encode("utf-8")
 
     with pytest.raises(PaymentGatewayError, match="form fields"):
@@ -212,6 +212,82 @@ def test_itn_rejects_invalid_form_encoding():
 def test_itn_rejects_wrong_passphrase():
     adapter = PayFastPaymentGateway()
     payload = {"m_payment_id": "REF123", "amount_gross": "100.00"}
-    signature = adapter._signature(payload, "different-passphrase")
+    signature = adapter._itn_signature(payload, "different-passphrase")
     data = {**payload, "signature": signature}
     assert adapter._verify_signature(data, config(), urlencode(data).encode("utf-8")) is False
+
+
+def test_payfast_itn_includes_blank_values_in_original_field_order():
+    adapter = PayFastPaymentGateway()
+    fields = {
+        "m_payment_id": "REF123",
+        "name_first": "",
+        "name_last": "",
+        "item_name": "Meerkat Camp 2026",
+        "payment_status": "COMPLETE",
+        "merchant_id": "10000100",
+        "amount_gross": "305.00",
+    }
+    assert "name_first=&name_last=" in adapter._itn_payload_string(fields)
+    valid = adapter._itn_signature(fields, "secret-passphrase")
+    raw = urlencode({**fields, "signature": valid}).encode("utf-8")
+    assert adapter._verify_signature({**fields, "signature": valid}, config(), raw)
+    # The old hosted checkout signature deliberately skips empty fields.
+    assert valid != adapter._signature(fields, "secret-passphrase")
+
+
+def test_payfast_itn_without_blank_fields_has_stable_hash():
+    adapter = PayFastPaymentGateway()
+    fields = {
+        "m_payment_id": "REF123",
+        "payment_status": "COMPLETE",
+        "merchant_id": "10000100",
+    }
+    assert adapter._itn_signature(fields, "secret-passphrase") == adapter._signature(fields, "secret-passphrase")
+
+
+def test_itn_rejects_fields_after_signature_and_forged_passphrase():
+    adapter = PayFastPaymentGateway()
+    fields = {"m_payment_id": "REF123", "merchant_id": "10000100"}
+    valid = adapter._itn_signature(fields, "secret-passphrase")
+    with pytest.raises(PaymentGatewayError, match="signature position"):
+        adapter._verify_signature(
+            {**fields, "signature": valid, "extra": "1"},
+            config(),
+            urlencode({**fields, "signature": valid, "extra": "1"}).encode(),
+        )
+    with pytest.raises(PaymentGatewayError, match="form fields"):
+        adapter._verify_signature(
+            {**fields, "passphrase": "attacker", "signature": valid},
+            config(),
+            urlencode({**fields, "passphrase": "attacker", "signature": valid}).encode(),
+        )
+
+
+def test_itn_confirmation_preserves_blank_fields(monkeypatch):
+    adapter = PayFastPaymentGateway()
+    fields = {
+        "m_payment_id": "REF123",
+        "name_first": "",
+        "payment_status": "COMPLETE",
+        "merchant_id": "10000100",
+        "amount_gross": "100.00",
+    }
+    valid = adapter._itn_signature(fields, "secret-passphrase")
+    captured = {}
+    class Response:
+        status_code = 200
+        text = "VALID"
+    def fake_post(url, **kwargs):
+        captured.update(kwargs)
+        return Response()
+    monkeypatch.setattr("payment_gateways.payfast.requests.post", fake_post)
+    result = asyncio.run(adapter.handle_webhook(
+        {**fields, "signature": valid},
+        {},
+        config(),
+        urlencode({**fields, "signature": valid}).encode(),
+    ))
+    assert result["paid"] is True
+    assert "name_first=" in captured["data"]
+    assert "signature" not in captured["data"]
