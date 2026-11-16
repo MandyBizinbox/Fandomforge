@@ -123,7 +123,7 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
     {open && <form onSubmit={save} className="space-y-5">
       <p className="text-sm ff-ui-muted">
         Contact and delivery corrections are available for every order status. For shipped or completed orders, this updates the record only; previously issued labels and collection evidence remain unchanged.
-        Product variations are selected from the live catalogue, and only pending production items with exactly the same price can be changed.
+        Product variations are selected from the live catalogue. Super Admin may correct the variation even while production is underway, provided the selling price remains unchanged.
         Item quantities, prices, payment records, and collected items are never changed here.
       </p>
       <div>
@@ -152,7 +152,7 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
                String(variation.color || "").toLowerCase() === row.color.toLowerCase())
             );
             const originalLine = (order?.items || []).find(item => item.id === row.item_id);
-            const locked = itemChangesLocked || row.production_status !== "pending";
+            const locked = itemChangesLocked || ["shipped", "delivered"].includes(row.production_status);
             return <div key={row.item_id}
               className="border border-[var(--ff-card-border)] p-3 grid gap-3 sm:grid-cols-[minmax(0,2fr)_2fr]">
               <div className="text-sm">
@@ -179,7 +179,7 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
                   </option>)}
                 </select>
                 {!product && !catalogLoading && <div className="text-xs ff-ui-muted mt-1">This product is not in the current catalogue.</div>}
-                {locked && <div className="text-xs ff-ui-muted mt-1">Item editing locked after production starts.</div>}
+                {locked && <div className="text-xs ff-ui-muted mt-1">Already shipped or delivered items cannot be corrected here.</div>}
               </label>
             </div>;
           })}
