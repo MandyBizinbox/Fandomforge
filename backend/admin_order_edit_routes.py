@@ -118,7 +118,9 @@ async def correct_order(
             candidate_price = variation.get("effective_selling_price")
             if candidate_price is None:
                 candidate_price = variation.get("price_override")
-            if candidate_price is not None and abs(float(candidate_price) - float(item.get("unit_price") or 0)) > 0.005:
+            if candidate_price is None:
+                raise HTTPException(status_code=409, detail="Variation price cannot be verified; use the financial amendment workflow")
+            if abs(float(candidate_price) - float(item.get("unit_price") or 0)) > 0.005:
                 raise HTTPException(status_code=409, detail="Variation has a different price; financial amendment required")
             previous = {
                 "item_id": correction.item_id,
