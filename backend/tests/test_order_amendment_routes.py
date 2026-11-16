@@ -169,3 +169,33 @@ def test_money_rejects_invalid_values():
     for value in ("nan", "-1", "inf"):
         with pytest.raises(HTTPException):
             money(value)
+
+
+def test_unchanged_item_keeps_historic_paid_price_not_current_catalogue_price():
+    prior = order(items=[
+        {"id": "i-1", "product_id": "p-1", "variation_id": "v-1",
+         "quantity": 1, "unit_price": 135, "production_status": "pending"}
+    ], total=135)
+    db, _, _ = context(prior, [
+        {"id": "paid-1", "amount": 135, "currency": "ZAR",
+         "status": "completed", "provider": "payfast"}
+    ])
+    result = asyncio.run(price_amendment(db, prior, draft([
+        {"existing_item_id": "i-1", "product_id": "p-1", "variation_id": "v-1", "quantity": 1},
+        {"product_id": "p-1", "variation_id": "v-2", "quantity": 1},
+    ])))
+    assert result["revised_total"] == 295
+    assert result["balance_due"] == 160
+    assert result["items"][0]["unit_price"] == 135
+
+
+def test_refunded_payment_blocks_false_balance():
+    db, _, _ = context(payments=[
+        {"id": "pay-1", "amount": 145, "currency": "ZAR",
+         "status": "partially_refunded", "provider": "payfast"}
+    ])
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(price_amendment(db, order(), draft([
+            {"existing_item_id": "i-1", "product_id": "p-1", "variation_id": "v-1", "quantity": 1},
+        ])))
+    assert error.value.status_code == 409
