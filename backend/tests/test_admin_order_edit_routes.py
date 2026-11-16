@@ -148,9 +148,28 @@ def test_pending_tee_variation_can_be_corrected_even_when_other_items_are_in_pro
     assert "total" not in orders.written["$set"]
 
 
-def test_already_produced_tee_cannot_be_changed():
+@pytest.mark.parametrize("production_status", ["accepted", "in_production", "ready"])
+def test_super_admin_can_correct_same_price_tee_during_production_without_status_change(production_status):
     value = order()
-    value["items"][0]["production_status"] = "in_production"
+    value["status"] = "in_production"
+    value["items"][0]["production_status"] = production_status
+    request, orders, events = environment(value)
+    result = asyncio.run(correct_order("order-1", correction(item_corrections=[
+        {"item_id": "line1", "size": "L", "color": "Black"}
+    ]), request, admin()))
+    assert result["ok"] is True
+    assert orders.written["$set"]["items"][0]["variation_id"] == "v2"
+    assert orders.written["$set"]["items"][0]["production_status"] == production_status
+    assert not {"status", "payment_status", "payment_id", "total", "subtotal", "quantity"} & set(orders.written["$set"])
+    assert len(events.rows) == 1
+    assert events.rows[0]["audience"] == ["admin"]
+    assert events.rows[0]["kind"] == "internal_note"
+
+
+@pytest.mark.parametrize("production_status", ["shipped", "delivered"])
+def test_shipped_or_delivered_tee_cannot_be_changed(production_status):
+    value = order()
+    value["items"][0]["production_status"] = production_status
     request, orders, _ = environment(value)
     with pytest.raises(HTTPException) as exc:
         asyncio.run(correct_order("order-1", correction(item_corrections=[
