@@ -287,3 +287,21 @@ async def verify_order_amendment_payfast_topup(
         return {"verified": False, "status": "pending"}
     settled = await process_verified_supplement(db, payment, result)
     return {"verified": True, **settled}
+
+
+@amendment_router.post("/{order_id}/amendments/{amendment_id}/apply-paid-additions")
+async def apply_order_amendment_paid_additions(
+    order_id: str, amendment_id: str, request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Explicit Super Admin approval. Only additive paid changes are automated."""
+    require_super_admin(user)
+    from order_amendment_apply import apply_paid_additions
+    db = request.app.state.db
+    order = await _get_order(db, order_id)
+    amendment = await db.order_amendments.find_one(
+        {"id": amendment_id, "order_id": order_id}, {"_id": 0}
+    )
+    if not amendment:
+        raise HTTPException(status_code=404, detail="Amendment not found")
+    return await apply_paid_additions(db, order, amendment, user)
