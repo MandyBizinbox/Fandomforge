@@ -30,6 +30,8 @@ function initialItems(order) {
   return (order?.items || []).map(item => ({
     item_id: item.id,
     product_title: item.product_title || "Order item",
+    product_id: item.product_id || "",
+    variation_id: item.variation_id || "",
     size: item.size || "",
     color: item.color || "",
     quantity: item.quantity || 1,
@@ -43,8 +45,21 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
   const [items, setItems] = useState(() => initialItems(order));
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
-  const locked = LOCKED_STATUSES.has(order?.status) || Boolean(order?.collection_receipt);
-  const changesAllowed = !locked;
+  const [catalog, setCatalog] = useState([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const itemChangesLocked = ["completed", "cancelled", "refunded"].includes(order?.status) || Boolean(order?.collection_receipt);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setCatalogLoading(true);
+    http.get("/admin/products").then(({ data }) => {
+      if (active) setCatalog(Array.isArray(data) ? data : []);
+    }).catch(() => {
+      if (active) toast.error("Could not load product variations from catalogue");
+    }).finally(() => { if (active) setCatalogLoading(false); });
+    return () => { active = false; };
+  }, [open]);
 
   useEffect(() => {
     setAddress(initialAddress(order));
@@ -66,12 +81,9 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
   const addressChanged = JSON.stringify(initialAddress(order)) !== JSON.stringify(address);
   const hasChanges = addressChanged || corrections.length > 0;
 
-  const changeItem = (id, key, value) => setItems(current =>
-    current.map(row => row.item_id === id ? { ...row, [key]: value } : row));
-
   const save = async event => {
     event.preventDefault();
-    if (saving || !hasChanges || !changesAllowed) return;
+    if (saving || !hasChanges) return;
     if (reason.trim().length < 5) {
       toast.error("Add a reason for the correction (at least 5 characters)");
       return;
@@ -101,18 +113,18 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
         <h2 className="font-display text-2xl uppercase">Edit order</h2>
       </div>
       <button type="button" className="ff-ui-button ff-ui-button--secondary"
-        disabled={locked} onClick={() => setOpen(value => !value)}>
+        onClick={() => setOpen(value => !value)}>
         {open ? "Close editor" : "Edit order details"}
       </button>
     </div>
-    {locked && <div role="status" className="text-sm ff-ui-muted">
-      This order has entered production, been fulfilled or collected. Corrections are locked to protect the fulfilment and receipt records.
+    {itemChangesLocked && <div role="status" className="text-sm ff-ui-muted">
+      Contact details may be corrected. Completed or collected items are locked.
     </div>}
-    {open && !locked && <form onSubmit={save} className="space-y-5">
+    {open && <form onSubmit={save} className="space-y-5">
       <p className="text-sm ff-ui-muted">
-        Correct customer contact, delivery address, or size/colour before production.
-        A size/colour correction must match an existing product variation at the same price.
-        Quantity, prices, payments, allocations and existing artwork cannot be changed here.
+        Contact and delivery corrections are available for every order status. For shipped or completed orders, this updates the record only; previously issued labels and collection evidence remain unchanged.
+        Product variations are selected from the live catalogue, and only pending production items with exactly the same price can be changed.
+        Item quantities, prices, payment records, and collected items are never changed here.
       </p>
       <div>
         <h3 className="font-bold mb-3">Customer and delivery</h3>
@@ -129,23 +141,48 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
       <div>
         <h3 className="font-bold mb-3">Product variations</h3>
         <div className="grid gap-3">
-          {items.map(row => <div key={row.item_id}
-            className="border border-[var(--ff-card-border)] p-3 grid gap-3 sm:grid-cols-[minmax(0,2fr)_1fr_1fr]">
-            <div className="text-sm">
-              <strong>{row.product_title}</strong>
-              <div className="ff-ui-muted">Qty: {row.quantity} · {row.production_status.replaceAll("_", " ")}</div>
-            </div>
-            <label className="text-sm"><span className="ff-ui-label">Size</span>
-              <input className="ff-ui-control w-full mt-1" value={row.size} maxLength={100}
-                disabled={row.production_status !== "pending"}
-                onChange={event => changeItem(row.item_id, "size", event.target.value)} />
-            </label>
-            <label className="text-sm"><span className="ff-ui-label">Colour</span>
-              <input className="ff-ui-control w-full mt-1" value={row.color} maxLength={100}
-                disabled={row.production_status !== "pending"}
-                onChange={event => changeItem(row.item_id, "color", event.target.value)} />
-            </label>
-          </div>)}
+          {catalogLoading && <p className="text-sm ff-ui-muted">Loading catalogue variations…</p>}
+          {items.map(row => {
+            const product = catalog.find(item => item.id === row.product_id);
+            const variations = product?.variations || [];
+            const currentLabel = [row.size, row.color].filter(Boolean).join(" / ") || "Not specified";
+            const selectedVariation = variations.find(variation =>
+              variation.id === row.variation_id ||
+              (String(variation.size || "").toLowerCase() === row.size.toLowerCase() &&
+               String(variation.color || "").toLowerCase() === row.color.toLowerCase())
+            );
+            const originalLine = (order?.items || []).find(item => item.id === row.item_id);
+            const locked = itemChangesLocked || row.production_status !== "pending";
+            return <div key={row.item_id}
+              className="border border-[var(--ff-card-border)] p-3 grid gap-3 sm:grid-cols-[minmax(0,2fr)_2fr]">
+              <div className="text-sm">
+                <strong>{row.product_title}</strong>
+                <div className="ff-ui-muted">Qty: {row.quantity} · {row.production_status.replaceAll("_", " ")}</div>
+                <div className="ff-ui-muted">Current: {currentLabel}</div>
+              </div>
+              <label className="text-sm"><span className="ff-ui-label">Product variation</span>
+                <select className="ff-ui-control w-full mt-1"
+                  value={selectedVariation?.id || ""}
+                  disabled={locked || catalogLoading || !product || !variations.length}
+                  onChange={event => {
+                    const selected = variations.find(variation => variation.id === event.target.value);
+                    if (!selected) return;
+                    setItems(current => current.map(item => item.item_id === row.item_id ? {
+                      ...item, variation_id: selected.id, size: selected.size || "", color: selected.color || "",
+                    } : item));
+                  }}>
+                  {!selectedVariation && <option value="">Current: {currentLabel}</option>}
+                  {variations.map(variation => <option key={variation.id} value={variation.id}
+                    disabled={variation.effective_selling_price == null || Math.abs(Number(variation.effective_selling_price) - Number(originalLine?.unit_price || 0)) > 0.005}>
+                    {[variation.size, variation.color].filter(Boolean).join(" / ") || variation.sku || variation.id}
+                    {variation.effective_selling_price != null ? ` · R ${Number(variation.effective_selling_price).toFixed(2)}` : ""}
+                  </option>)}
+                </select>
+                {!product && !catalogLoading && <div className="text-xs ff-ui-muted mt-1">This product is not in the current catalogue.</div>}
+                {locked && <div className="text-xs ff-ui-muted mt-1">Item editing locked after production starts.</div>}
+              </label>
+            </div>;
+          })}
         </div>
       </div>
       <label className="block text-sm font-semibold">Reason for changes
