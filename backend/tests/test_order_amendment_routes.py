@@ -214,3 +214,54 @@ def test_price_preview_uses_authoritative_catalogue_variation_override():
     assert result["items"][1]["line_total"] == 160.0
     assert result["revised_total"] == 305.0
     assert result["balance_due"] == 160.0
+
+
+def test_only_paid_additions_enable_automated_application():
+    doc = order(
+        status="paid",
+        items=[{
+            "id": "i-1", "product_id": "p-1", "variation_id": "v-1",
+            "quantity": 1, "unit_price": 145, "production_status": "pending",
+        }],
+    )
+    db, _, _ = context(doc)
+    result = asyncio.run(price_amendment(db, doc, draft([
+        {"existing_item_id": "i-1", "product_id": "p-1", "variation_id": "v-1", "quantity": 1},
+        {"product_id": "p-1", "variation_id": "v-2", "quantity": 1},
+    ])))
+    assert result["automatic_application_supported"] is True
+    assert result["requires_financial_review"] is False
+
+
+def test_replacement_draft_cannot_offer_payfast_charge_even_with_balance():
+    doc = order(
+        status="paid",
+        items=[{
+            "id": "i-1", "product_id": "p-1", "variation_id": "v-1",
+            "quantity": 1, "unit_price": 145, "production_status": "pending",
+        }],
+    )
+    db, _, _ = context(doc)
+    result = asyncio.run(price_amendment(db, doc, draft([
+        {"existing_item_id": "i-1", "product_id": "p-1", "variation_id": "v-2", "quantity": 1},
+    ])))
+    assert result["balance_due"] == 15
+    assert result["automatic_application_supported"] is False
+    assert result["requires_financial_review"] is True
+
+
+def test_unpaid_order_draft_cannot_offer_supplement_charge():
+    doc = order(
+        status="pending_payment", payment_status="pending",
+        items=[{
+            "id": "i-1", "product_id": "p-1", "variation_id": "v-1",
+            "quantity": 1, "unit_price": 145, "production_status": "pending",
+        }],
+    )
+    db, _, _ = context(doc, [])
+    result = asyncio.run(price_amendment(db, doc, draft([
+        {"existing_item_id": "i-1", "product_id": "p-1", "variation_id": "v-1", "quantity": 1},
+        {"product_id": "p-1", "variation_id": "v-2", "quantity": 1},
+    ])))
+    assert result["automatic_application_supported"] is False
+    assert result["requires_financial_review"] is True
