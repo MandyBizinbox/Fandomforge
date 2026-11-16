@@ -37,7 +37,9 @@ def additions_only(original: dict, preview: dict) -> list[dict]:
 
 async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
     if amendment.get("status") == "applied":
-        return {"ok": True, "status": "applied", "duplicate": True}
+        from routes_main import ensure_wallet_transactions_for_order
+        await ensure_wallet_transactions_for_order(db, order)
+        return {"ok": True, "status": "applied", "duplicate": True, "wallet_reconciled": True}
     if amendment.get("status") != "settled_pending_application":
         raise HTTPException(status_code=409, detail="Amendment supplement is not yet paid")
     if order.get("payment_status") != "paid" or order.get("status") not in APPLY_STATUSES:
@@ -52,6 +54,12 @@ async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
     added = additions_only(order, preview)
     if money(preview.get("balance_due")) != money(amendment.get("payment_amount")):
         raise HTTPException(status_code=409, detail="Verified supplement amount does not match this amendment")
+    original_payment = await db.payments.find_one({
+        "id": order.get("payment_id"), "order_id": order["id"], "status": "completed",
+    }, {"_id": 0})
+    if not original_payment or money(original_payment.get("amount")) != money(order.get("amendment_base_total", order.get("total"))):
+        raise HTTPException(status_code=409, detail="Original order payment evidence is inconsistent")
+
     paid = await db.payments.find_one({
         "id": amendment.get("payment_id"), "amendment_id": amendment["id"],
         "order_id": order["id"], "provider": "payfast", "status": "completed",
@@ -86,6 +94,7 @@ async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
             "items": new_order_items,
             "subtotal": float(money(preview["revised_subtotal"])),
             "total": float(new_total),
+            "amendment_base_total": order.get("amendment_base_total", float(old_total)),
             "updated_at": now,
         }, "$addToSet": {"applied_amendment_ids": amendment["id"]}},
     )
