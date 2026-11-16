@@ -64,8 +64,8 @@ async def correct_order(
     )
     if not original:
         raise HTTPException(status_code=404, detail="Order not found")
-    if original.get("status") in BLOCKED_STATUSES or original.get("collection_receipt"):
-        raise HTTPException(status_code=409, detail="This order is already in production, fulfilled or collected and cannot be edited")
+    if payload.item_corrections and (original.get("status") in BLOCKED_STATUSES or original.get("collection_receipt")):
+        raise HTTPException(status_code=409, detail="Production or collection has begun. Item changes require an amendment and cannot overwrite fulfilment records")
     if original.get("updated_at") != payload.expected_updated_at:
         raise HTTPException(status_code=409, detail="Order changed since opening. Refresh before editing")
 
@@ -165,8 +165,7 @@ async def correct_order(
             "id": order_id,
             "archived": {"$ne": True},
             "updated_at": payload.expected_updated_at,
-            "status": {"$nin": sorted(BLOCKED_STATUSES)},
-            "collection_receipt": {"$exists": False},
+            **({"status": {"$nin": sorted(BLOCKED_STATUSES)}, "collection_receipt": {"$exists": False}} if payload.item_corrections else {}),
         },
         {"$set": changes, "$push": {"edit_history": record}},
     )
