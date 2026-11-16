@@ -4,7 +4,7 @@ import Navbar from "../components/Navbar";
 import StatusBadge from "../components/StatusBadge";
 import CustomerOrderTimeline from "../components/order/CustomerOrderTimeline";
 import { http, assetUrl } from "../lib/api";
-import { ArrowLeft, Copy, ExternalLink, Package, Truck } from "lucide-react";
+import { ArrowLeft, Copy, CreditCard, ExternalLink, Package, Truck } from "lucide-react";
 import { toast } from "sonner";
 
 function money(value) {
@@ -20,6 +20,7 @@ export default function OrderTracking() {
   const [tracking, setTracking] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [openingPayment, setOpeningPayment] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -49,6 +50,31 @@ export default function OrderTracking() {
 
   const items = useMemo(() => (Array.isArray(tracking?.items) ? tracking.items : []), [tracking]);
   const trackingNumbers = useMemo(() => (Array.isArray(tracking?.tracking_numbers) ? tracking.tracking_numbers : []), [tracking]);
+
+  const paymentPending = ["pending", "unpaid", "failed", "overdue"].includes(
+    String(tracking?.payment_status || "").toLowerCase()
+  );
+  const paymentCanResume = paymentPending &&
+    ["pending_payment", "payment_overdue"].includes(tracking?.status) &&
+    tracking?.payment_provider === "payfast";
+
+  const openExistingOrderPayment = async () => {
+    if (!paymentCanResume || openingPayment) return;
+    setOpeningPayment(true);
+    try {
+      const { data } = await http.post(
+        `/order-payment-recovery/from-tracking/${encodeURIComponent(token)}`
+      );
+      if (data?.payment_action !== "review_order" ||
+          !/^https:\/\/[^\s]+$/i.test(data?.payment_url || "")) {
+        throw new Error("Secure payment link unavailable");
+      }
+      window.location.assign(data.payment_url);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || err.message || "Could not open payment link");
+      setOpeningPayment(false);
+    }
+  };
 
   const copyTrackingLink = async () => {
     try {
@@ -193,6 +219,27 @@ export default function OrderTracking() {
                 </div>
               </div>
             </div>
+
+            {paymentPending && (
+              <div className="card" role="region" aria-label="Outstanding payment">
+                <div className="overline mb-3">Payment outstanding</div>
+                <p className="text-sm text-[var(--ff-muted-text)] mb-4">
+                  Your order is awaiting payment. If you have already paid,
+                  do not pay twice. Contact support so we can verify it.
+                </p>
+                {paymentCanResume ? (
+                  <button type="button" className="btn-primary w-full justify-center"
+                    onClick={openExistingOrderPayment} disabled={openingPayment}>
+                    <CreditCard size={16} />
+                    {openingPayment ? "Opening secure payment…" : "Review order & pay securely"}
+                  </button>
+                ) : (
+                  <Link to="/contact" className="btn-secondary w-full justify-center">
+                    Contact support about payment
+                  </Link>
+                )}
+              </div>
+            )}
 
             <div className="card">
               <div className="overline mb-3">Delivery area</div>
