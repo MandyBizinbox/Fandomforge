@@ -162,3 +162,35 @@ def test_conflicting_order_revision_returns_409():
         }), request, admin()))
     assert exc.value.status_code == 409
     assert orders.filter["updated_at"] == "2026-11-16T10:00:00+00:00"
+
+
+@pytest.mark.parametrize("status", [
+    "sent_to_printer", "in_production", "ready_for_dispatch",
+    "shipped", "completed", "cancelled", "refunded",
+])
+def test_super_admin_can_correct_contact_details_at_any_status(status):
+    value = order()
+    value["status"] = status
+    if status == "completed":
+        value["collection_receipt"] = {"signed_at": "2026-11-16T11:00:00Z"}
+    request, orders, _ = environment(value)
+    result = asyncio.run(correct_order("order-1", correction(shipping_address={
+        **order()["shipping_address"], "phone": "0712345678",
+    }), request, admin()))
+    assert result["ok"] is True
+    assert orders.written["$set"]["shipping_address"]["phone"] == "0712345678"
+    assert "status" not in orders.written["$set"]
+    assert "collection_receipt" not in orders.written["$set"]
+
+
+def test_item_changes_after_collection_rejected_but_contact_changes_remain_allowed():
+    value = order()
+    value["status"] = "completed"
+    value["collection_receipt"] = {"signed_at": "2026-11-16T11:00:00Z"}
+    request, orders, _ = environment(value)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(correct_order("order-1", correction(item_corrections=[
+            {"item_id": "line1", "size": "L", "color": "Black"}
+        ]), request, admin()))
+    assert exc.value.status_code == 409
+    assert orders.written is None
