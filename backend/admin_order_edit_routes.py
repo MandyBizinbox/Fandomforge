@@ -64,8 +64,8 @@ async def correct_order(
     )
     if not original:
         raise HTTPException(status_code=404, detail="Order not found")
-    if original.get("status") in BLOCKED_STATUSES or original.get("collection_receipt"):
-        raise HTTPException(status_code=409, detail="This order is already in production, fulfilled or collected and cannot be edited")
+    if payload.item_corrections and (original.get("collection_receipt") or original.get("status") in {"completed", "cancelled", "refunded"}):
+        raise HTTPException(status_code=409, detail="Collected, completed, cancelled or refunded items require a separate fulfilment correction")
     if original.get("updated_at") != payload.expected_updated_at:
         raise HTTPException(status_code=409, detail="Order changed since opening. Refresh before editing")
 
@@ -102,7 +102,7 @@ async def correct_order(
                 continue
             # A variant correction is only safe if the requested combination
             # exists on the same product and has identical effective pricing.
-            product = await db.products.find_one({"id": item.get("product_id")}, {"_id": 0, "variations": 1})
+            product = await db.products.find_one({"id": item.get("product_id")}, {"_id": 0})
             if not product:
                 raise HTTPException(status_code=409, detail="Product no longer exists; variation cannot be corrected automatically")
             candidates = [
@@ -115,11 +115,17 @@ async def correct_order(
             variation = candidates[0]
             # Different variation prices affect paid orders and creator
             # allocations. Do not silently recalculate/refund them.
-            candidate_price = variation.get("effective_selling_price")
-            if candidate_price is None:
-                candidate_price = variation.get("price_override")
-            if candidate_price is None:
-                raise HTTPException(status_code=409, detail="Variation price cannot be verified; use the financial amendment workflow")
+            # Use the authoritative pricing engine, not a raw variation
+            # field that may be absent on real catalogue products.
+            from routes_main import _decorate_product_effective_pricing
+            template = None
+            if product.get("template_id"):
+                template = await db.product_templates.find_one({"id": product["template_id"]}, {"_id": 0})
+            decorated = _decorate_product_effective_pricing(product, template=template)
+            matching = [v for v in decorated.get("variations") or [] if v.get("id") == variation.get("id")]
+            if len(matching) != 1 or matching[0].get("effective_selling_price") is None:
+                raise HTTPException(status_code=409, detail="Variation price cannot be verified; review manually")
+            candidate_price = matching[0]["effective_selling_price"]
             if abs(float(candidate_price) - float(item.get("unit_price") or 0)) > 0.005:
                 raise HTTPException(status_code=409, detail="Variation has a different price; financial amendment required")
             previous = {
@@ -165,8 +171,7 @@ async def correct_order(
             "id": order_id,
             "archived": {"$ne": True},
             "updated_at": payload.expected_updated_at,
-            "status": {"$nin": sorted(BLOCKED_STATUSES)},
-            "collection_receipt": {"$exists": False},
+            **({"status": {"$nin": ["completed", "cancelled", "refunded"]}, "collection_receipt": {"$exists": False}} if payload.item_corrections else {}),
         },
         {"$set": changes, "$push": {"edit_history": record}},
     )
