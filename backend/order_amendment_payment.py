@@ -157,6 +157,24 @@ async def initiate_supplement(db, order: dict, draft: dict, request) -> dict:
     except DuplicateKeyError as exc:
         raise HTTPException(status_code=409, detail="A supplement payment is already active for this order") from exc
 
+    # Hold status/fulfilment while PayFast may collect additional money.
+    # Do not change updated_at: the amendment draft is versioned against it.
+    hold = await db.orders.update_one(
+        {
+            "id": order["id"], "updated_at": order["updated_at"],
+            "payment_status": "paid",
+            "status": {"$in": ["paid", "awaiting_artwork_review", "sent_to_printer"]},
+            "collection_receipt": {"$exists": False},
+            "active_order_amendment_id": {"$exists": False},
+        },
+        {"$set": {"active_order_amendment_id": draft["id"]}},
+    )
+    if hold.modified_count != 1:
+        await db.order_amendment_payment_locks.delete_one(
+            {"_id": order["id"], "amendment_id": draft["id"]}
+        )
+        raise HTTPException(status_code=409, detail="Order changed or is held by another amendment")
+
     payment_id = uid()
     now = now_iso()
     try:
@@ -219,6 +237,10 @@ async def initiate_supplement(db, order: dict, draft: dict, request) -> dict:
             {"id": payment_id, "amendment_id": draft["id"]}, {"_id": 1}
         )
         if not registered:
+            await db.orders.update_one(
+                {"id": order["id"], "active_order_amendment_id": draft["id"]},
+                {"$unset": {"active_order_amendment_id": ""}},
+            )
             await db.order_amendment_payment_locks.delete_one(
                 {"_id": order["id"], "amendment_id": draft["id"]}
             )
