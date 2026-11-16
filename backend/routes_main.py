@@ -6871,6 +6871,8 @@ async def update_order_status(
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Not found")
+    if order.get("active_order_amendment_id"):
+        raise HTTPException(status_code=409, detail="Order has an active PayFast amendment. Fulfilment changes are on hold.")
 
     updates = {"updated_at": datetime.now(timezone.utc).isoformat()}
 
@@ -6927,7 +6929,12 @@ async def update_order_status(
         if payload.status == "shipped":
             updates["shipped_at"] = datetime.now(timezone.utc).isoformat()
 
-    await db.orders.update_one({"id": order_id}, {"$set": updates})
+    status_write = await db.orders.update_one(
+        {"id": order_id, "active_order_amendment_id": {"$exists": False}},
+        {"$set": updates},
+    )
+    if status_write.modified_count != 1:
+        raise HTTPException(status_code=409, detail="Fulfilment update blocked by a pending order amendment")
     doc = await db.orders.find_one({"id": order_id}, {"_id": 0})
 
     if payload.status:
