@@ -208,6 +208,7 @@ def topup_context():
         }]),
         order_amendments=FakeCollection([payable_draft()]),
         order_amendment_payment_locks=FakeCollection([]),
+        orders=FakeCollection([paid_order_for_topup()]),
     )
 
 
@@ -258,3 +259,33 @@ def test_replacement_draft_cannot_create_payfast_charge():
     with pytest.raises(HTTPException, match="Replacing"):
         asyncio.run(initiate_supplement(db, paid_order_for_topup(), draft_doc, SimpleNamespace()))
     assert len(db.payments.data) == 1
+
+
+def test_topup_sets_order_hold_until_paid_additions_are_applied(monkeypatch):
+    import routes_main
+
+    async def gateway_config(db, gateway_key, masked=False):
+        return {"enabled": True}
+
+    class Adapter:
+        async def initialize_payment(self, checkout_order, gateway, urls):
+            return {"payment_url": "https://www.payfast.co.za/eng/process?mock=1"}
+
+    monkeypatch.setattr(routes_main, "_get_gateway_config", gateway_config)
+    monkeypatch.setattr(routes_main, "get_payment_gateway_adapter", lambda key: Adapter())
+    db = topup_context()
+    asyncio.run(initiate_supplement(db, paid_order_for_topup(), payable_draft(), SimpleNamespace()))
+    assert db.orders.data[0]["active_order_amendment_id"] == "draft-1"
+    assert db.orders.data[0]["payment_id"] == "original-1"
+
+
+def test_collection_summary_blocks_handover_while_amendment_is_held():
+    from order_collection_routes import _order_summary
+    doc = {
+        "id": "order-1", "order_number": "MF-123",
+        "status": "ready_for_dispatch", "payment_status": "paid",
+        "active_order_amendment_id": "draft-1",
+    }
+    assert _order_summary(doc)["can_collect"] is False
+    doc.pop("active_order_amendment_id")
+    assert _order_summary(doc)["can_collect"] is True
