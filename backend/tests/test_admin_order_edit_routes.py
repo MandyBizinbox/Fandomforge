@@ -33,6 +33,9 @@ def order():
             "id": "line1", "product_id": "tee", "product_title": "T-shirt",
             "size": "M", "color": "Black", "variation_id": "v1",
             "unit_price": 160, "quantity": 1, "production_status": "pending",
+            "band_id": "creator-1", "printer_id": "printer-1",
+            "production_snapshot": {"costing_model": "platform_controlled_v2",
+                                    "platform_commission": 12.0},
         }],
         "subtotal": 160,
         "shipping_total": 0,
@@ -57,6 +60,17 @@ class FakeOrders:
 
 class FakeProducts:
     async def find_one(self, query, projection=None):
+        if query.get("id") == "scouter":
+            return {
+                "id": "scouter", "title": "Scouter shirt",
+                "published": True, "band_id": "creator-1",
+                "assigned_printer_id": "printer-1",
+                "selling_price": 160,
+                "variations": [
+                    {"id": "scouter-large", "size": "L", "color": "Black"},
+                    {"id": "scouter-xl", "size": "XL", "color": "Black", "price_override": 190},
+                ],
+            }
         return {
             "id": "tee", "title": "T-shirt", "selling_price": 160,
             "variations": [
@@ -209,3 +223,63 @@ def test_conflicting_order_revision_returns_409():
         }), request, admin()))
     assert exc.value.status_code == 409
     assert orders.filter["updated_at"] == "2026-11-16T10:00:00+00:00"
+
+
+def test_super_admin_replaces_meerkat_tee_with_same_price_scouter_shirt_in_production(monkeypatch):
+    import routes_main
+
+    def snapshot(product, template, variation, quantity):
+        assert product["id"] == "scouter"
+        assert variation["id"] == "scouter-large"
+        return {"artwork": {"url": "/scouter-print.png"}, "template_id": "new-scouter-template"}
+
+    monkeypatch.setattr(routes_main, "_build_production_snapshot", snapshot)
+    value = order()
+    value["status"] = "in_production"
+    value["items"][0]["product_title"] = "Meerkat Camp 2026"
+    value["items"][0]["production_status"] = "in_production"
+    request, orders, events = environment(value)
+    result = asyncio.run(correct_order("order-1", correction(item_corrections=[
+        {"item_id": "line1", "product_id": "scouter", "variation_id": "scouter-large",
+         "size": "L", "color": "Black"}
+    ]), request, admin()))
+    assert result["ok"]
+    line = orders.written["$set"]["items"][0]
+    assert line["product_id"] == "scouter"
+    assert line["product_title"] == "Scouter shirt"
+    assert line["variation_id"] == "scouter-large"
+    assert line["artwork_file_url"] == "/scouter-print.png"
+    assert line["production_snapshot"]["platform_commission"] == 12.0
+    assert line["production_status"] == "in_production"
+    assert line["printer_id"] == "printer-1"
+    assert line["unit_price"] == 160
+    assert not {"status", "total", "subtotal", "payment_status", "payment_id"} & set(orders.written["$set"])
+    assert events.rows[0]["audience"] == ["admin"]
+    assert events.rows[0]["kind"] == "internal_note"
+    audit = orders.written["$push"]["edit_history"]
+    assert audit["before"]["items"][0]["product_title"] == "Meerkat Camp 2026"
+    assert audit["after"]["items"][0]["product_title"] == "Scouter shirt"
+
+
+def test_cross_creator_product_replacement_is_blocked(monkeypatch):
+    value = order()
+    value["items"][0]["band_id"] = "different-creator"
+    request, orders, _ = environment(value)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(correct_order("order-1", correction(item_corrections=[
+            {"item_id": "line1", "product_id": "scouter", "variation_id": "scouter-large",
+             "size": "L", "color": "Black"}
+        ]), request, admin()))
+    assert exc.value.status_code == 409
+    assert orders.written is None
+
+
+def test_different_price_product_replacement_is_blocked():
+    request, orders, _ = environment()
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(correct_order("order-1", correction(item_corrections=[
+            {"item_id": "line1", "product_id": "scouter", "variation_id": "scouter-xl",
+             "size": "XL", "color": "Black"}
+        ]), request, admin()))
+    assert exc.value.status_code == 409
+    assert orders.written is None
