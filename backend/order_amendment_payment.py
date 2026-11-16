@@ -7,8 +7,6 @@ evidence for a subsequent separately audited order-application operation.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
-from urllib.parse import urlencode
 
 from fastapi import HTTPException
 
@@ -77,7 +75,7 @@ async def process_verified_supplement(db, payment: dict, result: dict) -> dict:
     try:
         # Store only audit-safe provider fields; never copy raw ITN or credentials.
         payment_update = await db.payments.update_one(
-            {"id": payment["id"], "amendment_id": amendment_id, "status": {"$in": ["pending", "processing", "completed"]}},
+            {"id": payment["id"], "amendment_id": amendment_id, "status": {"$in": ["pending", "processing", "failed", "completed"]}},
             {"$set": {
                 "status": "completed", "completed_at": now,
                 "provider_payment_id": result.get("payment_id"),
@@ -136,7 +134,8 @@ async def initiate_supplement(db, order: dict, draft: dict, request) -> dict:
         raise HTTPException(status_code=409, detail="PayFast checkout is disabled")
     adapter = get_payment_gateway_adapter("payfast")
     ref = supplement_reference(draft["id"])
-    base = str(request.base_url).rstrip("/")
+    # Never use an untrusted Host header to build a financial gateway URL.
+    base = "https://fandomforge.co.za"
     urls = {
         "reference": ref,
         "return_url": f"{base}/order-confirmation/{order['id']}?amendment={draft['id']}",
