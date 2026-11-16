@@ -132,14 +132,14 @@ def test_different_price_variant_is_blocked():
     assert orders.written is None
 
 
-def test_paid_order_after_production_start_cannot_be_corrected():
+def test_item_change_after_production_start_cannot_be_corrected():
     value = order()
     value["status"] = "in_production"
     request, orders, _ = environment(value)
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(correct_order("order-1", correction(shipping_address={
-            **order()["shipping_address"], "full_name": "New"
-        }), request, admin()))
+        asyncio.run(correct_order("order-1", correction(item_corrections=[
+            {"item_id": "line1", "size": "L", "color": "Black"}
+        ]), request, admin()))
     assert exc.value.status_code == 409
     assert orders.written is None
 
