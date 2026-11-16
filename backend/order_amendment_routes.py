@@ -122,15 +122,22 @@ async def price_amendment(db, order: dict, payload: AmendmentDraft) -> dict:
     revised_total = subtotal + shipping
     existing_total = money(order.get("total") or 0)
 
-    payments = await db.payments.find({"order_id": order["id"], "status": "completed"}, {
+    payments = await db.payments.find({"order_id": order["id"]}, {
         "_id": 0, "id": 1, "provider": 1, "amount": 1, "currency": 1,
         "status": 1, "provider_reference": 1,
     }).to_list(200)
+    if any(payment.get("status") in {"refunded", "partially_refunded"} for payment in payments):
+        raise HTTPException(
+            status_code=409,
+            detail="Refund or partial refund exists. Reconcile the net payment ledger before calculating an amendment."
+        )
 
     received = Decimal("0")
     references = set()
     evidence = []
     for payment in payments:
+        if payment.get("status") != "completed":
+            continue
         if payment.get("currency", "ZAR").upper() != "ZAR":
             raise HTTPException(status_code=409, detail="Non-ZAR payment evidence requires review")
         payment_id = payment.get("id")
@@ -145,6 +152,8 @@ async def price_amendment(db, order: dict, payload: AmendmentDraft) -> dict:
         })
 
     # Mismatched legacy evidence is not silently corrected.
+    if order.get("payment_status") == "refunded":
+        raise HTTPException(status_code=409, detail="Refunded orders require manual financial review")
     if order.get("payment_status") == "paid" and received == 0:
         raise HTTPException(status_code=409, detail="Order says paid but no completed payment evidence was found")
     due = max(revised_total - received, Decimal("0"))
