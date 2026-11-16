@@ -140,56 +140,84 @@ async def initiate_supplement(db, order: dict, draft: dict, request) -> dict:
         raise HTTPException(status_code=409, detail="PayFast checkout is disabled")
     adapter = get_payment_gateway_adapter("payfast")
     ref = supplement_reference(draft["id"])
-    # Never use an untrusted Host header to build a financial gateway URL.
-    base = "https://fandomforge.co.za"
-    urls = {
-        "reference": ref,
-        "return_url": f"{base}/order-confirmation/{order['id']}?amendment={draft['id']}",
-        "cancel_url": f"{base}/order-confirmation/{order['id']}?amendment=cancelled",
-        "webhook_url": f"{base}/api/payments/webhooks/payfast",
-    }
+    # An _id-unique Mongo document serializes PayFast link issuance across
+    # parallel admins and across different drafts for the same order.
+    from pymongo.errors import DuplicateKeyError
     try:
-        checkout = await adapter.initialize_payment({
-            "id": order["id"],
-            "order_number": f"{order['order_number']} TOPUP {draft['id'][:8]}",
-            "buyer_email": order.get("buyer_email"),
-            "total": float(amount),
-        }, gateway, urls)
-    except PaymentGatewayError as exc:
-        raise HTTPException(status_code=502, detail="Could not create PayFast supplement checkout") from exc
+        await db.order_amendment_payment_locks.insert_one({
+            "_id": order["id"], "amendment_id": draft["id"],
+            "reference": ref, "created_at": now_iso(),
+        })
+    except DuplicateKeyError as exc:
+        raise HTTPException(status_code=409, detail="A supplement payment is already active for this order") from exc
 
     payment_id = uid()
     now = now_iso()
-    reserved = await db.order_amendments.update_one(
-        {
-            "id": draft["id"], "order_id": order["id"],
-            "status": "draft_financial_review", "source_order_updated_at": order["updated_at"],
-        },
-        {"$set": {
-            "status": "awaiting_topup", "payment_id": payment_id,
-            "topup_reference": ref, "topup_amount": float(amount),
-            "topup_url": checkout["payment_url"], "topup_created_at": now,
-        }},
-    )
-    if reserved.modified_count != 1:
-        raise HTTPException(status_code=409, detail="Supplement was already created; reload amendment")
-
-    # Store a separate payment, not the order's original payment_id.
-    payment = {
-        "id": payment_id, "order_id": order["id"], "amendment_id": draft["id"],
-        "provider": "payfast", "provider_reference": ref, "kind": "order_amendment",
-        "amount": float(amount), "currency": "ZAR", "status": "pending",
-        "created_at": now, "created_by": draft.get("requested_by"),
-    }
     try:
-        await db.payments.insert_one(payment)
-    except Exception:
-        # Do not expose a link if its reference cannot be matched to a payment.
-        await db.order_amendments.update_one(
-            {"id": draft["id"], "payment_id": payment_id, "status": "awaiting_topup"},
-            {"$set": {"status": "payment_setup_failed"}, "$unset": {"topup_url": ""}},
+        # Never use an untrusted Host header to construct a gateway callback.
+        base = "https://fandomforge.co.za"
+        urls = {
+            "reference": ref,
+            "return_url": f"{base}/order-confirmation/{order['id']}?amendment={draft['id']}",
+            "cancel_url": f"{base}/order-confirmation/{order['id']}?amendment=cancelled",
+            "webhook_url": f"{base}/api/payments/webhooks/payfast",
+        }
+        try:
+            checkout = await adapter.initialize_payment({
+                "id": order["id"],
+                "order_number": f"{order['order_number']} TOPUP {draft['id'][:8]}",
+                "buyer_email": order.get("buyer_email"),
+                "total": float(amount),
+            }, gateway, urls)
+        except PaymentGatewayError as exc:
+            raise HTTPException(status_code=502, detail="Could not create PayFast supplement checkout") from exc
+
+        reserved = await db.order_amendments.update_one(
+            {
+                "id": draft["id"], "order_id": order["id"],
+                "status": "draft_financial_review",
+                "source_order_updated_at": order["updated_at"],
+            },
+            {"$set": {
+                "status": "awaiting_topup", "payment_id": payment_id,
+                "topup_reference": ref, "topup_amount": float(amount),
+                "topup_url": checkout["payment_url"], "topup_created_at": now,
+            }},
         )
-        raise HTTPException(status_code=503, detail="Could not register supplement payment attempt")
+        if reserved.modified_count != 1:
+            raise HTTPException(status_code=409, detail="Supplement was already created; reload amendment")
+
+        # The supplement is deliberately NOT the original order.payment_id.
+        payment = {
+            "id": payment_id, "order_id": order["id"],
+            "amendment_id": draft["id"], "provider": "payfast",
+            "provider_reference": ref, "kind": "order_amendment",
+            "amount": float(amount), "currency": "ZAR",
+            "status": "pending", "created_at": now,
+            "created_by": draft.get("requested_by"),
+        }
+        try:
+            await db.payments.insert_one(payment)
+        except Exception as exc:
+            await db.order_amendments.update_one(
+                {"id": draft["id"], "payment_id": payment_id,
+                 "status": "awaiting_topup"},
+                {"$set": {"status": "payment_setup_failed"},
+                 "$unset": {"topup_url": ""}},
+            )
+            raise HTTPException(status_code=503, detail="Could not register supplement payment attempt") from exc
+    except Exception:
+        # Once a payment row exists, never auto-release the lock: the external
+        # payment could settle independently of an admin HTTP response.
+        registered = await db.payments.find_one(
+            {"id": payment_id, "amendment_id": draft["id"]}, {"_id": 1}
+        )
+        if not registered:
+            await db.order_amendment_payment_locks.delete_one(
+                {"_id": order["id"], "amendment_id": draft["id"]}
+            )
+        raise
+
     return {
         "amendment_id": draft["id"], "payment_id": payment_id,
         "amount": float(amount), "currency": "ZAR",
