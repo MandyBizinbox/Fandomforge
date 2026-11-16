@@ -7031,6 +7031,8 @@ async def admin_order_payment_history(
         "payments": [{
             "id": payment.get("id"),
             "provider": payment.get("provider"),
+            "kind": payment.get("kind") or "order",
+            "amendment_id": payment.get("amendment_id"),
             "status": payment.get("status"),
             "amount": payment.get("amount"),
             "currency": payment.get("currency") or "ZAR",
