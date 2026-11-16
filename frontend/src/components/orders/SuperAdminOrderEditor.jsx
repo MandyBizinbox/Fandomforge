@@ -108,7 +108,7 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
     if (!window.confirm("Save these corrections? The previous details and your reason will be retained in the order audit history. Payment amounts will not change.")) return;
     setSaving(true);
     try {
-      const response = await http.patch(`/admin/orders/${encodeURIComponent(order.id)}/corrections`, {
+      await http.patch(`/admin/orders/${encodeURIComponent(order.id)}/corrections`, {
         reason: reason.trim(),
         expected_updated_at: order.updated_at,
         shipping_address: addressChanged ? address : null,
