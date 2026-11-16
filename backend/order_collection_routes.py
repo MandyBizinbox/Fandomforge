@@ -81,7 +81,7 @@ def _validate_signature(data_url: str) -> None:
         raw = base64.b64decode(encoded, validate=True)
     except (ValueError, binascii.Error):
         raise HTTPException(status_code=422, detail="Invalid signature encoding")
-    if not (300 <= len(raw) <= MAX_PNG_BYTES and raw.startswith(b"\\x89PNG\\r\\n\\x1a\\n")):
+    if not (300 <= len(raw) <= MAX_PNG_BYTES and raw.startswith(b"\x89PNG\r\n\x1a\n")):
         raise HTTPException(status_code=422, detail="Invalid or oversized signature image")
 
 
