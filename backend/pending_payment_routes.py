@@ -89,6 +89,44 @@ def safe_order_payload(order: dict) -> dict:
     }
 
 
+@recovery_router.post("/from-tracking/{tracking_token}")
+async def recovery_link_from_tracking(tracking_token: str, request: Request):
+    """A tracking visitor may request a short-lived link to the existing order.
+
+    No new order, payment, charge, notification or status transition occurs.
+    """
+    from pending_payment_worker import origin as trusted_public_origin
+
+    if len(tracking_token) < 20 or len(tracking_token) > 256:
+        raise HTTPException(status_code=404, detail="Tracking link not found")
+
+    db = request.app.state.db
+    order = await db.orders.find_one(
+        {"tracking_token": tracking_token, "archived": {"$ne": True}},
+        {"_id": 0},
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Tracking link not found")
+    if not pending_recovery_eligible(order) or order.get("payment_provider") != "payfast":
+        raise HTTPException(
+            status_code=409,
+            detail="Secure online payment is not available for this order. Contact support if payment is outstanding.",
+        )
+
+    # Bound repeated public requests even for someone holding a valid link.
+    recent = to_iso(utcnow() - timedelta(minutes=10))
+    issued = await db.order_payment_recovery_links.count_documents({
+        "order_id": order["id"],
+        "stage": 0,
+        "created_at": {"$gt": recent},
+    })
+    if issued >= 3:
+        raise HTTPException(status_code=429, detail="Too many payment-link requests. Please try again later.")
+
+    link = await make_recovery_link(db, order, stage=0, origin=trusted_public_origin())
+    return {"payment_url": link, "payment_action": "review_order"}
+
+
 @recovery_router.get("/{token}")
 async def recovery_order(token: str, request: Request):
     order = await lookup_recovery_order(request.app.state.db, token)
