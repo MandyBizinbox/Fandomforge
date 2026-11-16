@@ -46,6 +46,9 @@ async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
         )
         from routes_main import ensure_wallet_transactions_for_order
         await ensure_wallet_transactions_for_order(db, order)
+        await db.order_amendment_payment_locks.delete_one(
+            {"_id": order["id"], "amendment_id": amendment["id"]}
+        )
         return {"ok": True, "status": "applied", "duplicate": True, "wallet_reconciled": True}
     if amendment.get("status") == "applied":
         raise HTTPException(status_code=409, detail="Amendment marked applied but missing from order; manual recovery required")
@@ -121,6 +124,9 @@ async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
     # the wallet reconciliation is safe; never undo a paid order.
     updated = await db.orders.find_one({"id": order["id"]}, {"_id": 0})
     await ensure_wallet_transactions_for_order(db, updated)
+    await db.order_amendment_payment_locks.delete_one(
+        {"_id": order["id"], "amendment_id": amendment["id"]}
+    )
     return {
         "ok": True, "status": "applied",
         "new_total": float(new_total),
