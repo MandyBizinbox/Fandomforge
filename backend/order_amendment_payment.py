@@ -54,9 +54,9 @@ async def process_verified_supplement(db, payment: dict, result: dict) -> dict:
         raise HTTPException(status_code=409, detail="Amendment not found")
     if draft.get("payment_id") != payment.get("id"):
         raise HTTPException(status_code=409, detail="Amendment payment does not match")
-    if draft.get("status") == "settled_pending_application":
+    if draft.get("status") in {"settled_pending_application", "applied"}:
         if payment.get("status") == "completed":
-            return {"ok": True, "status": "settled_pending_application", "duplicate": True}
+            return {"ok": True, "status": draft["status"], "duplicate": True}
     elif draft.get("status") != "awaiting_topup":
         raise HTTPException(status_code=409, detail="Amendment cannot accept this payment")
 
