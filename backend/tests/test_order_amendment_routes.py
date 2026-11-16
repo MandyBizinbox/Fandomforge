@@ -68,7 +68,9 @@ class Payments:
     def __init__(self, rows):
         self.rows = rows
     def find(self, query, projection):
-        assert query["status"] == "completed"
+        # The service inspects all attempts so it can reject refunds and
+        # partial refunds rather than computing an incorrect outstanding amount.
+        assert query == {"order_id": "o-1"}
         return Cursor(self.rows)
 
 
