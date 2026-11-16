@@ -55,6 +55,8 @@ class FakeOrders:
 
     async def update_one(self, query, updates):
         self.filter, self.written = query, updates
+        if self.modified:
+            self.doc.update(updates.get("$set", {}))
         return SimpleNamespace(modified_count=self.modified)
 
 
@@ -320,3 +322,49 @@ def test_non_super_admin_cannot_search_order_replacements():
     with pytest.raises(HTTPException) as exc:
         asyncio.run(admin_order_catalogue_search(request, "Scouter", admin("manager")))
     assert exc.value.status_code == 403
+
+
+def test_timestamp_mismatch_format_is_not_falsely_rejected():
+    from datetime import datetime, timezone
+    value = order()
+    value["updated_at"] = datetime(2026, 11, 16, 10, 0, tzinfo=timezone.utc)
+    request, orders, _ = environment(value)
+    result = asyncio.run(correct_order("order-1", correction(item_corrections=[
+        {"item_id": "line1", "size": "L", "color": "Black"}
+    ]), request, admin()))
+    assert result["ok"] is True
+    assert orders.filter["updated_at"] == value["updated_at"] or isinstance(orders.filter["updated_at"], datetime)
+
+
+def test_save_filter_allows_null_collection_receipt():
+    value = order()
+    value["collection_receipt"] = None
+    value["active_order_amendment_id"] = None
+    request, orders, _ = environment(value)
+    result = asyncio.run(correct_order("order-1", correction(item_corrections=[
+        {"item_id": "line1", "size": "L", "color": "Black"}
+    ]), request, admin()))
+    assert result["ok"]
+    assert {"collection_receipt": None} in orders.filter["$or"]
+    assert {"active_order_amendment_id": None} in orders.filter["$and"][0]["$or"]
+
+
+def test_order_readback_failure_is_reported_as_error():
+    value = order()
+    request, orders, _ = environment(value)
+    original_find = orders.find_one
+    reads = 0
+
+    async def stale_read(query, projection=None):
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            return await original_find(query, projection)
+        return order()
+
+    orders.find_one = stale_read
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(correct_order("order-1", correction(item_corrections=[
+            {"item_id": "line1", "size": "L", "color": "Black"}
+        ]), request, admin()))
+    assert exc.value.status_code == 500
