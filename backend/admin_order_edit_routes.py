@@ -25,6 +25,8 @@ BLOCKED_ITEM_STATUSES = {"shipped", "delivered"}
 
 class OrderItemCorrection(BaseModel):
     item_id: str = Field(min_length=1, max_length=128)
+    product_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    variation_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     size: str = Field(max_length=100)
     color: str = Field(max_length=100)
 
@@ -96,28 +98,39 @@ async def correct_order(
             if item.get("production_status", "pending") in BLOCKED_ITEM_STATUSES:
                 raise HTTPException(status_code=409, detail="A selected item has already shipped or been delivered")
             new_size, new_color = correction.size.strip(), correction.color.strip()
+            target_product_id = correction.product_id or item.get("product_id")
+            target_variation_id = correction.variation_id
             if not new_size or not new_color:
                 raise HTTPException(status_code=422, detail="Size and colour are required")
-            if (new_size, new_color) == (item.get("size"), item.get("color")):
+            replacement_product = target_product_id != item.get("product_id")
+            if (not replacement_product and
+                    (new_size, new_color) == (item.get("size"), item.get("color")) and
+                    (not target_variation_id or target_variation_id == item.get("variation_id"))):
                 continue
-            # A variant correction is only safe if the requested combination
-            # exists on the same product and has identical effective pricing.
-            product = await db.products.find_one({"id": item.get("product_id")}, {"_id": 0})
+
+            product = await db.products.find_one({"id": target_product_id}, {"_id": 0})
             if not product:
-                raise HTTPException(status_code=409, detail="Product no longer exists; variation cannot be corrected automatically")
+                raise HTTPException(status_code=409, detail="Selected catalogue product no longer exists")
+            if replacement_product:
+                if not product.get("published"):
+                    raise HTTPException(status_code=409, detail="Replacement product must be published")
+                if product.get("band_id") != item.get("band_id"):
+                    raise HTTPException(status_code=409, detail="Cannot switch creator on a paid order without payout reconciliation")
+                new_printer = product.get("assigned_printer_id")
+                existing_printer = item.get("printer_id")
+                if new_printer and existing_printer and new_printer != existing_printer:
+                    raise HTTPException(status_code=409, detail="Replacement product uses a different printer; manual production review required")
+
             candidates = [
                 variation for variation in (product.get("variations") or [])
                 if str(variation.get("size") or "").strip().casefold() == new_size.casefold()
                 and str(variation.get("color") or "").strip().casefold() == new_color.casefold()
+                and (not target_variation_id or variation.get("id") == target_variation_id)
             ]
             if len(candidates) != 1:
-                raise HTTPException(status_code=422, detail="Requested size and colour must match exactly one existing product variation")
+                raise HTTPException(status_code=422, detail="Select one valid size and colour for the target product")
             variation = candidates[0]
-            # Different variation prices affect paid orders and creator
-            # allocations. Do not silently recalculate/refund them.
-            # Use the authoritative pricing engine, not a raw variation
-            # field that may be absent on real catalogue products.
-            from routes_main import _decorate_product_effective_pricing
+            from routes_main import _decorate_product_effective_pricing, _build_production_snapshot
             template = None
             if product.get("template_id"):
                 template = await db.product_templates.find_one({"id": product["template_id"]}, {"_id": 0})
@@ -127,13 +140,42 @@ async def correct_order(
                 raise HTTPException(status_code=409, detail="Variation price cannot be verified; review manually")
             candidate_price = matching[0]["effective_selling_price"]
             if abs(float(candidate_price) - float(item.get("unit_price") or 0)) > 0.005:
-                raise HTTPException(status_code=409, detail="Variation has a different price; financial amendment required")
+                raise HTTPException(status_code=409, detail="Replacement has a different price; financial amendment required")
+
             previous = {
                 "item_id": correction.item_id,
+                "product_id": item.get("product_id"),
+                "product_title": item.get("product_title"),
                 "size": item.get("size"),
                 "color": item.get("color"),
                 "variation_id": item.get("variation_id"),
             }
+            if replacement_product:
+                # Update the production specification and artwork to match
+                # the replacement, without recalculating historical payments
+                # or creator/printer ledger credits.
+                previous_snapshot = item.get("production_snapshot") or {}
+                new_snapshot = _build_production_snapshot(
+                    product, template, variation, int(item.get("quantity") or 1)
+                )
+                if not new_snapshot:
+                    raise HTTPException(status_code=409, detail="Replacement print specification is unavailable")
+                from copy import deepcopy
+                new_snapshot = deepcopy(new_snapshot)
+                for key in (
+                    "costing_model", "costing_breakdown", "production_cost",
+                    "printer_payout", "platform_commission", "creator_profit",
+                    "platform_blank_profit", "platform_print_profit",
+                    "estimated_platform_profit", "creator_product_cost",
+                ):
+                    if key in previous_snapshot:
+                        new_snapshot[key] = deepcopy(previous_snapshot[key])
+                item["production_snapshot"] = new_snapshot
+                item["product_id"] = product["id"]
+                item["product_title"] = product.get("title") or item.get("product_title")
+                # The old line, production status and printer assignment remain
+                # stable; existing historical wallet rows remain attributable.
+                item["artwork_file_url"] = (new_snapshot.get("artwork") or {}).get("url")
             item["size"] = new_size
             item["color"] = new_color
             item["variation_id"] = variation["id"]
@@ -141,6 +183,8 @@ async def correct_order(
                 "before": previous,
                 "after": {
                     "item_id": correction.item_id,
+                    "product_id": item.get("product_id"),
+                    "product_title": item.get("product_title"),
                     "size": new_size,
                     "color": new_color,
                     "variation_id": variation["id"],
@@ -172,6 +216,7 @@ async def correct_order(
             "archived": {"$ne": True},
             "updated_at": payload.expected_updated_at,
             **({"status": {"$nin": ["shipped", "delivered", "completed", "cancelled", "canceled", "refunded"]}, "collection_receipt": {"$exists": False}} if payload.item_corrections else {}),
+            "active_order_amendment_id": {"$exists": False},
         },
         {"$set": changes, "$push": {"edit_history": record}},
     )
