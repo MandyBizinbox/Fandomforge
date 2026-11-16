@@ -125,9 +125,33 @@ class PayFastPaymentGateway(PaymentGatewayAdapter):
         payload = self._signature_payload(data, passphrase)
         return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _itn_pairs(payload: Dict[str, Any]) -> Iterable[tuple[str, str]]:
+        """PayFast ITN fields in received order, including empty values.
+
+        PayFast's ITN reference iterates POST fields up to the signature and
+        URL-encodes every submitted value, including blank strings. This differs
+        from the hosted checkout request signature, which omits blanks.
+        """
+        for key, value in (payload or {}).items():
+            if key == "signature":
+                break
+            if str(key).startswith("__") or key == "passphrase":
+                # Never accept internal request metadata or a forged salt.
+                continue
+            yield str(key), str(value if value is not None else "")
+
     def _itn_payload_string(self, payload: Dict[str, Any]) -> str:
-        """Build the exact form body PayFast expects at /eng/query/validate."""
-        return "&".join(f"{key}={quote_plus(value)}" for key, value in self._clean_payment_pairs(payload))
+        """Serialize ITN fields identically for MD5 and PayFast confirmation."""
+        return "&".join(
+            f"{key}={quote_plus(value)}" for key, value in self._itn_pairs(payload)
+        )
+
+    def _itn_signature(self, payload: Dict[str, Any], passphrase: str = "") -> str:
+        signed = self._itn_payload_string(payload)
+        if passphrase:
+            signed += f"&passphrase={quote_plus(str(passphrase).strip())}"
+        return hashlib.md5(signed.encode("utf-8")).hexdigest()
 
     def _verify_server_confirmation(self, payload: Dict[str, Any], config: Dict[str, Any]) -> None:
         body = self._itn_payload_string(payload)
@@ -402,9 +426,11 @@ class PayFastPaymentGateway(PaymentGatewayAdapter):
 
         parsed: Dict[str, str] = {}
         for key, value in fields:
-            if key in parsed or key.startswith("__"):
+            if key in parsed or key.startswith("__") or key == "passphrase":
                 raise PaymentGatewayError("Invalid PayFast ITN form fields.")
             parsed[key] = value
+        if "signature" not in parsed or next(reversed(parsed)) != "signature":
+            raise PaymentGatewayError("Invalid PayFast ITN signature position.")
         return parsed
 
     def _verify_signature(
@@ -428,7 +454,7 @@ class PayFastPaymentGateway(PaymentGatewayAdapter):
             if routed_payload != signed_payload:
                 return False
         passphrase = self._setting(config, "passphrase")
-        expected = self._signature(signed_payload, passphrase)
+        expected = self._itn_signature(signed_payload, passphrase)
         return hmac.compare_digest(expected, supplied)
 
     async def handle_webhook(self, payload: Dict[str, Any], headers: Dict[str, str], config: Dict[str, Any], raw_body: str | bytes | None = None) -> Dict[str, Any]:
