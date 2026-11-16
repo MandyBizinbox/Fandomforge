@@ -64,6 +64,8 @@ async def correct_order(
     )
     if not original:
         raise HTTPException(status_code=404, detail="Order not found")
+    if original.get("active_order_amendment_id"):
+        raise HTTPException(status_code=409, detail="Order editing is held while a PayFast supplement is payable")
     if payload.item_corrections and (original.get("status") in BLOCKED_STATUSES or original.get("collection_receipt")):
         raise HTTPException(status_code=409, detail="Production or collection has begun. Item changes require an amendment and cannot overwrite fulfilment records")
     if original.get("updated_at") != payload.expected_updated_at:
@@ -165,6 +167,7 @@ async def correct_order(
             "id": order_id,
             "archived": {"$ne": True},
             "updated_at": payload.expected_updated_at,
+            "active_order_amendment_id": {"$exists": False},
             **({"status": {"$nin": sorted(BLOCKED_STATUSES)}, "collection_receipt": {"$exists": False}} if payload.item_corrections else {}),
         },
         {"$set": changes, "$push": {"edit_history": record}},
