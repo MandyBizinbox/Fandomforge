@@ -261,6 +261,24 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
     const sellerDetails = businessDetails.map(([label, value]) =>
       `<div><span class="muted">${htmlEscape(label)}:</span> ${htmlEscape(value)}</div>`
     ).join("");
+    const clientDetails = [
+      ["Name", shipping.full_name],
+      ["Email", shipping.email || order.buyer_email],
+      ["Phone", shipping.phone],
+    ].filter(([, value]) => String(value || "").trim()).map(([label, value]) =>
+      `<div><span class="muted">${htmlEscape(label)}:</span> ${htmlEscape(value)}</div>`
+    ).join("");
+    const dispatchDetails = [
+      ["Method", order.shipping_method_name || "—"],
+      ["Courier", courier || "—"],
+      ["Tracking", tracking || "—"],
+      ...(order.shipping_method_key === "group_delivery"
+        ? [["Group batch", batchDateLabel(order.group_delivery_batch_date)],
+           ["Collection point", order.group_delivery_point_name || "—"]]
+        : []),
+    ].map(([label, value]) =>
+      `<div><span class="muted">${htmlEscape(label)}:</span> ${htmlEscape(value)}</div>`
+    ).join("");
     const itemRows = (order.items || []).map((item) => `
       <tr>
         <td>${htmlEscape(item.product_title)}</td>
@@ -271,15 +289,57 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
       </tr>`).join("");
     const popup = window.open("", "_blank", "width=980,height=800");
     if (!popup) return toast.error("Pop-ups are blocked. Allow pop-ups to print the invoice.");
-    popup.document.write(`<!doctype html><html><head><title>${htmlEscape(order.order_number)} Dispatch Invoice</title><style>
-      body{font-family:Arial,sans-serif;color:#111;margin:32px;font-size:12px}.top{display:flex;justify-content:space-between;gap:32px}.title{font-size:28px;font-weight:800;margin:0}.muted{color:#666}.block{margin-top:24px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{padding:9px 8px;border-bottom:1px solid #ddd;text-align:left}th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;background:#f4f4f4}.num{text-align:right}.totals{margin-left:auto;width:320px}.totals td:first-child{color:#666}.total{font-size:16px;font-weight:800}.dispatch{border:1px solid #bbb;padding:14px}.seller{border:1px solid #ddd;padding:14px;line-height:1.6}.seller-name{font-size:16px;font-weight:700;margin-bottom:4px}.footer{margin-top:36px;padding-top:12px;border-top:1px solid #ddd;color:#777;font-size:10px}@media print{body{margin:12mm}.no-print{display:none}}
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(order.order_number)} Dispatch Invoice</title><style>
+      *{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#141414;margin:28px;font-size:12px;line-height:1.55}
+      .muted{color:#616161}.top{display:grid;grid-template-columns:1fr auto;align-items:start;gap:26px;border-bottom:2px solid #e5e5e5;padding-bottom:20px}
+      .brand{font-size:12px;letter-spacing:.08em;color:#666}.title{font-size:29px;font-weight:800;line-height:1.2;margin:5px 0 0}
+      .order-number{font-size:14px;font-weight:800;margin-bottom:8px}.order-meta{text-align:right;line-height:1.8}
+      .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
+      .panel{border:1px solid #dedede;padding:16px 18px;min-height:104px;overflow-wrap:anywhere;break-inside:avoid}
+      .panel h2{font-size:12px;letter-spacing:.07em;text-transform:uppercase;margin:0 0 10px}
+      .seller-name{font-size:16px;font-weight:800;margin-bottom:8px}
+      .section{margin-top:25px}.section h2{font-size:13px;margin:0 0 10px}
+      table{width:100%;border-collapse:collapse}th,td{padding:10px 9px;border-bottom:1px solid #dedede;text-align:left}
+      th{font-size:10px;text-transform:uppercase;letter-spacing:.07em;background:#f3f3f3}
+      .num{text-align:right;white-space:nowrap}.totals{margin-left:auto;margin-top:16px;width:330px;max-width:100%}
+      .totals td:first-child{color:#616161}.total td{font-size:17px;font-weight:800;border-top:2px solid #191919}
+      .footer{margin-top:34px;padding-top:12px;border-top:1px solid #dedede;color:#666;font-size:10px}
+      @page{size:A4;margin:13mm}@media print{body{margin:0}.grid,.panel,.totals{break-inside:avoid}}
     </style></head><body>
-      <div class="top"><div><div class="muted">${htmlEscape(platform?.platform_name || "FandomForge")}</div><h1 class="title">Dispatch Invoice</h1><div>Order ${htmlEscape(order.order_number)}</div></div><div><strong>${htmlEscape(new Date(order.created_at).toLocaleDateString())}</strong><br><span class="muted">Status: ${htmlEscape(order.status?.replaceAll("_", " "))}</span></div></div>
-      <div class="seller block"><div class="seller-name">${htmlEscape(businessName)}</div>${sellerDetails}</div>
-      <div class="grid block"><div><strong>Deliver to</strong><br>${htmlEscape(shipping.full_name)}<br>${addressLines(shipping).map(htmlEscape).join("<br>")}<br>${htmlEscape(shipping.phone || "")}<br>${htmlEscape(shipping.email || "")}</div><div class="dispatch"><strong>Dispatch</strong><br>Method: ${htmlEscape(order.shipping_method_name || "—")}<br>Courier: ${htmlEscape(courier || "—")}<br>Tracking: ${htmlEscape(tracking || "—")}${order.shipping_method_key === "group_delivery" ? `<br>Group batch: ${htmlEscape(batchDateLabel(order.group_delivery_batch_date))}<br>Collection point: ${htmlEscape(order.group_delivery_point_name || "—")}` : ""}</div></div>
-      <div class="block"><strong>Items</strong><table><thead><tr><th>Product</th><th>Variation</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line total</th></tr></thead><tbody>${itemRows}</tbody></table></div>
-      <table class="totals block"><tr><td>Subtotal</td><td class="num">${htmlEscape(money(order.subtotal))}</td></tr><tr><td>Shipping</td><td class="num">${number(order.shipping_total) === 0 ? "Free" : htmlEscape(money(order.shipping_total))}</td></tr><tr class="total"><td>Total</td><td class="num">${htmlEscape(money(order.total))}</td></tr></table>
-      <div class="footer">Generated from FandomForge · ${htmlEscape(order.order_number)}</div>
+      <header class="top">
+        <div>
+          <div class="brand">${htmlEscape(platform?.platform_name || "FandomForge")}</div>
+          <h1 class="title">Dispatch Invoice</h1>
+        </div>
+        <div class="order-meta">
+          <div class="order-number">Order ${htmlEscape(order.order_number)}</div>
+          <div><strong>${htmlEscape(new Date(order.created_at).toLocaleDateString("en-ZA"))}</strong></div>
+          <div class="muted">Status: ${htmlEscape(order.status?.replaceAll("_", " "))}</div>
+        </div>
+      </header>
+      <div class="grid">
+        <section class="panel"><div class="seller-name">${htmlEscape(businessName)}</div>${sellerDetails}</section>
+        <section class="panel"><h2>Client details</h2>${clientDetails}</section>
+      </div>
+      <div class="grid">
+        <section class="panel"><h2>Deliver to</h2>
+          <strong>${htmlEscape(shipping.full_name || "—")}</strong><br>
+          ${addressLines(shipping).map(htmlEscape).join("<br>")}
+          ${shipping.phone ? `<br>${htmlEscape(shipping.phone)}` : ""}
+          ${shipping.email ? `<br>${htmlEscape(shipping.email)}` : ""}
+        </section>
+        <section class="panel"><h2>Delivery / dispatch details</h2>${dispatchDetails}</section>
+      </div>
+      <section class="section"><h2>Items</h2><table>
+        <thead><tr><th>Product</th><th>Variation</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line total</th></tr></thead>
+        <tbody>${itemRows}</tbody>
+      </table></section>
+      <table class="totals">
+        <tr><td>Subtotal</td><td class="num">${htmlEscape(money(order.subtotal))}</td></tr>
+        <tr><td>Shipping</td><td class="num">${number(order.shipping_total) === 0 ? "Free" : htmlEscape(money(order.shipping_total))}</td></tr>
+        <tr class="total"><td>Total</td><td class="num">${htmlEscape(money(order.total))}</td></tr>
+      </table>
+      <footer class="footer">Generated from FandomForge · ${htmlEscape(order.order_number)}</footer>
       <script>window.onload=()=>{window.print();}</script>
     </body></html>`);
     popup.document.close();
