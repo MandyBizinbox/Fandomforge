@@ -59,7 +59,7 @@ class Products:
                 {"id": "v-1", "size": "Small", "color": "Black",
                  "effective_selling_price": 145.0},
                 {"id": "v-2", "size": "Large", "color": "Black",
-                 "effective_selling_price": 160.0},
+                 "price_override": 160.0},
             ]
         }
 
@@ -201,3 +201,16 @@ def test_refunded_payment_blocks_false_balance():
             {"existing_item_id": "i-1", "product_id": "p-1", "variation_id": "v-1", "quantity": 1},
         ])))
     assert error.value.status_code == 409
+
+
+def test_price_preview_uses_authoritative_catalogue_variation_override():
+    db, _, _ = context()
+    result = asyncio.run(price_amendment(db, order(), draft([
+        {"existing_item_id": "i-1", "product_id": "p-1", "variation_id": "v-1", "quantity": 1},
+        {"product_id": "p-1", "variation_id": "v-2", "quantity": 1},
+    ])))
+    assert result["items"][0]["unit_price"] == 145.0
+    assert result["items"][1]["unit_price"] == 160.0
+    assert result["items"][1]["line_total"] == 160.0
+    assert result["revised_total"] == 305.0
+    assert result["balance_due"] == 160.0
