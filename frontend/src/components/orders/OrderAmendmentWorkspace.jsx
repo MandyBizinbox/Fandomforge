@@ -149,6 +149,23 @@ export default function OrderAmendmentWorkspace({ order }) {
     }
   };
 
+  const applyPaidAdditions = async draft => {
+    if (!window.confirm("Apply paid additional items to the live order and allocate creator/printer earnings? Existing order items are not changed.")) return;
+    setTopupBusy(draft.id);
+    try {
+      await http.post(
+        `/admin/orders/${encodeURIComponent(order.id)}/amendments/${encodeURIComponent(draft.id)}/apply-paid-additions`,
+      );
+      toast.success("Paid additional items applied to order");
+      await refreshDrafts();
+      window.location.reload();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Amendment requires separate financial review");
+    } finally {
+      setTopupBusy("");
+    }
+  };
+
   const unchangedRows = new Set((order.items || []).map(item => item.id));
   const currentRows = rows.filter(row => unchangedRows.has(row.existing_item_id));
   const removals = (order.items || []).filter(item => !currentRows.some(row => row.existing_item_id === item.id));
@@ -270,9 +287,14 @@ export default function OrderAmendmentWorkspace({ order }) {
           onClick={() => verifyTopup(draft)}>
           {topupBusy === draft.id ? "Verifying…" : "Verify payment with PayFast"}
         </button>}
-        {draft.status === "settled_pending_application" && <p className="text-xs ff-ui-muted mt-2">
-          Payment verified. Do not dispatch revised items until amendment and payout allocation are applied.
-        </p>}
+        {draft.status === "settled_pending_application" && <div className="mt-2 space-y-2">
+          <p className="text-xs ff-ui-muted">Payment verified. Only additional items can be applied automatically; changes to existing paid lines need financial review.</p>
+          <button type="button" disabled={Boolean(topupBusy)} onClick={() => applyPaidAdditions(draft)}
+            className="ff-ui-button ff-ui-button--primary">
+            {topupBusy === draft.id ? "Applying…" : "Apply paid additions"}
+          </button>
+        </div>}
+        {draft.status === "applied" && <p className="text-xs ff-ui-muted mt-2">Additional items applied and wallet allocation reconciliation requested.</p>}
       </div>)}</div>
     </div>}
   </section>;
