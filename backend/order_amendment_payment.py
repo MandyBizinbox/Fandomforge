@@ -113,8 +113,14 @@ async def initiate_supplement(db, order: dict, draft: dict, request) -> dict:
         raise HTTPException(status_code=409, detail="This amendment is not an available financial draft")
     if draft.get("source_order_updated_at") != order.get("updated_at"):
         raise HTTPException(status_code=409, detail="Order changed since amendment draft; create a fresh draft")
-    if order.get("payment_status") == "refunded" or order.get("status") in {"refunded", "cancelled"}:
-        raise HTTPException(status_code=409, detail="Refunded or cancelled orders require manual review")
+    if order.get("payment_status") != "paid" or order.get("status") in {"refunded", "cancelled"}:
+        raise HTTPException(status_code=409, detail="PayFast top-ups require a confirmed, non-cancelled original payment. Unpaid orders need replacement checkout.")
+    original = await db.payments.find_one(
+        {"id": order.get("payment_id"), "order_id": order["id"], "status": "completed"},
+        {"_id": 0},
+    )
+    if not original or money(original.get("amount")) != money(order.get("amendment_base_total", order.get("total"))):
+        raise HTTPException(status_code=409, detail="Original payment evidence is inconsistent; reconcile before requesting a top-up")
     preview = draft.get("preview") or {}
     if preview.get("financial_status") != "top_up_required" or money(preview.get("overpayment_review") or 0) != 0:
         raise HTTPException(status_code=409, detail="Draft has no payable supplement")
