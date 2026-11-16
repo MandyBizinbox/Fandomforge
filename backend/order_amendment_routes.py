@@ -234,3 +234,56 @@ async def list_order_amendments(order_id: str, request: Request,
         "_id": 0, "original_items": 0
     }).sort("created_at", -1).to_list(50)
     return {"drafts": drafts}
+
+
+@amendment_router.post("/{order_id}/amendments/{amendment_id}/payfast-topup")
+async def create_order_amendment_payfast_topup(
+    order_id: str, amendment_id: str, request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Initiate a single supplemental payment; never replace original payment."""
+    require_super_admin(user)
+    from order_amendment_payment import initiate_supplement
+    db = request.app.state.db
+    order = await _get_order(db, order_id)
+    draft = await db.order_amendments.find_one(
+        {"id": amendment_id, "order_id": order_id}, {"_id": 0}
+    )
+    if not draft:
+        raise HTTPException(status_code=404, detail="Amendment not found")
+    return await initiate_supplement(db, order, draft, request)
+
+
+@amendment_router.post("/{order_id}/amendments/{amendment_id}/verify-topup")
+async def verify_order_amendment_payfast_topup(
+    order_id: str, amendment_id: str, request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Merchant-history reconciliation when a genuine signed ITN was missed."""
+    require_super_admin(user)
+    from routes_main import _get_gateway_config, get_payment_gateway_adapter
+    from payment_gateways.base import PaymentGatewayError
+    from order_amendment_payment import process_verified_supplement
+    db = request.app.state.db
+    await _get_order(db, order_id)
+    draft = await db.order_amendments.find_one(
+        {"id": amendment_id, "order_id": order_id}, {"_id": 0}
+    )
+    if not draft:
+        raise HTTPException(status_code=404, detail="Amendment not found")
+    payment = await db.payments.find_one(
+        {"id": draft.get("payment_id"), "amendment_id": amendment_id,
+         "order_id": order_id, "provider": "payfast"}, {"_id": 0}
+    )
+    if not payment:
+        raise HTTPException(status_code=409, detail="No linked supplement payment exists")
+    gateway = await _get_gateway_config(db, "payfast", masked=False)
+    adapter = get_payment_gateway_adapter("payfast")
+    try:
+        result = await adapter.verify_payment(payment["provider_reference"], gateway)
+    except PaymentGatewayError as exc:
+        raise HTTPException(status_code=502, detail="PayFast merchant confirmation unavailable") from exc
+    if not result.get("paid"):
+        return {"verified": False, "status": "pending"}
+    settled = await process_verified_supplement(db, payment, result)
+    return {"verified": True, **settled}
