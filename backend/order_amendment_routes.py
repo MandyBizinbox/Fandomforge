@@ -84,10 +84,16 @@ async def price_amendment(db, order: dict, payload: AmendmentDraft) -> dict:
         rate = choice.get("effective_selling_price")
         if rate is None:
             raise HTTPException(status_code=409, detail="Current catalogue price could not be verified")
-        unit = money(rate)
-        if prior and (prior.get("product_id") != proposal.product_id or
-                      prior.get("variation_id") != proposal.variation_id or
-                      int(prior.get("quantity") or 0) != proposal.quantity):
+        unchanged = bool(
+            prior
+            and prior.get("product_id") == proposal.product_id
+            and prior.get("variation_id") == proposal.variation_id
+            and int(prior.get("quantity") or 0) == proposal.quantity
+        )
+        # A historic paid line must retain its contracted unit price, even
+        # if the product catalogue has since increased its selling price.
+        unit = money(prior.get("unit_price")) if unchanged and prior.get("unit_price") is not None else money(rate)
+        if prior and not unchanged:
             if prior.get("production_status", "pending") not in {"pending"} or order.get("collection_receipt"):
                 raise HTTPException(status_code=409, detail="Produced or collected items cannot be replaced by an amendment draft")
         priced.append({
