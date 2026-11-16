@@ -7492,6 +7492,25 @@ async def gateway_payment_webhook(gateway_key: str, request: Request):
 
         if str(payment.get("provider") or "").lower() != gateway_key:
             raise HTTPException(status_code=409, detail="Payment provider does not match the webhook.")
+
+        # Supplement credits are independent of original checkout payments.
+        # The signature, merchant identity and PayFast server confirmation have
+        # already been validated above. Never route a supplement through the
+        # order-total payment confirmation or normal wallet allocation path.
+        if payment.get("kind") == "order_amendment":
+            if gateway_key != "payfast":
+                raise HTTPException(status_code=409, detail="Unsupported supplement gateway")
+            from order_amendment_payment import process_verified_supplement
+            if result.get("paid"):
+                return await process_verified_supplement(db, payment, result)
+            if result.get("status") == "failed":
+                await db.payments.update_one(
+                    {"id": payment["id"], "kind": "order_amendment", "status": {"$ne": "completed"}},
+                    {"$set": {"status": "failed"}},
+                )
+                return {"ok": True, "processed": True, "status": "failed"}
+            return {"ok": True, "processed": True, "status": "pending"}
+
         if result.get("paid") and gateway_key == "payfast":
             from payment_confirmation import validate_payment_confirmation
             order = await db.orders.find_one({"id": payment.get("order_id")}, {"_id": 0})
