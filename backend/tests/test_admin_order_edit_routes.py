@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from admin_order_edit_routes import OrderCorrectionRequest, correct_order
+from admin_order_edit_routes import OrderCorrectionRequest, correct_order, admin_order_catalogue_search
 from models import ShippingAddress
 
 
@@ -283,3 +283,40 @@ def test_different_price_product_replacement_is_blocked():
         ]), request, admin()))
     assert exc.value.status_code == 409
     assert orders.written is None
+
+
+def test_admin_catalogue_search_returns_server_priced_scouter_product():
+    class FakeSearchCursor:
+        def __init__(self):
+            self.query = None
+        def sort(self, field, order):
+            assert field == "title"
+            assert order == 1
+            return self
+        async def to_list(self, limit):
+            assert limit == 100
+            return [{
+                "id": "scouter", "title": "Scouter shirt", "published": True,
+                "band_id": "creator-1", "selling_price": 160.0,
+                "variations": [{"id": "v-large", "size": "L", "color": "Black"}],
+            }]
+    cursor = FakeSearchCursor()
+    class FakeSearchProducts:
+        def find(self, query, projection):
+            cursor.query = query
+            assert projection == {"_id": 0}
+            return cursor
+    request = SimpleNamespace(app=SimpleNamespace(
+        state=SimpleNamespace(db=SimpleNamespace(products=FakeSearchProducts()))
+    ))
+    result = asyncio.run(admin_order_catalogue_search(request, "Scouter", admin()))
+    assert cursor.query["published"] is True
+    assert result[0]["id"] == "scouter"
+    assert result[0]["variations"][0]["effective_selling_price"] == 160.0
+
+
+def test_non_super_admin_cannot_search_order_replacements():
+    request, _, _ = environment()
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(admin_order_catalogue_search(request, "Scouter", admin("manager")))
+    assert exc.value.status_code == 403
