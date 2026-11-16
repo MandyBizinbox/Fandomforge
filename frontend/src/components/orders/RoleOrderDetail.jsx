@@ -8,6 +8,7 @@ import { useAuth } from "../../context/AuthContext";
 import StatusBadge from "../StatusBadge";
 import ProductionPackSummary from "../production/ProductionPackSummary";
 import ActivityTimeline from "../activity/ActivityTimeline";
+import SuperAdminOrderEditor from "./SuperAdminOrderEditor";
 
 const ORDER_STATUS = [
   "pending_payment", "payment_overdue", "paid", "awaiting_artwork_review", "sent_to_printer",
@@ -343,6 +344,8 @@ export default function RoleOrderDetail({ mode = "view", backTo, testidPrefix = 
         {trackingUrl && <button type="button" className="ff-ui-button ff-ui-button--secondary" onClick={() => copy(trackingUrl, "Tracking link copied")}><Copy size={14} /> Tracking link</button>}
       </div>
     </div>
+
+    {isAdmin && ["super_admin", "owner"].includes(user?.role) && <SuperAdminOrderEditor order={order} onSaved={load} />}
 
     {isGroupDelivery && <section className="ff-ui-card p-4 md:p-5 border-2 border-[var(--ff-primary)]" data-testid="group-delivery-schedule-banner">
       <div className="overline mb-2">Group delivery schedule</div>
