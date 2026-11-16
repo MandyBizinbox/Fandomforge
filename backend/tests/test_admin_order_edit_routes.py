@@ -58,10 +58,11 @@ class FakeOrders:
 class FakeProducts:
     async def find_one(self, query, projection=None):
         return {
+            "id": "tee", "title": "T-shirt", "selling_price": 160,
             "variations": [
-                {"id": "v1", "size": "M", "color": "Black", "effective_selling_price": 160},
-                {"id": "v2", "size": "L", "color": "Black", "effective_selling_price": 160},
-                {"id": "v3", "size": "XL", "color": "Black", "effective_selling_price": 190},
+                {"id": "v1", "size": "M", "color": "Black"},
+                {"id": "v2", "size": "L", "color": "Black"},
+                {"id": "v3", "size": "XL", "color": "Black", "price_override": 190},
             ]
         }
 
@@ -132,16 +133,43 @@ def test_different_price_variant_is_blocked():
     assert orders.written is None
 
 
-def test_paid_order_after_production_start_cannot_be_corrected():
+def test_pending_tee_variation_can_be_corrected_even_when_other_items_are_in_production():
     value = order()
     value["status"] = "in_production"
     request, orders, _ = environment(value)
+    result = asyncio.run(correct_order("order-1", correction(item_corrections=[
+        {"item_id": "line1", "size": "L", "color": "Black"}
+    ]), request, admin()))
+    assert result["ok"] is True
+    line = orders.written["$set"]["items"][0]
+    assert line["variation_id"] == "v2"
+    assert line["unit_price"] == 160
+    assert "payment_status" not in orders.written["$set"]
+    assert "total" not in orders.written["$set"]
+
+
+def test_already_produced_tee_cannot_be_changed():
+    value = order()
+    value["items"][0]["production_status"] = "in_production"
+    request, orders, _ = environment(value)
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(correct_order("order-1", correction(shipping_address={
-            **order()["shipping_address"], "full_name": "New"
-        }), request, admin()))
+        asyncio.run(correct_order("order-1", correction(item_corrections=[
+            {"item_id": "line1", "size": "L", "color": "Black"}
+        ]), request, admin()))
     assert exc.value.status_code == 409
     assert orders.written is None
+
+
+def test_collected_order_cannot_change_tee():
+    value = order()
+    value["status"] = "completed"
+    value["collection_receipt"] = {"signed_at": "2026-11-16T12:00:00Z"}
+    request, orders, _ = environment(value)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(correct_order("order-1", correction(item_corrections=[
+            {"item_id": "line1", "size": "L", "color": "Black"}
+        ]), request, admin()))
+    assert exc.value.status_code == 409
 
 
 def test_non_super_admin_cannot_edit():
