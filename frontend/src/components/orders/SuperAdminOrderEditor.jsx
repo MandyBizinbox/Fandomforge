@@ -48,7 +48,6 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
   const [catalog, setCatalog] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const itemChangesLocked = LOCKED_STATUSES.has(order?.status) || Boolean(order?.collection_receipt);
-  const changesAllowed = true;
 
   useEffect(() => {
     if (!open) return;
@@ -82,12 +81,9 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
   const addressChanged = JSON.stringify(initialAddress(order)) !== JSON.stringify(address);
   const hasChanges = addressChanged || corrections.length > 0;
 
-  const changeItem = (id, key, value) => setItems(current =>
-    current.map(row => row.item_id === id ? { ...row, [key]: value } : row));
-
   const save = async event => {
     event.preventDefault();
-    if (saving || !hasChanges || !changesAllowed) return;
+    if (saving || !hasChanges) return;
     if (reason.trim().length < 5) {
       toast.error("Add a reason for the correction (at least 5 characters)");
       return;
@@ -126,7 +122,7 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
     </div>}
     {open && <form onSubmit={save} className="space-y-5">
       <p className="text-sm ff-ui-muted">
-        Contact and delivery corrections are available for every order status.
+        Contact and delivery corrections are available for every order status. For shipped or completed orders, this updates the record only; previously issued labels and collection evidence remain unchanged.
         Product variations are selected from the live catalogue and can only be corrected before production at the same price.
         Add/remove items, replacements with price differences and payment adjustments will require the separate audited amendment workflow.
       </p>
