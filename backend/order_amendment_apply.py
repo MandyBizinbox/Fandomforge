@@ -36,10 +36,19 @@ def additions_only(original: dict, preview: dict) -> list[dict]:
 
 
 async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
-    if amendment.get("status") == "applied":
+    if amendment["id"] in (order.get("applied_amendment_ids") or []):
+        # Recover from a process interruption between the order CAS write,
+        # the amendment state update and the idempotent wallet reconciliation.
+        await db.order_amendments.update_one(
+            {"id": amendment["id"], "order_id": order["id"],
+             "status": {"$in": ["settled_pending_application", "applied"]}},
+            {"$set": {"status": "applied"}},
+        )
         from routes_main import ensure_wallet_transactions_for_order
         await ensure_wallet_transactions_for_order(db, order)
         return {"ok": True, "status": "applied", "duplicate": True, "wallet_reconciled": True}
+    if amendment.get("status") == "applied":
+        raise HTTPException(status_code=409, detail="Amendment marked applied but missing from order; manual recovery required")
     if amendment.get("status") != "settled_pending_application":
         raise HTTPException(status_code=409, detail="Amendment supplement is not yet paid")
     if order.get("payment_status") != "paid" or order.get("status") not in APPLY_STATUSES:
