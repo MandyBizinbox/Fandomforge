@@ -56,7 +56,20 @@ class FakeCollection:
                 return (field in item) == expected["$exists"]
             if "$in" in expected:
                 return item.get(field) in expected["$in"]
+            if "$ne" in expected:
+                return item.get(field) != expected["$ne"]
         return item.get(field) == expected
+
+    async def insert_one(self, document):
+        self.data.append(deepcopy(document))
+        return SimpleNamespace(inserted_id=document.get("_id"))
+
+    async def delete_one(self, selector):
+        for i, item in enumerate(self.data):
+            if all(self.matches(item, field, expected) for field, expected in selector.items()):
+                self.data.pop(i)
+                return SimpleNamespace(deleted_count=1)
+        return SimpleNamespace(deleted_count=0)
 
     async def update_one(self, selector, update):
         self.operations.append(deepcopy(update))
@@ -155,3 +168,93 @@ def test_original_order_payment_never_uses_supplement_settlement_handler():
     with pytest.raises(HTTPException):
         asyncio.run(process_verified_supplement(db, wrong, paid_itn()))
     assert not db.payments.operations
+
+
+def paid_order_for_topup():
+    return {
+        "id": "order-1", "order_number": "MF-123",
+        "payment_id": "original-1", "payment_status": "paid", "status": "paid",
+        "total": 145.0, "updated_at": "version-1",
+        "buyer_email": "shopper@example.com",
+        "items": [{
+            "id": "item-1", "product_id": "p1", "variation_id": "v1",
+            "unit_price": 145.0, "quantity": 1, "production_status": "pending",
+        }],
+    }
+
+
+def payable_draft():
+    return {
+        "id": "draft-1", "order_id": "order-1", "status": "draft_financial_review",
+        "source_order_updated_at": "version-1", "requested_by": "admin-1",
+        "preview": {
+            "balance_due": 160.0, "overpayment_review": 0,
+            "financial_status": "top_up_required",
+            "items": [
+                {"existing_item_id": "item-1", "product_id": "p1",
+                 "variation_id": "v1", "unit_price": 145, "quantity": 1},
+                {"product_id": "p2", "variation_id": "v2",
+                 "unit_price": 160, "quantity": 1, "line_total": 160},
+            ],
+        },
+    }
+
+
+def topup_context():
+    return SimpleNamespace(
+        payments=FakeCollection([{
+            "id": "original-1", "order_id": "order-1", "status": "completed",
+            "amount": 145.0, "provider": "payfast",
+        }]),
+        order_amendments=FakeCollection([payable_draft()]),
+        order_amendment_payment_locks=FakeCollection([]),
+    )
+
+
+def test_create_supplement_keeps_original_payment_unchanged(monkeypatch):
+    import routes_main
+
+    async def gateway_config(db, gateway_key, masked=False):
+        assert gateway_key == "payfast"
+        return {"enabled": True}
+
+    class Adapter:
+        async def initialize_payment(self, checkout_order, gateway, urls):
+            assert checkout_order["total"] == 160
+            assert urls["reference"].startswith("MF-AM-")
+            assert urls["webhook_url"] == "https://fandomforge.co.za/api/payments/webhooks/payfast"
+            return {"payment_url": "https://www.payfast.co.za/eng/process?mock=1"}
+
+    monkeypatch.setattr(routes_main, "_get_gateway_config", gateway_config)
+    monkeypatch.setattr(routes_main, "get_payment_gateway_adapter", lambda key: Adapter())
+    db = topup_context()
+    order = paid_order_for_topup()
+    result = asyncio.run(initiate_supplement(db, order, payable_draft(), SimpleNamespace()))
+    assert result["amount"] == 160
+    assert result["status"] == "awaiting_topup"
+    assert order["payment_id"] == "original-1"
+    assert len(db.payments.data) == 2
+    assert db.payments.data[0]["id"] == "original-1"
+    assert db.payments.data[1]["kind"] == "order_amendment"
+    assert len(db.order_amendment_payment_locks.data) == 1
+
+
+def test_unpaid_original_order_cannot_create_second_checkout_link():
+    db = topup_context()
+    order = paid_order_for_topup()
+    order["payment_status"] = "pending"
+    with pytest.raises(HTTPException, match="confirmed"):
+        asyncio.run(initiate_supplement(db, order, payable_draft(), SimpleNamespace()))
+    assert len(db.payments.data) == 1
+
+
+def test_replacement_draft_cannot_create_payfast_charge():
+    db = topup_context()
+    draft_doc = payable_draft()
+    draft_doc["preview"]["items"] = [
+        {"existing_item_id": "item-1", "product_id": "p1",
+         "variation_id": "v2", "unit_price": 160, "quantity": 1}
+    ]
+    with pytest.raises(HTTPException, match="Replacing"):
+        asyncio.run(initiate_supplement(db, paid_order_for_topup(), draft_doc, SimpleNamespace()))
+    assert len(db.payments.data) == 1
