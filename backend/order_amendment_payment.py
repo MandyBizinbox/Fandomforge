@@ -122,6 +122,12 @@ async def initiate_supplement(db, order: dict, draft: dict, request) -> dict:
     if not original or money(original.get("amount")) != money(order.get("amendment_base_total", order.get("total"))):
         raise HTTPException(status_code=409, detail="Original payment evidence is inconsistent; reconcile before requesting a top-up")
     preview = draft.get("preview") or {}
+    # Hard financial gate: never collect a top-up for a replacement/removal
+    # that the automated application path cannot actually fulfil.
+    from order_amendment_apply import additions_only, APPLY_STATUSES
+    if order.get("status") not in APPLY_STATUSES or order.get("collection_receipt"):
+        raise HTTPException(status_code=409, detail="This fulfilled order requires manual amendment and payout review")
+    additions_only(order, preview)
     if preview.get("financial_status") != "top_up_required" or money(preview.get("overpayment_review") or 0) != 0:
         raise HTTPException(status_code=409, detail="Draft has no payable supplement")
     amount = money(preview.get("balance_due"))
