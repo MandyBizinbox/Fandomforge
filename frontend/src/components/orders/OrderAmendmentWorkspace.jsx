@@ -23,6 +23,7 @@ export default function OrderAmendmentWorkspace({ order }) {
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [topupBusy, setTopupBusy] = useState("");
   const [catalogueError, setCatalogueError] = useState("");
   const [version, setVersion] = useState(0);
 
@@ -111,6 +112,43 @@ export default function OrderAmendmentWorkspace({ order }) {
     }
   };
 
+  const startTopup = async draft => {
+    if (!window.confirm("Create a separate PayFast payment for the outstanding balance? Existing payment records will remain unchanged.")) return;
+    setTopupBusy(draft.id);
+    try {
+      const result = await http.post(
+        `/admin/orders/${encodeURIComponent(order.id)}/amendments/${encodeURIComponent(draft.id)}/payfast-topup`,
+      );
+      toast.success("New PayFast top-up link created");
+      await refreshDrafts();
+      if (result.data?.payment_url) {
+        await navigator.clipboard?.writeText(result.data.payment_url);
+        toast.success("PayFast link copied to clipboard");
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Could not initiate PayFast top-up");
+    } finally {
+      setTopupBusy("");
+    }
+  };
+
+  const verifyTopup = async draft => {
+    setTopupBusy(draft.id);
+    try {
+      const result = await http.post(
+        `/admin/orders/${encodeURIComponent(order.id)}/amendments/${encodeURIComponent(draft.id)}/verify-topup`,
+      );
+      toast[result.data?.verified ? "success" : "info"](
+        result.data?.verified ? "PayFast confirmed this supplemental payment" : "No confirmed PayFast credit yet"
+      );
+      await refreshDrafts();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Could not verify PayFast top-up");
+    } finally {
+      setTopupBusy("");
+    }
+  };
+
   const unchangedRows = new Set((order.items || []).map(item => item.id));
   const currentRows = rows.filter(row => unchangedRows.has(row.existing_item_id));
   const removals = (order.items || []).filter(item => !currentRows.some(row => row.existing_item_id === item.id));
@@ -126,9 +164,9 @@ export default function OrderAmendmentWorkspace({ order }) {
       </p>
     </div>
     <p className="text-sm border-l-4 border-amber-500 p-3 bg-amber-500/10">
-      Payment links and item activation are intentionally disabled until the separate
-      PayFast supplement and payout accounting flow is validated. Never ask the customer
-      to pay a duplicate full-order amount.
+      A separate PayFast top-up link may be created from a saved draft that needs payment.
+      The original payment is preserved. Paid amendments await financial application
+      and payout reconciliation; never treat a top-up receipt as automatic fulfilment approval.
     </p>
     {loading && <p className="text-sm ff-ui-muted">Loading products and amendment records…</p>}
     {catalogueError && <div role="alert" className="text-red-500 text-sm">{catalogueError}</div>}
@@ -207,7 +245,7 @@ export default function OrderAmendmentWorkspace({ order }) {
       <div className="flex justify-between text-lg font-bold border-t border-[var(--ff-card-border)] pt-2"><span>Balance due</span><span>{money(preview.balance_due)}</span></div>
       {preview.overpayment_review > 0 && <div className="text-sm text-amber-400">Credit/refund review: {money(preview.overpayment_review)}</div>}
       <div className="text-sm ff-ui-muted">Status: {preview.financial_status.replaceAll("_", " ")}. No charges are generated.</div>
-      <button type="button" className="ff-ui-button ff-ui-button--secondary opacity-50" disabled>PayFast top-up link: not yet available</button>
+      <p className="text-xs ff-ui-muted">Save a draft below to create a separate payment link for the outstanding amount.</p>
     </div>}
 
     {drafts.length > 0 && <div>
@@ -216,6 +254,25 @@ export default function OrderAmendmentWorkspace({ order }) {
         <strong>{draft.status.replaceAll("_", " ")}</strong> · {new Date(draft.created_at).toLocaleString()}
         <div>{draft.reason}</div>
         <div>Revised total: {money(draft.preview?.revised_total)} · Balance due: {money(draft.preview?.balance_due)}</div>
+        {draft.status === "draft_financial_review" && draft.preview?.financial_status === "top_up_required" && <button
+          type="button" disabled={Boolean(topupBusy)} onClick={() => startTopup(draft)}
+          className="ff-ui-button ff-ui-button--secondary mt-2">
+          {topupBusy === draft.id ? "Creating…" : "Create PayFast balance link"}
+        </button>}
+        {draft.topup_url && <div className="mt-2 flex flex-wrap gap-2 items-center">
+          <a href={draft.topup_url} target="_blank" rel="noopener noreferrer"
+            className="underline break-all">Open separate PayFast top-up</a>
+          <button type="button" className="ff-ui-button ff-ui-button--secondary"
+            onClick={() => navigator.clipboard?.writeText(draft.topup_url)}>Copy link</button>
+        </div>}
+        {draft.status === "awaiting_topup" && <button type="button" disabled={Boolean(topupBusy)}
+          className="ff-ui-button ff-ui-button--secondary mt-2"
+          onClick={() => verifyTopup(draft)}>
+          {topupBusy === draft.id ? "Verifying…" : "Verify payment with PayFast"}
+        </button>}
+        {draft.status === "settled_pending_application" && <p className="text-xs ff-ui-muted mt-2">
+          Payment verified. Do not dispatch revised items until amendment and payout allocation are applied.
+        </p>}
       </div>)}</div>
     </div>}
   </section>;
