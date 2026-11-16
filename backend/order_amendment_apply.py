@@ -45,7 +45,10 @@ async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
             {"$set": {"status": "applied"}},
         )
         from routes_main import ensure_wallet_transactions_for_order
+        from order_finance_patches import _ensure_legacy_commission_and_payout_records
+        import routes_main
         await ensure_wallet_transactions_for_order(db, order)
+        await _ensure_legacy_commission_and_payout_records(routes_main, db, order)
         await db.order_amendment_payment_locks.delete_one(
             {"_id": order["id"], "amendment_id": amendment["id"]}
         )
@@ -124,6 +127,9 @@ async def apply_paid_additions(db, order: dict, amendment: dict, user) -> dict:
     # the wallet reconciliation is safe; never undo a paid order.
     updated = await db.orders.find_one({"id": order["id"]}, {"_id": 0})
     await ensure_wallet_transactions_for_order(db, updated)
+    from order_finance_patches import _ensure_legacy_commission_and_payout_records
+    import routes_main
+    await _ensure_legacy_commission_and_payout_records(routes_main, db, updated)
     await db.order_amendment_payment_locks.delete_one(
         {"_id": order["id"], "amendment_id": amendment["id"]}
     )
