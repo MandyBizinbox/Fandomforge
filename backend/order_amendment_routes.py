@@ -158,7 +158,30 @@ async def price_amendment(db, order: dict, payload: AmendmentDraft) -> dict:
         raise HTTPException(status_code=409, detail="Order says paid but no completed payment evidence was found")
     due = max(revised_total - received, Decimal("0"))
     overpayment = max(received - revised_total, Decimal("0"))
+    # Only addition-only, pre-fulfilment paid orders have an automated
+    # application path. Replacements, removals and quantity changes require
+    # approved payout compensation before a new charge is offered.
+    old_lines = {item.get("id"): item for item in order.get("items") or []}
+    linked_lines = {
+        line.get("existing_item_id"): line for line in priced
+        if line.get("existing_item_id")
+    }
+    intact = set(old_lines) == set(linked_lines) and all(
+        linked_lines[item_id].get("product_id") == old.get("product_id")
+        and linked_lines[item_id].get("variation_id") == old.get("variation_id")
+        and int(linked_lines[item_id].get("quantity") or 0) == int(old.get("quantity") or 0)
+        and money(linked_lines[item_id].get("unit_price")) == money(old.get("unit_price") or 0)
+        for item_id, old in old_lines.items()
+    )
+    additions_exist = any(not line.get("existing_item_id") for line in priced)
+    automatic_application_supported = bool(
+        intact and additions_exist and order.get("payment_status") == "paid"
+        and order.get("status") in {"paid", "awaiting_artwork_review", "sent_to_printer"}
+        and not order.get("collection_receipt")
+    )
     return {
+        "automatic_application_supported": automatic_application_supported,
+        "requires_financial_review": not automatic_application_supported,
         "order_total_before": float(existing_total),
         "revised_subtotal": float(subtotal),
         "shipping_unchanged": float(shipping),
