@@ -52,6 +52,51 @@ def require_super_admin(user: User) -> None:
         raise HTTPException(status_code=403, detail="Super Admin access required")
 
 
+@order_edit_router.get("/catalogue-search")
+async def admin_order_catalogue_search(
+    request: Request,
+    q: str = "",
+    user: User = Depends(get_current_user),
+):
+    """Search published products across the entire catalogue (not first 500).
+
+    Results are server-priced; the save endpoint remains authoritative.
+    """
+    import re
+    from routes_main import _decorate_product_effective_pricing
+    require_super_admin(user)
+    term = q.strip()
+    if len(term) > 120:
+        raise HTTPException(status_code=422, detail="Search term too long")
+    query = {"published": True}
+    if term:
+        pattern = re.compile(re.escape(term), re.IGNORECASE)
+        query["$or"] = [{"title": pattern}, {"sku": pattern}, {"slug": pattern}]
+    db = request.app.state.db
+    products = await db.products.find(query, {"_id": 0}).sort("title", 1).to_list(100)
+    return [
+        {
+            "id": product["id"],
+            "title": product.get("title") or "Untitled product",
+            "band_id": product.get("band_id"),
+            "assigned_printer_id": product.get("assigned_printer_id"),
+            "variations": [
+                {
+                    "id": variation.get("id"),
+                    "size": variation.get("size") or "",
+                    "color": variation.get("color") or "",
+                    "sku": variation.get("sku") or "",
+                    "effective_selling_price": variation.get("effective_selling_price"),
+                }
+                for variation in _decorate_product_effective_pricing(
+                    product, expose_manual_overrides=False
+                ).get("variations") or []
+            ],
+        }
+        for product in products
+    ]
+
+
 @order_edit_router.patch("/{order_id}/corrections")
 async def correct_order(
     order_id: str,
