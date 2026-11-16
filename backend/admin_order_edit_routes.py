@@ -7,6 +7,7 @@ state, artwork, inventory and payouts are immutable in this endpoint.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from copy import deepcopy
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -45,6 +46,20 @@ class OrderCorrectionRequest(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError("Each order item can only be corrected once")
         return self
+
+
+def normalized_revision(value) -> str:
+    """Compare ISO timestamps consistently across Pydantic and Mongo formats."""
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).isoformat()
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def collection_not_completed_condition() -> dict:
+    return {"$or": [{"collection_receipt": {"$exists": False}}, {"collection_receipt": None}]}
 
 
 def require_super_admin(user: User) -> None:
@@ -113,7 +128,7 @@ async def correct_order(
         raise HTTPException(status_code=404, detail="Order not found")
     if payload.item_corrections and (original.get("collection_receipt") or original.get("status") in {"shipped", "delivered", "completed", "cancelled", "canceled", "refunded"}):
         raise HTTPException(status_code=409, detail="Already shipped, collected, completed, cancelled or refunded items require a separate fulfilment correction")
-    if original.get("updated_at") != payload.expected_updated_at:
+    if normalized_revision(original.get("updated_at")) != normalized_revision(payload.expected_updated_at):
         raise HTTPException(status_code=409, detail="Order changed since opening. Refresh before editing")
 
     before = {}
@@ -205,7 +220,6 @@ async def correct_order(
                 )
                 if not new_snapshot:
                     raise HTTPException(status_code=409, detail="Replacement print specification is unavailable")
-                from copy import deepcopy
                 new_snapshot = deepcopy(new_snapshot)
                 for key in (
                     "costing_model", "costing_breakdown", "production_cost",
@@ -259,14 +273,34 @@ async def correct_order(
         {
             "id": order_id,
             "archived": {"$ne": True},
-            "updated_at": payload.expected_updated_at,
-            **({"status": {"$nin": ["shipped", "delivered", "completed", "cancelled", "canceled", "refunded"]}, "collection_receipt": {"$exists": False}} if payload.item_corrections else {}),
-            "active_order_amendment_id": {"$exists": False},
+            "updated_at": original.get("updated_at"),
+            **({"status": {"$nin": ["shipped", "delivered", "completed", "cancelled", "canceled", "refunded"]},
+                **collection_not_completed_condition()} if payload.item_corrections else {}),
+            "$and": [
+                {"$or": [{"active_order_amendment_id": {"$exists": False}},
+                          {"active_order_amendment_id": None}]},
+            ],
         },
         {"$set": changes, "$push": {"edit_history": record}},
     )
     if result.modified_count != 1:
         raise HTTPException(status_code=409, detail="Order changed during editing. Reload before saving")
+    # A successful Mongo acknowledgment alone is insufficient. Check that the
+    # actual saved order contains every requested replacement.
+    verified = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not verified:
+        raise HTTPException(status_code=500, detail="Order disappeared after correction; investigate")
+    if payload.item_corrections:
+        verified_items = {item.get("id"): item for item in verified.get("items") or []}
+        for entry in item_changes:
+            saved = verified_items.get(entry["after"]["item_id"])
+            expected = entry["after"]
+            if not saved or any(saved.get(key) != expected.get(key)
+                                for key in ("product_id", "product_title", "variation_id", "size", "color")):
+                raise HTTPException(
+                    status_code=500,
+                    detail="Order write did not persist the selected product and variation. Review the order.",
+                )
     try:
         await db.order_events.insert_one({
             "id": uid(),
