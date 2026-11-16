@@ -1,8 +1,8 @@
 """Audited, restricted order corrections for Super Admin.
 
-Allows customer contact/address corrections and pre-production variation label
-corrections. Financial fields, quantities, payment state, artwork, inventory,
-payouts and completed/collected orders are immutable in this endpoint.
+Allows audited Super Admin contact/address and same-price variation corrections
+including orders already in production. Financial fields, quantities, payment
+state, artwork, inventory and payouts are immutable in this endpoint.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ BLOCKED_STATUSES = {
     "sent_to_printer", "in_production", "ready_for_dispatch",
     "shipped", "delivered", "completed", "cancelled", "canceled", "refunded",
 }
-BLOCKED_ITEM_STATUSES = {"accepted", "in_production", "ready", "shipped", "delivered"}
+BLOCKED_ITEM_STATUSES = {"shipped", "delivered"}
 
 
 class OrderItemCorrection(BaseModel):
@@ -64,8 +64,8 @@ async def correct_order(
     )
     if not original:
         raise HTTPException(status_code=404, detail="Order not found")
-    if payload.item_corrections and (original.get("collection_receipt") or original.get("status") in {"completed", "cancelled", "refunded"}):
-        raise HTTPException(status_code=409, detail="Collected, completed, cancelled or refunded items require a separate fulfilment correction")
+    if payload.item_corrections and (original.get("collection_receipt") or original.get("status") in {"shipped", "delivered", "completed", "cancelled", "canceled", "refunded"}):
+        raise HTTPException(status_code=409, detail="Already shipped, collected, completed, cancelled or refunded items require a separate fulfilment correction")
     if original.get("updated_at") != payload.expected_updated_at:
         raise HTTPException(status_code=409, detail="Order changed since opening. Refresh before editing")
 
@@ -94,7 +94,7 @@ async def correct_order(
                 raise HTTPException(status_code=422, detail="One or more order items no longer exist")
             item = items[index]
             if item.get("production_status", "pending") in BLOCKED_ITEM_STATUSES:
-                raise HTTPException(status_code=409, detail="A selected item has already entered production")
+                raise HTTPException(status_code=409, detail="A selected item has already shipped or been delivered")
             new_size, new_color = correction.size.strip(), correction.color.strip()
             if not new_size or not new_color:
                 raise HTTPException(status_code=422, detail="Size and colour are required")
@@ -171,7 +171,7 @@ async def correct_order(
             "id": order_id,
             "archived": {"$ne": True},
             "updated_at": payload.expected_updated_at,
-            **({"status": {"$nin": ["completed", "cancelled", "refunded"]}, "collection_receipt": {"$exists": False}} if payload.item_corrections else {}),
+            **({"status": {"$nin": ["shipped", "delivered", "completed", "cancelled", "canceled", "refunded"]}, "collection_receipt": {"$exists": False}} if payload.item_corrections else {}),
         },
         {"$set": changes, "$push": {"edit_history": record}},
     )
