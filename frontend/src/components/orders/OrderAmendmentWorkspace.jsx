@@ -271,11 +271,14 @@ export default function OrderAmendmentWorkspace({ order }) {
         <strong>{draft.status.replaceAll("_", " ")}</strong> · {new Date(draft.created_at).toLocaleString()}
         <div>{draft.reason}</div>
         <div>Revised total: {money(draft.preview?.revised_total)} · Balance due: {money(draft.preview?.balance_due)}</div>
-        {draft.status === "draft_financial_review" && draft.preview?.financial_status === "top_up_required" && <button
+        {draft.status === "draft_financial_review" && draft.preview?.financial_status === "top_up_required" && draft.preview?.automatic_application_supported && <button
           type="button" disabled={Boolean(topupBusy)} onClick={() => startTopup(draft)}
           className="ff-ui-button ff-ui-button--secondary mt-2">
           {topupBusy === draft.id ? "Creating…" : "Create PayFast balance link"}
         </button>}
+        {draft.status === "draft_financial_review" && draft.preview?.requires_financial_review && <p className="text-xs ff-ui-muted mt-2">
+          Financial review required: existing paid items, refunds, or fulfilment may be affected. No PayFast link will be generated until compensating allocations are supported.
+        </p>}
         {draft.topup_url && <div className="mt-2 flex flex-wrap gap-2 items-center">
           <a href={draft.topup_url} target="_blank" rel="noopener noreferrer"
             className="underline break-all">Open separate PayFast top-up</a>
