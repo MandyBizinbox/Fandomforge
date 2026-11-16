@@ -128,3 +128,67 @@ def test_branded_email_sender_creates_html_and_text_alternatives():
     ]
     assert "saved order" in parts[0].get_content()
     assert "<html" in parts[1].get_content()
+
+
+def test_tracking_payment_link_reuses_existing_order_without_mutating_payments(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from pending_payment_routes import recovery_link_from_tracking
+    import pending_payment_worker
+
+    class Orders:
+        async def find_one(self, query, projection):
+            assert query["tracking_token"] == "x" * 32
+            return {**sample_order(), "tracking_token": "x" * 32}
+    class RecoveryLinks:
+        def __init__(self):
+            self.created = []
+        async def count_documents(self, query):
+            assert query["stage"] == 0
+            return 0
+        async def insert_one(self, document):
+            self.created.append(document)
+    links = RecoveryLinks()
+    db = SimpleNamespace(orders=Orders(), order_payment_recovery_links=links)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db)))
+    monkeypatch.setattr(pending_payment_worker, "origin", lambda: "https://fandomforge.co.za")
+    response = asyncio.run(recovery_link_from_tracking("x" * 32, request))
+    assert response["payment_action"] == "review_order"
+    assert response["payment_url"].startswith("https://fandomforge.co.za/order-payment/")
+    assert links.created[0]["order_id"] == "order-test"
+    assert links.created[0]["stage"] == 0
+
+
+def test_paid_tracking_order_cannot_issue_payment_link():
+    import asyncio
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from pending_payment_routes import recovery_link_from_tracking
+
+    class Orders:
+        async def find_one(self, query, projection):
+            return {**sample_order(), "payment_status": "paid"}
+    db = SimpleNamespace(orders=Orders())
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db)))
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(recovery_link_from_tracking("x" * 32, request))
+    assert error.value.status_code == 409
+
+
+def test_tracking_payment_link_rate_limit():
+    import asyncio
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from pending_payment_routes import recovery_link_from_tracking
+
+    class Orders:
+        async def find_one(self, query, projection):
+            return sample_order()
+    class RecoveryLinks:
+        async def count_documents(self, query):
+            return 3
+    db = SimpleNamespace(orders=Orders(), order_payment_recovery_links=RecoveryLinks())
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db)))
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(recovery_link_from_tracking("x" * 32, request))
+    assert error.value.status_code == 429
