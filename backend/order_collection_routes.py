@@ -69,6 +69,7 @@ def _order_summary(order: dict) -> dict:
             order.get("payment_status") == "paid"
             and order.get("status") == COLLECTABLE_STATUS
             and not order.get("collection_receipt")
+            and not order.get("active_order_amendment_id")
         ),
     }
 
@@ -99,7 +100,8 @@ async def lookup_collection(payload: CollectionLookup, request: Request, user: U
         {"_id": 0, "id": 1, "order_number": 1, "buyer_email": 1, "created_at": 1,
          "shipping_address": 1, "status": 1, "payment_status": 1, "total": 1,
          "shipping_method_name": 1, "shipping_method_key": 1,
-         "items": 1, "collection_receipt.signed_at": 1},
+         "items": 1, "collection_receipt.signed_at": 1,
+         "active_order_amendment_id": 1},
     ).sort("created_at", -1).to_list(length=25)
     return {"orders": [_order_summary(order) for order in docs], "limited": len(docs) == 25}
 
@@ -112,7 +114,8 @@ async def get_collection_order(order_id: str, request: Request, user: User = Dep
         {"_id": 0, "id": 1, "order_number": 1, "buyer_email": 1, "created_at": 1,
          "shipping_address": 1, "status": 1, "payment_status": 1, "total": 1,
          "shipping_method_name": 1, "shipping_method_key": 1,
-         "items": 1, "collection_receipt.signed_at": 1},
+         "items": 1, "collection_receipt.signed_at": 1,
+         "active_order_amendment_id": 1},
     )
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -154,6 +157,7 @@ async def complete_collection(
             "status": COLLECTABLE_STATUS,
             "payment_status": "paid",
             "collection_receipt": {"$exists": False},
+            "active_order_amendment_id": {"$exists": False},
         },
         {"$set": {
             "status": "completed",
