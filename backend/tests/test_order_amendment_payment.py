@@ -134,3 +134,24 @@ def test_unverified_failed_credit_is_rejected():
             **paid_itn(), "paid": False, "status": "failed",
         }))
     assert db.payments.data[0]["status"] == "pending"
+
+
+def test_duplicate_paid_itn_after_application_is_acknowledged():
+    db = context()
+    db.order_amendments.data[0]["status"] = "applied"
+    db.payments.data[0]["status"] = "completed"
+    original = deepcopy(db.orders.data)
+    result = asyncio.run(process_verified_supplement(db, db.payments.data[0], paid_itn()))
+    assert result["duplicate"] is True
+    assert result["status"] == "applied"
+    assert db.orders.data == original
+    assert not db.payments.operations
+
+
+def test_original_order_payment_never_uses_supplement_settlement_handler():
+    db = context()
+    wrong = payment()
+    wrong["kind"] = "order"
+    with pytest.raises(HTTPException):
+        asyncio.run(process_verified_supplement(db, wrong, paid_itn()))
+    assert not db.payments.operations
