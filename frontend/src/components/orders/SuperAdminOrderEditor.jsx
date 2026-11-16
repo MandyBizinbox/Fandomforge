@@ -70,10 +70,14 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
 
   const corrections = useMemo(() => items.filter(row => {
     const original = (order?.items || []).find(item => item.id === row.item_id);
-    return original && (row.size.trim() !== String(original.size || "") ||
+    return original && (row.product_id !== original.product_id ||
+      row.variation_id !== original.variation_id ||
+      row.size.trim() !== String(original.size || "") ||
       row.color.trim() !== String(original.color || ""));
   }).map(row => ({
     item_id: row.item_id,
+    product_id: row.product_id,
+    variation_id: row.variation_id,
     size: row.size.trim(),
     color: row.color.trim(),
   })), [items, order]);
@@ -123,8 +127,8 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
     {open && <form onSubmit={save} className="space-y-5">
       <p className="text-sm ff-ui-muted">
         Contact and delivery corrections are available for every order status. For shipped or completed orders, this updates the record only; previously issued labels and collection evidence remain unchanged.
-        Product variations are selected from the live catalogue. Super Admin may correct the variation even while production is underway, provided the selling price remains unchanged.
-        Item quantities, prices, payment records, and collected items are never changed here.
+        Super Admin can replace a T-shirt with another product and variation from the live catalogue, including during production, provided it has the same price, creator and printer. Changes are audited without sending status-change emails.
+        Quantity, price, payment records and collected items cannot be changed here. Notify production staff of any replacement already in progress.
       </p>
       <div>
         <h3 className="font-bold mb-3">Customer and delivery</h3>
@@ -139,11 +143,21 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
         </div>
       </div>
       <div>
-        <h3 className="font-bold mb-3">Product variations</h3>
+        <h3 className="font-bold mb-3">Replace product or variation</h3>
         <div className="grid gap-3">
           {catalogLoading && <p className="text-sm ff-ui-muted">Loading catalogue variations…</p>}
           {items.map(row => {
             const product = catalog.find(item => item.id === row.product_id);
+            const originalLine = (order?.items || []).find(item => item.id === row.item_id);
+            const sourceProduct = catalog.find(item => item.id === originalLine?.product_id);
+            const eligibleProducts = catalog.filter(item => item.published &&
+              item.band_id === (originalLine?.band_id || sourceProduct?.band_id) &&
+              (!item.assigned_printer_id || !originalLine?.printer_id ||
+               item.assigned_printer_id === originalLine.printer_id) &&
+              (item.variations || []).some(variation =>
+                variation.effective_selling_price != null &&
+                Math.abs(Number(variation.effective_selling_price) - Number(originalLine?.unit_price || 0)) < 0.005)
+            );
             const variations = product?.variations || [];
             const currentLabel = [row.size, row.color].filter(Boolean).join(" / ") || "Not specified";
             const selectedVariation = variations.find(variation =>
@@ -151,16 +165,38 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
               (String(variation.size || "").toLowerCase() === row.size.toLowerCase() &&
                String(variation.color || "").toLowerCase() === row.color.toLowerCase())
             );
-            const originalLine = (order?.items || []).find(item => item.id === row.item_id);
             const locked = itemChangesLocked || ["shipped", "delivered"].includes(row.production_status);
             return <div key={row.item_id}
               className="border border-[var(--ff-card-border)] p-3 grid gap-3 sm:grid-cols-[minmax(0,2fr)_2fr]">
               <div className="text-sm">
-                <strong>{row.product_title}</strong>
+                <strong>Original: {originalLine?.product_title || row.product_title}</strong>
                 <div className="ff-ui-muted">Qty: {row.quantity} · {row.production_status.replaceAll("_", " ")}</div>
                 <div className="ff-ui-muted">Current: {currentLabel}</div>
               </div>
-              <label className="text-sm"><span className="ff-ui-label">Product variation</span>
+              <div className="space-y-3">
+                <label className="block text-sm"><span className="ff-ui-label">Replacement product</span>
+                  <select className="ff-ui-control w-full mt-1"
+                    value={row.product_id}
+                    disabled={locked || catalogLoading}
+                    onChange={event => {
+                      const selected = catalog.find(candidate => candidate.id === event.target.value);
+                      if (!selected) return;
+                      const matching = (selected.variations || []).filter(variation =>
+                        variation.effective_selling_price != null &&
+                        Math.abs(Number(variation.effective_selling_price) - Number(originalLine?.unit_price || 0)) < 0.005);
+                      const preferred = matching.find(variation => variation.size === row.size && variation.color === row.color) || matching[0];
+                      if (!preferred) return;
+                      setItems(current => current.map(item => item.item_id === row.item_id ? {
+                        ...item, product_id: selected.id, product_title: selected.title,
+                        variation_id: preferred.id, size: preferred.size || "", color: preferred.color || "",
+                      } : item));
+                    }}>
+                    {!eligibleProducts.some(option => option.id === row.product_id) &&
+                      <option value={row.product_id}>Current product (not in selectable catalogue)</option>}
+                    {eligibleProducts.map(option => <option key={option.id} value={option.id}>{option.title}</option>)}
+                  </select>
+                </label>
+                <label className="block text-sm"><span className="ff-ui-label">Product variation</span>
                 <select className="ff-ui-control w-full mt-1"
                   value={selectedVariation?.id || ""}
                   disabled={locked || catalogLoading || !product || !variations.length}
@@ -181,13 +217,14 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
                 {!product && !catalogLoading && <div className="text-xs ff-ui-muted mt-1">This product is not in the current catalogue.</div>}
                 {locked && <div className="text-xs ff-ui-muted mt-1">Already shipped or delivered items cannot be corrected here.</div>}
               </label>
+              </div>
             </div>;
           })}
         </div>
       </div>
       <label className="block text-sm font-semibold">Reason for changes
         <textarea className="ff-ui-control w-full mt-2 min-h-24" maxLength={500} required
-          placeholder="Client requested change before production..."
+          placeholder="Replace Meerkat Camp shirt with Scouter shirt as requested..."
           value={reason} onChange={event => setReason(event.target.value)} />
       </label>
       <button type="submit" disabled={!hasChanges || saving || reason.trim().length < 5}
