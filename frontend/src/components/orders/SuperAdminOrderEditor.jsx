@@ -47,25 +47,38 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [catalog, setCatalog] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
   const itemChangesLocked = ["completed", "cancelled", "refunded"].includes(order?.status) || Boolean(order?.collection_receipt);
 
   useEffect(() => {
     if (!open) return;
     let active = true;
-    setCatalogLoading(true);
-    http.get("/admin/products").then(({ data }) => {
-      if (active) setCatalog(Array.isArray(data) ? data : []);
-    }).catch(() => {
-      if (active) toast.error("Could not load product variations from catalogue");
-    }).finally(() => { if (active) setCatalogLoading(false); });
-    return () => { active = false; };
-  }, [open]);
+    const timer = setTimeout(() => {
+      setCatalogLoading(true);
+      http.get("/admin/orders/catalogue-search", { params: { q: productSearch } })
+        .then(({ data }) => {
+          if (!active) return;
+          // Keep previously selected results when search text changes.
+          setCatalog(previous => {
+            const byId = new Map(previous.map(product => [product.id, product]));
+            (Array.isArray(data) ? data : []).forEach(product => byId.set(product.id, product));
+            return Array.from(byId.values());
+          });
+        })
+        .catch(error => {
+          if (active) toast.error(error.response?.data?.detail || "Product search failed");
+        })
+        .finally(() => { if (active) setCatalogLoading(false); });
+    }, 200);
+    return () => { active = false; clearTimeout(timer); };
+  }, [open, productSearch]);
 
   useEffect(() => {
     setAddress(initialAddress(order));
     setItems(initialItems(order));
     setReason("");
     setOpen(false);
+    setProductSearch("");
   }, [order?.id, order?.updated_at]);
 
   const corrections = useMemo(() => items.filter(row => {
@@ -95,16 +108,27 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
     if (!window.confirm("Save these corrections? The previous details and your reason will be retained in the order audit history. Payment amounts will not change.")) return;
     setSaving(true);
     try {
-      await http.patch(`/admin/orders/${encodeURIComponent(order.id)}/corrections`, {
+      const response = await http.patch(`/admin/orders/${encodeURIComponent(order.id)}/corrections`, {
         reason: reason.trim(),
         expected_updated_at: order.updated_at,
         shipping_address: addressChanged ? address : null,
         item_corrections: corrections,
       });
-      toast.success("Order corrections saved");
+      // Read back the authoritative order after the write. A green toast
+      // must never claim the shirt changed while the order still says otherwise.
+      const confirmed = await http.get(`/orders/${encodeURIComponent(order.id)}`);
+      const serverItems = confirmed.data?.items || [];
+      for (const requested of corrections) {
+        const saved = serverItems.find(item => item.id === requested.item_id);
+        if (!saved || saved.product_id !== requested.product_id ||
+            saved.variation_id !== requested.variation_id) {
+          throw new Error("Save was acknowledged, but the actual order product did not update. Refresh and check the order.");
+        }
+      }
+      toast.success("Order record updated and verified");
       await onSaved?.();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Could not save order corrections");
+      toast.error(error.response?.data?.detail || error.message || "Could not save order corrections");
     } finally {
       setSaving(false);
     }
@@ -144,20 +168,25 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
       </div>
       <div>
         <h3 className="font-bold mb-3">Replace product or variation</h3>
+        <label className="block text-sm mb-3">
+          <span className="ff-ui-label">Find replacement product (e.g. Scouter)</span>
+          <input className="ff-ui-control w-full mt-1" value={productSearch}
+            onChange={event => setProductSearch(event.target.value)}
+            placeholder="Search all published catalogue products..." />
+        </label>
         <div className="grid gap-3">
           {catalogLoading && <p className="text-sm ff-ui-muted">Loading catalogue variations…</p>}
           {items.map(row => {
             const product = catalog.find(item => item.id === row.product_id);
             const originalLine = (order?.items || []).find(item => item.id === row.item_id);
-            const sourceProduct = catalog.find(item => item.id === originalLine?.product_id);
-            const eligibleProducts = catalog.filter(item => item.published &&
-              item.band_id === (originalLine?.band_id || sourceProduct?.band_id) &&
-              (!item.assigned_printer_id || !originalLine?.printer_id ||
-               item.assigned_printer_id === originalLine.printer_id) &&
-              (item.variations || []).some(variation =>
-                variation.effective_selling_price != null &&
-                Math.abs(Number(variation.effective_selling_price) - Number(originalLine?.unit_price || 0)) < 0.005)
+            const searchResults = catalog.filter(item =>
+              !productSearch.trim() ||
+              item.title?.toLowerCase().includes(productSearch.trim().toLowerCase())
             );
+            const productsToShow = [
+              ...searchResults,
+              ...(product && !searchResults.some(candidate => candidate.id === product.id) ? [product] : []),
+            ].sort((a, b) => String(a.title).localeCompare(String(b.title)));
             const variations = product?.variations || [];
             const currentLabel = [row.size, row.color].filter(Boolean).join(" / ") || "Not specified";
             const selectedVariation = variations.find(variation =>
@@ -185,16 +214,20 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
                         variation.effective_selling_price != null &&
                         Math.abs(Number(variation.effective_selling_price) - Number(originalLine?.unit_price || 0)) < 0.005);
                       const preferred = matching.find(variation => variation.size === row.size && variation.color === row.color) || matching[0];
-                      if (!preferred) return;
                       setItems(current => current.map(item => item.item_id === row.item_id ? {
                         ...item, product_id: selected.id, product_title: selected.title,
-                        variation_id: preferred.id, size: preferred.size || "", color: preferred.color || "",
+                        variation_id: preferred?.id || "", size: preferred?.size || "", color: preferred?.color || "",
                       } : item));
                     }}>
-                    {!eligibleProducts.some(option => option.id === row.product_id) &&
-                      <option value={row.product_id}>Current product (not in selectable catalogue)</option>}
-                    {eligibleProducts.map(option => <option key={option.id} value={option.id}>{option.title}</option>)}
+                    {!productsToShow.some(option => option.id === row.product_id) &&
+                      <option value={row.product_id}>Original product (search to replace)</option>}
+                    {productsToShow.map(option => <option key={option.id} value={option.id}>
+                      {option.title}
+                    </option>)}
                   </select>
+                  <div className="text-xs ff-ui-muted mt-1">
+                    Choose the replacement product here, then its size/colour below. Only same-price replacements can be saved.
+                  </div>
                 </label>
                 <label className="block text-sm"><span className="ff-ui-label">Product variation</span>
                 <select className="ff-ui-control w-full mt-1"
@@ -214,7 +247,11 @@ export default function SuperAdminOrderEditor({ order, onSaved }) {
                     {variation.effective_selling_price != null ? ` · R ${Number(variation.effective_selling_price).toFixed(2)}` : ""}
                   </option>)}
                 </select>
-                {!product && !catalogLoading && <div className="text-xs ff-ui-muted mt-1">This product is not in the current catalogue.</div>}
+                {product && !variations.some(variation =>
+                  variation.effective_selling_price != null &&
+                  Math.abs(Number(variation.effective_selling_price) - Number(originalLine?.unit_price || 0)) < 0.005) &&
+                  <div className="text-xs text-red-500 mt-1">This product has no R {Number(originalLine?.unit_price || 0).toFixed(2)} variation. Financial review is required.</div>}
+                {!product && !catalogLoading && <div className="text-xs ff-ui-muted mt-1">Search for a replacement product above.</div>}
                 {locked && <div className="text-xs ff-ui-muted mt-1">Already shipped or delivered items cannot be corrected here.</div>}
               </label>
               </div>
