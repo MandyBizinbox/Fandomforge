@@ -141,7 +141,7 @@ function AppRoutes() {
           <Route path="/product/:id" element={<ProductDetail />} />
           <Route path="/cart" element={<Cart />} />
           <Route path="/checkout" element={<Checkout />} />
-          <Route path="/collection" element={<Protected roles={platformRoles}><MobileOrderCollection /></Protected>} />
+          <Route path="/collection" element={<Protected roles={["manager", ...platformRoles]}><MobileOrderCollection /></Protected>} />
           <Route path="/order-confirmation/:id" element={<OrderConfirmation />} />
           <Route path="/order-tracking/:token" element={<OrderTracking />} />
           <Route path="/order-payment/:token" element={<OrderPaymentRecovery />} />
