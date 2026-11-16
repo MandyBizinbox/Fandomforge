@@ -36,8 +36,19 @@ def validate_payment_confirmation(payment: dict, order: dict, provider_payload: 
     if amount is None:
         amount = payload.get('amount_gross')
     expected = _money(payment.get('amount'))
-    if _money(amount) != expected or _money(order.get('total')) != expected:
-        raise HTTPException(status_code=409, detail='PayFast paid amount does not match the order total.')
+    # A settled, amendment-expanded order retains its original checkout
+    # payment and a separate, auditable base total. A retried original ITN
+    # must still match that original receipt, not the new aggregate total.
+    has_applied_additions = bool(order.get('applied_amendment_ids'))
+    is_original_settled_payment = bool(
+        has_applied_additions
+        and order.get('payment_id') == payment.get('id')
+        and order.get('payment_status') == 'paid'
+        and payment.get('status') == 'completed'
+    )
+    order_amount = order.get('amendment_base_total') if is_original_settled_payment else order.get('total')
+    if _money(amount) != expected or _money(order_amount) != expected:
+        raise HTTPException(status_code=409, detail='PayFast paid amount does not match the order payment obligation.')
     # PayFast shop payments are ZAR. Reject inconsistent local financial data.
     for value in (payment.get('currency') or 'ZAR', order.get('currency') or 'ZAR',
                   (order.get('financial_snapshot') or {}).get('currency') or 'ZAR'):
